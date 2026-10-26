@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.lifetrack.app.ui.AnalyticsScreenTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-10-26T16:42:52" hostname="LAPTOP-4R56SV3C" time="5.466">
+  <properties/>
+  <testcase name="futureHabitDoesNotShowAsMissedInTodayRing" classname="com.lifetrack.app.ui.AnalyticsScreenTest" time="4.985"/>
+  <testcase name="emptyNarrowScreenShowsUsefulStatesAndCanReachEverySection" classname="com.lifetrack.app.ui.AnalyticsScreenTest" time="0.481"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

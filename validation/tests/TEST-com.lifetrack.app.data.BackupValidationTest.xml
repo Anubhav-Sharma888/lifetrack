@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.lifetrack.app.data.BackupValidationTest" tests="16" skipped="0" failures="0" errors="0" timestamp="2026-10-26T16:42:33" hostname="LAPTOP-4R56SV3C" time="0.21">
+  <properties/>
+  <testcase name="missing dates are rejected rather than silently replaced by today" classname="com.lifetrack.app.data.BackupValidationTest" time="0.163"/>
+  <testcase name="unknown backup version and invalid colors are rejected" classname="com.lifetrack.app.data.BackupValidationTest" time="0.006"/>
+  <testcase name="freeze without ledger is rejected" classname="com.lifetrack.app.data.BackupValidationTest" time="0.007"/>
+  <testcase name="future log is rejected" classname="com.lifetrack.app.data.BackupValidationTest" time="0.0"/>
+  <testcase name="frozen completions and malformed archive state are rejected" classname="com.lifetrack.app.data.BackupValidationTest" time="0.016"/>
+  <testcase name="future habit is valid without logs" classname="com.lifetrack.app.data.BackupValidationTest" time="0.001"/>
+  <testcase name="oversized notes invalid settings and invalid monthly keys are rejected" classname="com.lifetrack.app.data.BackupValidationTest" time="0.001"/>
+  <testcase name="orphaned logs are rejected" classname="com.lifetrack.app.data.BackupValidationTest" time="0.0"/>
+  <testcase name="cyclic stacks are rejected" classname="com.lifetrack.app.data.BackupValidationTest" time="0.001"/>
+  <testcase name="backfill before habit start is rejected" classname="com.lifetrack.app.data.BackupValidationTest" time="0.0"/>
+  <testcase name="two frozen logs in one month are rejected across habits" classname="com.lifetrack.app.data.BackupValidationTest" time="0.001"/>
+  <testcase name="deleting original freeze log does not invalidate spent ledger" classname="com.lifetrack.app.data.BackupValidationTest" time="0.001"/>
+  <testcase name="backup round trip preserves IDs notes dates settings and stacks" classname="com.lifetrack.app.data.BackupValidationTest" time="0.004"/>
+  <testcase name="duplicate and zero saved IDs are rejected" classname="com.lifetrack.app.data.BackupValidationTest" time="0.001"/>
+  <testcase name="archived habits retain earlier logs and reject later logs" classname="com.lifetrack.app.data.BackupValidationTest" time="0.003"/>
+  <testcase name="duplicate daily entries are rejected before import" classname="com.lifetrack.app.data.BackupValidationTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

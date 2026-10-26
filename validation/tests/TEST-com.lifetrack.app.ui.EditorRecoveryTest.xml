@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.lifetrack.app.ui.EditorRecoveryTest" tests="7" skipped="0" failures="0" errors="0" timestamp="2026-10-26T16:42:57" hostname="LAPTOP-4R56SV3C" time="4.319">
+  <properties/>
+  <testcase name="historicalGoalsAreDisabledAndExplainedInTheEditor" classname="com.lifetrack.app.ui.EditorRecoveryTest" time="1.34"/>
+  <testcase name="reorderHasANonDragMenu" classname="com.lifetrack.app.ui.EditorRecoveryTest" time="1.193"/>
+  <testcase name="aValidRestored120CharacterNameCanBeSavedWithoutRenaming" classname="com.lifetrack.app.ui.EditorRecoveryTest" time="0.29"/>
+  <testcase name="settingsSwitchesHaveMeaningfulAccessibilityNames" classname="com.lifetrack.app.ui.EditorRecoveryTest" time="0.192"/>
+  <testcase name="noteOnlyEditingDefaultsToTheExistingFailedStatus" classname="com.lifetrack.app.ui.EditorRecoveryTest" time="0.258"/>
+  <testcase name="dirtyBackNavigationOffersToKeepTheDraft" classname="com.lifetrack.app.ui.EditorRecoveryTest" time="0.657"/>
+  <testcase name="noteDraftSurvivesRestorationAndAFailedWriteDoesNotDismissIt" classname="com.lifetrack.app.ui.EditorRecoveryTest" time="0.388"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

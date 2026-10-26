@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.lifetrack.app.domain.AnalyticsTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-26T16:42:51" hostname="LAPTOP-4R56SV3C" time="0.013">
+  <properties/>
+  <testcase name="densityUsesAllEligibleHabitsAndIsNotBinary" classname="com.lifetrack.app.domain.AnalyticsTest" time="0.004"/>
+  <testcase name="unfinishedTodayDoesNotBreakButYesterdayDoes" classname="com.lifetrack.app.domain.AnalyticsTest" time="0.002"/>
+  <testcase name="weeksStartMondayAndHandleYearBoundary" classname="com.lifetrack.app.domain.AnalyticsTest" time="0.004"/>
+  <testcase name="futureHabitsAndArchivedDaysDoNotInflateDenominator" classname="com.lifetrack.app.domain.AnalyticsTest" time="0.0"/>
+  <testcase name="archivingFutureHabitHasNoScheduledDays" classname="com.lifetrack.app.domain.AnalyticsTest" time="0.001"/>
+  <testcase name="dayOneIsStartDateAndFutureHasNoDayNumber" classname="com.lifetrack.app.domain.AnalyticsTest" time="0.001"/>
+  <testcase name="skippedDayBridgesStreakWithoutIncrementingIt" classname="com.lifetrack.app.domain.AnalyticsTest" time="0.0"/>
+  <testcase name="bestStreakResetsAtMissingAndFailedDays" classname="com.lifetrack.app.domain.AnalyticsTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

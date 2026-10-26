@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.lifetrack.app.ui.UpgradedComponentsTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-10-26T16:43:02" hostname="LAPTOP-4R56SV3C" time="1.136">
+  <properties/>
+  <testcase name="trend provides keyboard and screen-reader accessible exact date inspection" classname="com.lifetrack.app.ui.UpgradedComponentsTest" time="0.331"/>
+  <testcase name="numeric habit exposes exact partial progress and increment action" classname="com.lifetrack.app.ui.UpgradedComponentsTest" time="0.156"/>
+  <testcase name="analytics excludes archive intervals from todays opportunity count" classname="com.lifetrack.app.ui.UpgradedComponentsTest" time="0.253"/>
+  <testcase name="disabled haptics preserves tap and long press behavior without feedback" classname="com.lifetrack.app.ui.UpgradedComponentsTest" time="0.125"/>
+  <testcase name="large font analytics retains readable rings and category legend" classname="com.lifetrack.app.ui.UpgradedComponentsTest" time="0.27"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

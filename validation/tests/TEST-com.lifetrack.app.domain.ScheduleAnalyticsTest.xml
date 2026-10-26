@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.lifetrack.app.domain.ScheduleAnalyticsTest" tests="6" skipped="0" failures="0" errors="0" timestamp="2026-10-26T16:42:51" hostname="LAPTOP-4R56SV3C" time="0.017">
+  <properties/>
+  <testcase name="partialTodayHasGraceButPartialPastBreaksAChain" classname="com.lifetrack.app.domain.ScheduleAnalyticsTest" time="0.001"/>
+  <testcase name="arithmeticDayCountMatchesCalendarReferenceAcrossLeapYearAndPauses" classname="com.lifetrack.app.domain.ScheduleAnalyticsTest" time="0.0"/>
+  <testcase name="historicWeekdayEditsDoNotRewriteEarlierDenominators" classname="com.lifetrack.app.domain.ScheduleAnalyticsTest" time="0.001"/>
+  <testcase name="weekdayDenominatorsAndStreaksIgnoreOffDays" classname="com.lifetrack.app.domain.ScheduleAnalyticsTest" time="0.0"/>
+  <testcase name="hundredYearHistoryCountsWithoutScanningEveryDay" classname="com.lifetrack.app.domain.ScheduleAnalyticsTest" time="0.014"/>
+  <testcase name="pauseIntervalsExcludeDatesAndBridgeCompletions" classname="com.lifetrack.app.domain.ScheduleAnalyticsTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

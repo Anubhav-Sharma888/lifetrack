@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.lifetrack.app.data.HabitRepositoryTest" tests="14" skipped="0" failures="0" errors="0" timestamp="2026-10-26T16:42:42" hostname="LAPTOP-4R56SV3C" time="2.711">
+  <properties/>
+  <testcase name="databaseItselfEnforcesOneLogForEachHabitAndDate" classname="com.lifetrack.app.data.HabitRepositoryTest" time="0.373"/>
+  <testcase name="editingStartDateCannotMoveItPastAnExistingLogAndStacksCannotCycle" classname="com.lifetrack.app.data.HabitRepositoryTest" time="0.18"/>
+  <testcase name="rejectsFutureBeforeStartAndArchivedCheckInsWithoutChangingHistory" classname="com.lifetrack.app.data.HabitRepositoryTest" time="0.23"/>
+  <testcase name="immediateDeletionLeavesNoOrphanRows" classname="com.lifetrack.app.data.HabitRepositoryTest" time="0.12"/>
+  <testcase name="malformedOrStructurallyInvalidImportNeverErasesCurrentData" classname="com.lifetrack.app.data.HabitRepositoryTest" time="0.319"/>
+  <testcase name="failedExportDoesNotMarkAnUnwrittenBackupAsSuccessful" classname="com.lifetrack.app.data.HabitRepositoryTest" time="0.108"/>
+  <testcase name="staleWidgetCannotCompleteADifferentHabitThatReusesAnImportedId" classname="com.lifetrack.app.data.HabitRepositoryTest" time="0.168"/>
+  <testcase name="widgetCompletionPreservesNotesAndRepeatedActionsAreIdempotent" classname="com.lifetrack.app.data.HabitRepositoryTest" time="0.131"/>
+  <testcase name="aMonthlyFreezeCannotBeSpentAcrossHabitsOrRefundedByDeletingItsLogOrHabit" classname="com.lifetrack.app.data.HabitRepositoryTest" time="0.232"/>
+  <testcase name="freezeOnlyProtectsAnUnloggedOrFailedPastDay" classname="com.lifetrack.app.data.HabitRepositoryTest" time="0.157"/>
+  <testcase name="checkingInTwiceUpdatesOneDailyRecordAndPreservesItsIdentity" classname="com.lifetrack.app.data.HabitRepositoryTest" time="0.119"/>
+  <testcase name="jsonRoundTripRestoresIdsStackingNotesSettingsTimestampsAndFreezeLedger" classname="com.lifetrack.app.data.HabitRepositoryTest" time="0.284"/>
+  <testcase name="childRemainsEditableAfterItsStackedParentIsArchivedWithoutAllowingNewArchivedLinks" classname="com.lifetrack.app.data.HabitRepositoryTest" time="0.156"/>
+  <testcase name="deletingHabitCascadesLogsAndUnlinksItsStackedChildren" classname="com.lifetrack.app.data.HabitRepositoryTest" time="0.133"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[System.logW: A resource was acquired at attached stack trace but never released. See java.io.Closeable for information on avoiding resource leaks.
+java.lang.Throwable: Explicit termination method 'close' not called
+	at dalvik.system.CloseGuard.$$robo$$dalvik_system_CloseGuard$open(CloseGuard.java:221)
+	at jdk.internal.reflect.GeneratedMethodAccessor5.invoke(Unknown Source)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.robolectric.shadows.ShadowCloseGuard$CloseGuardReflector$$Reflector14.open(Unknown Source)
+	at org.robolectric.shadows.ShadowCloseGuard.open(ShadowCloseGuard.java:38)
+	at dalvik.system.CloseGuard.open(CloseGuard.java)
+	at android.os.ParcelFileDescriptor.$$robo$$android_os_ParcelFileDescriptor$__constructor__(ParcelFileDescriptor.java:192)
+	at android.os.ParcelFileDescriptor.<init>(ParcelFileDescriptor.java:185)
+	at android.os.ParcelFileDescriptor.<init>(ParcelFileDescriptor.java:181)
+	at org.robolectric.shadows.ShadowParcelFileDescriptor.newParcelFileDescriptor(ShadowParcelFileDescriptor.java:116)
+	at org.robolectric.shadows.ShadowParcelFileDescriptor.open(ShadowParcelFileDescriptor.java:121)
+	at android.os.ParcelFileDescriptor.open(ParcelFileDescriptor.java)
+	at android.content.ContentResolver.$$robo$$android_content_ContentResolver$openAssetFileDescriptor(ContentResolver.java:1290)
+	at android.content.ContentResolver.openAssetFileDescriptor(ContentResolver.java)
+	at android.content.ContentResolver.$$robo$$android_content_ContentResolver$openOutputStream(ContentResolver.java:1055)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:569)
+	at org.robolectric.shadows.ShadowContentResolver$ContentResolverReflector$$Reflector43.openOutputStream(Unknown Source)
+	at org.robolectric.shadows.ShadowContentResolver.openOutputStream(ShadowContentResolver.java:230)
+	at android.content.ContentResolver.openOutputStream(ContentResolver.java)
+	at com.lifetrack.app.data.HabitRepository$exportTo$2$1.invokeSuspend(HabitRepository.kt:284)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:100)
+	at kotlinx.coroutines.internal.LimitedDispatcher$Worker.run(LimitedDispatcher.kt:124)
+	at kotlinx.coroutines.scheduling.TaskImpl.run(Tasks.kt:89)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler.runSafely(CoroutineScheduler.kt:586)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.executeTask(CoroutineScheduler.kt:820)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.runWorker(CoroutineScheduler.kt:717)
+	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.run(CoroutineScheduler.kt:704)
+
+]]></system-err>
+</testsuite>

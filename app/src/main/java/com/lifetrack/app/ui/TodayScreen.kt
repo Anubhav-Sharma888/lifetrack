@@ -1,0 +1,155 @@
+package com.lifetrack.app.ui
+
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
+import com.lifetrack.app.data.*
+import com.lifetrack.app.domain.Analytics
+import com.lifetrack.app.ui.components.HabitCard
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
+
+@Composable
+fun TodayScreen(state: LifeTrackState, vm: HabitViewModel, onAdd: () -> Unit, onOpen: (Long) -> Unit) {
+    val busy by vm.busy.collectAsState()
+    var selected by rememberSaveable { mutableStateOf<String?>(null) }
+    val minimum = LocalDate.of(1900, 1, 1)
+    val date = selected?.let(LocalDate::parse)?.coerceIn(minimum, state.today) ?: state.today
+    var showDate by rememberSaveable { mutableStateOf(false) }
+    var editingLogId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var showFilters by rememberSaveable { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var category by rememberSaveable { mutableStateOf<String?>(null) }
+    var filter by rememberSaveable { mutableStateOf("All") }
+    var orderMenuId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var order by remember { mutableStateOf(emptyList<Long>()) }
+    val active = state.habits.filterNot { it.isArchived }
+    val byId = active.associateBy { it.id }
+    val dayLogs = remember(state.logs, date) { state.logs.filter { it.date == date }.associateBy { it.habitId } }
+    LaunchedEffect(active.map { it.id to it.sortOrder }) { order = active.sortedBy { it.sortOrder }.map { it.id } }
+    val habits = order.mapNotNull(byId::get).filter { habit ->
+        val due = Analytics.eligible(habit, date, state.pauses)
+        val completed = dayLogs[habit.id]?.status == LogStatus.COMPLETED
+        (query.isBlank() || listOf(habit.name, habit.description.orEmpty(), habit.category).any { it.contains(query.trim(), true) }) &&
+            (category == null || habit.category == category) && when (filter) { "Due" -> due && !completed; "Completed" -> due && completed; "Rest / planned" -> !due; else -> true }
+    }
+    val due = active.filter { Analytics.eligible(it, date, state.pauses) }
+    val completed = due.count { dayLogs[it.id]?.status == LogStatus.COMPLETED }
+    val listState = rememberLazyListState()
+    val reorder = rememberReorderableLazyListState(listState) { from, to ->
+        val fromIndex = order.indexOf(from.key as Long)
+        val toIndex = order.indexOf(to.key as Long)
+        if (fromIndex >= 0 && toIndex >= 0) order = order.toMutableList().apply { add(toIndex, removeAt(fromIndex)) }
+    }
+    Column(Modifier.fillMaxSize()) {
+        Column(Modifier.padding(horizontal = 24.dp, vertical = 14.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) { Text("LifeTrack", style = MaterialTheme.typography.headlineLarge); Text("Small steps. Your own pace.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                IconButton(onClick = { showFilters = !showFilters }) { Icon(Icons.Outlined.FilterList, "Search and filter habits") }
+                FilledTonalIconButton(onClick = onAdd) { Icon(Icons.Outlined.Add, "Add habit") }
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(enabled = date > minimum, onClick = { selected = date.minusDays(1).toString() }) { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, "Previous day") }
+                TextButton(onClick = { showDate = true }, modifier = Modifier.weight(1f)) {
+                    Text(if (date == state.today) "Today · ${date.format(DateTimeFormatter.ofPattern("EEE, d MMM"))}" else date.format(DateTimeFormatter.ofPattern("EEE, d MMM yyyy")))
+                }
+                IconButton(enabled = date < state.today, onClick = { selected = date.plusDays(1).toString() }) { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, "Next day") }
+            }
+            if (date != state.today) TextButton(onClick = { selected = null }) { Text("Back to today") }
+            Text("$completed of ${due.size} scheduled habits completed", style = MaterialTheme.typography.labelLarge)
+            Spacer(Modifier.height(8.dp))
+            LinearProgressIndicator(progress = { if (due.isEmpty()) 0f else completed.toFloat() / due.size }, modifier = Modifier.fillMaxWidth())
+            if (showFilters) {
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(query, { query = it }, label = { Text("Search habits") }, singleLine = true,
+                    leadingIcon = { Icon(Icons.Outlined.Search, null) },
+                    trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Outlined.Close, "Clear search") } }, modifier = Modifier.fillMaxWidth())
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(category == null, { category = null }, label = { Text("All categories") })
+                    active.map { it.category }.distinct().sorted().forEach { name -> FilterChip(category == name, { category = name }, label = { Text(name) }) }
+                }
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("All", "Due", "Completed", "Rest / planned").forEach { choice -> FilterChip(filter == choice, { filter = choice }, label = { Text(choice) }) }
+                }
+            }
+        }
+        if (active.isEmpty()) {
+            Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("🌱", style = MaterialTheme.typography.displayLarge)
+                Spacer(Modifier.height(16.dp)); Text("Start with something small", style = MaterialTheme.typography.headlineSmall)
+                Text("A page. A walk. A quiet minute. Pick a suggestion or create your own habit. Choose the days and pace that work for you.", Modifier.padding(vertical = 16.dp))
+                Button(onClick = onAdd) { Text("Create your first habit") }
+            }
+        } else if (habits.isEmpty()) {
+            Column(Modifier.padding(32.dp)) { Text("No matching habits", style = MaterialTheme.typography.titleLarge); Text("Try another search or filter."); TextButton(onClick = { query = ""; category = null; filter = "All" }) { Text("Clear filters") } }
+        } else LazyColumn(state = listState, contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            items(habits, key = { it.id }) { habit ->
+                val log = dayLogs[habit.id]
+                val eligible = Analytics.eligible(habit, date, state.pauses)
+                ReorderableItem(reorder, key = habit.id) { _ ->
+                    HabitCard(habit = habit,
+                        dayLabel = Analytics.dayNumber(habit, date)?.let { "Day $it${if (!eligible) " · Rest day" else ""}" } ?: "Starts ${habit.startDate}",
+                        status = log?.status,
+                        stackLabel = habit.afterHabitId?.let { id -> state.habits.firstOrNull { it.id == id }?.name },
+                        onOpen = { onOpen(habit.id) },
+                        onCheckIn = {
+                            if (habit.targetCount > 1 && log?.status != LogStatus.COMPLETED) vm.incrementProgress(habit.id, date)
+                            else vm.quickCheckIn(habit.id, date)
+                        },
+                        onLongCheckIn = { editingLogId = habit.id },
+                        checkInEnabled = eligible && !busy,
+                        progress = log?.progress ?: 0,
+                        dragHandle = {
+                            Box {
+                            IconButton(onClick = { orderMenuId = habit.id }, modifier = Modifier.draggableHandle(onDragStopped = { vm.reorderHabits(order) }).semantics {
+                                customActions = listOf(
+                                    CustomAccessibilityAction("Move habit up") {
+                                        val index = order.indexOf(habit.id)
+                                        if (index > 0) { order = order.toMutableList().apply { add(index - 1, removeAt(index)) }; vm.reorderHabits(order); true } else false
+                                    },
+                                    CustomAccessibilityAction("Move habit down") {
+                                        val index = order.indexOf(habit.id)
+                                        if (index in 0 until order.lastIndex) { order = order.toMutableList().apply { add(index + 1, removeAt(index)) }; vm.reorderHabits(order); true } else false
+                                    }
+                                )
+                            }) { Icon(Icons.Outlined.DragHandle, "Reorder ${habit.name}", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            DropdownMenu(orderMenuId == habit.id, onDismissRequest = { orderMenuId = null }) {
+                                val index = order.indexOf(habit.id)
+                                DropdownMenuItem(text = { Text("Move habit up") }, enabled = index > 0, onClick = {
+                                    order = order.toMutableList().apply { add(index - 1, removeAt(index)) }; vm.reorderHabits(order); orderMenuId = null
+                                })
+                                DropdownMenuItem(text = { Text("Move habit down") }, enabled = index in 0 until order.lastIndex, onClick = {
+                                    order = order.toMutableList().apply { add(index + 1, removeAt(index)) }; vm.reorderHabits(order); orderMenuId = null
+                                })
+                            }
+                            }
+                        })
+                }
+            }
+            item { Text("Tap to check in, or add one unit toward a numeric goal. Hold to skip, set a count or add a note. Rest days protect your chain.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(4.dp)) }
+        }
+    }
+    if (showDate) DateSelectionDialog(date, latest = state.today, onDismiss = { showDate = false }, onSelect = { selected = it.toString(); showDate = false })
+    editingLogId?.let { id -> state.habits.firstOrNull { it.id == id }?.let { habit ->
+        LogEditorDialog(habit, date, dayLogs[id], vm, onDismiss = { editingLogId = null })
+    } }
+}

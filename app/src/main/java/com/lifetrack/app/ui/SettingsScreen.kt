@@ -1,0 +1,196 @@
+package com.lifetrack.app.ui
+
+import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.provider.DocumentsContract
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+
+/** SAF owns the save destination. Downloads is offered as the initial location. */
+private class CreateBackupDocument : ActivityResultContracts.CreateDocument("application/json") {
+    override fun createIntent(context: Context, input: String): Intent = super.createIntent(context, input).apply {
+        putExtra(DocumentsContract.EXTRA_INITIAL_URI,
+            DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", "primary:Download"))
+    }
+}
+
+@Composable
+fun SettingsScreen(state: LifeTrackState, vm: HabitViewModel, onOpen: (Long) -> Unit) {
+    val context = LocalContext.current
+    val settings = state.settings
+    val latestSettings by rememberUpdatedState(settings)
+    val busy by vm.busy.collectAsState()
+    val operationError by vm.operationError.collectAsState()
+    var themeDialog by remember { mutableStateOf(false) }
+    var aboutDialog by remember { mutableStateOf(false) }
+    var licensesDialog by remember { mutableStateOf(false) }
+    var pendingImport by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingEncryptedExport by rememberSaveable { mutableStateOf<String?>(null) }
+    var encryptedExport by rememberSaveable { mutableStateOf(false) }
+    // A password is deliberately never put into saved instance state or preferences.
+    var backupPassword by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
+    var permissionMessage by remember { mutableStateOf<String?>(null) }
+    val export = rememberLauncherForActivityResult(CreateBackupDocument()) { uri ->
+        if (uri != null) {
+            if (encryptedExport) { vm.clearOperationError(); pendingEncryptedExport = uri.toString(); backupPassword = ""; confirmPassword = "" }
+            else vm.export(uri)
+        }
+    }
+    val import = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> vm.clearOperationError(); backupPassword = ""; pendingImport = uri?.toString() }
+    val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) vm.updateSettings(latestSettings.copy(backupReminder = true))
+        else permissionMessage = "Notifications are off. You can enable them in Android settings and turn reminders on here."
+    }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text("Settings", style = MaterialTheme.typography.headlineLarge)
+        Text("Your data. Your device.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(4.dp))
+        OutlinedCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Icon(Icons.Outlined.Shield, null, tint = MaterialTheme.colorScheme.primary)
+                Text("Private by design", style = MaterialTheme.typography.titleLarge)
+                Text("No accounts, cloud sync, ads or tracking. Habits, notes and settings stay on this device.")
+                Text("Uninstalling LifeTrack or clearing app storage deletes all local data. Export a backup regularly.", color = MaterialTheme.colorScheme.error)
+            }
+        }
+        Text("Data & backups", style = MaterialTheme.typography.titleMedium)
+        SettingsAction("Export data", "Save a complete JSON backup", Icons.Outlined.FileUpload, enabled = !busy) {
+            encryptedExport = false
+            export.launch("lifetrack-${state.today}-${System.currentTimeMillis()}.json")
+        }
+        SettingsAction("Export encrypted backup", "Protect the file with a password · AES-256-GCM", Icons.Outlined.Lock, enabled = !busy) {
+            encryptedExport = true
+            export.launch("lifetrack-encrypted-${state.today}-${System.currentTimeMillis()}.json")
+        }
+        SettingsAction("Import data", "Restore a backup · replaces current data", Icons.Outlined.FileDownload, enabled = !busy) {
+            import.launch(arrayOf("application/json", "text/json", "text/plain", "application/octet-stream"))
+        }
+        Text(settings.lastExportAt?.let { "Last export: ${Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm"))}" } ?: "No backup exported yet", style = MaterialTheme.typography.bodySmall)
+        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Monthly backup reminder", style = MaterialTheme.typography.titleSmall)
+                Text("A gentle reminder after 30 days. Export to your computer or a provider you choose.", style = MaterialTheme.typography.bodySmall)
+            }
+            Switch(checked = settings.backupReminder, enabled = !busy, modifier = Modifier.semantics { contentDescription = "Monthly backup reminder" }, onCheckedChange = { enabled ->
+                if (enabled && Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+                else vm.updateSettings(settings.copy(backupReminder = enabled))
+            })
+        }
+        permissionMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+        HorizontalDivider()
+        Text("Appearance", style = MaterialTheme.typography.titleMedium)
+        SettingsAction("Theme", settings.theme.lowercase().replaceFirstChar(Char::titlecase), Icons.Outlined.DarkMode, !busy) { themeDialog = true }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Wallpaper colors", style = MaterialTheme.typography.titleSmall)
+                Text("Material You · Android 12 and later", style = MaterialTheme.typography.bodySmall)
+            }
+            Switch(checked = settings.dynamicColor, enabled = Build.VERSION.SDK_INT >= 31 && !busy,
+                modifier = Modifier.semantics { contentDescription = "Wallpaper colors" }, onCheckedChange = { vm.updateSettings(settings.copy(dynamicColor = it)) })
+        }
+        PreferenceSwitch("Haptic feedback", "A gentle tick when you check in", settings.hapticsEnabled, !busy) { vm.updateSettings(settings.copy(hapticsEnabled = it)) }
+        PreferenceSwitch("Animations and celebrations", "Turn off motion and milestone confetti", settings.animationsEnabled, !busy) { vm.updateSettings(settings.copy(animationsEnabled = it)) }
+        val archived = state.habits.filter { it.isArchived }
+        if (archived.isNotEmpty()) {
+            HorizontalDivider()
+            Text("Archived habits (${archived.size})", style = MaterialTheme.typography.titleMedium)
+            archived.forEach { habit -> SettingsAction("${habit.icon} ${habit.name}", "View history or restore", Icons.Outlined.Archive) { onOpen(habit.id) } }
+        }
+        HorizontalDivider()
+        SettingsAction("About LifeTrack", "Version 1.1.0 · Made for your own pace", Icons.Outlined.Info) { aboutDialog = true }
+        SettingsAction("Open-source licenses", "Runtime library license and notices", Icons.Outlined.Description) { licensesDialog = true }
+        Spacer(Modifier.height(16.dp))
+    }
+    if (themeDialog) AlertDialog(onDismissRequest = { themeDialog = false }, title = { Text("Choose theme") }, text = {
+        Column { listOf("SYSTEM", "LIGHT", "DARK").forEach { theme ->
+            Row(Modifier.fillMaxWidth().clickable { vm.updateSettings(settings.copy(theme = theme)); themeDialog = false }, verticalAlignment = Alignment.CenterVertically) {
+                RadioButton(selected = settings.theme == theme, onClick = { vm.updateSettings(settings.copy(theme = theme)); themeDialog = false })
+                Text(theme.lowercase().replaceFirstChar(Char::titlecase))
+            }
+        } }
+    }, confirmButton = { TextButton(onClick = { themeDialog = false }) { Text("Done") } })
+    pendingImport?.let { path -> AlertDialog(onDismissRequest = { if (!busy) { pendingImport = null; backupPassword = "" } }, title = { Text("Replace all LifeTrack data?") }, text = {
+        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Restoring replaces current habits, history, pauses, freezes and settings. Export your current data first if you want to keep it. Invalid files or a wrong password leave existing data intact.")
+            OutlinedTextField(backupPassword, { if (it.length <= 1024) backupPassword = it }, label = { Text("Password · encrypted backups only") },
+                visualTransformation = PasswordVisualTransformation(), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Password), singleLine = true)
+            Text("Leave the password empty for a plain JSON backup. A failed restore stays open so you can retry.", style = MaterialTheme.typography.bodySmall)
+            operationError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
+        }
+    }, confirmButton = { TextButton(enabled = !busy, onClick = {
+        vm.import(Uri.parse(path), backupPassword.takeIf { it.isNotEmpty() }?.toCharArray()) { pendingImport = null; backupPassword = "" }
+    }) { Text(if (busy) "Restoring…" else "Replace and restore") } }, dismissButton = { TextButton(enabled = !busy, onClick = { pendingImport = null; backupPassword = "" }) { Text("Cancel") } }) }
+    pendingEncryptedExport?.let { path -> AlertDialog(onDismissRequest = { if (!busy) { pendingEncryptedExport = null; backupPassword = ""; confirmPassword = "" } }, title = { Text("Protect this backup") }, text = {
+        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Choose a strong password of at least 10 characters. It is not saved anywhere in LifeTrack. A forgotten password cannot be recovered.")
+            OutlinedTextField(backupPassword, { if (it.length <= 1024) backupPassword = it }, label = { Text("Backup password") }, visualTransformation = PasswordVisualTransformation(), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Password), singleLine = true)
+            OutlinedTextField(confirmPassword, { if (it.length <= 1024) confirmPassword = it }, label = { Text("Repeat password") }, visualTransformation = PasswordVisualTransformation(), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Password), singleLine = true)
+            Text("The selected file is written only after encryption succeeds. Keep a private copy of your password.", style = MaterialTheme.typography.bodySmall)
+            operationError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
+        }
+    }, confirmButton = { TextButton(enabled = !busy && backupPassword.length >= 10 && backupPassword == confirmPassword, onClick = {
+        vm.export(Uri.parse(path), backupPassword.toCharArray()) { pendingEncryptedExport = null; backupPassword = ""; confirmPassword = "" }
+    }) { Text(if (busy) "Encrypting…" else "Encrypt and export") } }, dismissButton = { TextButton(enabled = !busy, onClick = { pendingEncryptedExport = null; backupPassword = ""; confirmPassword = "" }) { Text("Cancel") } }) }
+    if (aboutDialog) AlertDialog(onDismissRequest = { aboutDialog = false }, title = { Text("LifeTrack 1.1.0") }, text = {
+        Text("An offline habit companion. Every habit has its own Day 1.\n\nAll user records live in a local Room database. There is no Internet permission or automatic cloud backup. Choose plain JSON for readability or optional password encryption for a private portable copy.\n\nLocal habit reminders are inexact and may be deferred by Android.\n\nCharts: Vico. Reordering: Calvin Reorderable. AndroidX, Kotlin and Hilt. Runtime libraries use Apache 2.0.", Modifier.verticalScroll(rememberScrollState()))
+    }, confirmButton = { TextButton(onClick = { aboutDialog = false }) { Text("Close") } })
+    if (licensesDialog) {
+        val license by produceState<String?>(null) {
+            value = withContext(Dispatchers.IO) { context.assets.open("LICENSE-APACHE-2.0.txt").bufferedReader().use { it.readText() } }
+        }
+        AlertDialog(onDismissRequest = { licensesDialog = false }, title = { Text("Open-source licenses") }, text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text("AndroidX, Kotlin, kotlinx.coroutines, kotlinx.serialization, Dagger/Hilt, Vico by Patryk & Patrick, and Reorderable by Calvin Liang are distributed under Apache License 2.0.\n\n")
+                Text(license ?: "Loading license…", style = MaterialTheme.typography.bodySmall)
+            }
+        }, confirmButton = { TextButton(onClick = { licensesDialog = false }) { Text("Close") } })
+    }
+}
+
+@Composable
+private fun PreferenceSwitch(title: String, detail: String, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) { Text(title, style = MaterialTheme.typography.titleSmall); Text(detail, style = MaterialTheme.typography.bodySmall) }
+        Switch(checked, onCheckedChange = onChange, enabled = enabled, modifier = Modifier.semantics { contentDescription = title })
+    }
+}
+
+@Composable
+private fun SettingsAction(title: String, subtitle: String, icon: androidx.compose.ui.graphics.vector.ImageVector, enabled: Boolean = true, onClick: () -> Unit) {
+    ListItem(
+        headlineContent = { Text(title) }, supportingContent = { Text(subtitle) },
+        leadingContent = { Icon(icon, null) }, trailingContent = { Icon(Icons.Outlined.ChevronRight, null) },
+        modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick),
+        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background)
+    )
+}

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.lifetrack.app.data.VersionTwoBackupValidationTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-10-26T16:42:51" hostname="LAPTOP-4R56SV3C" time="0.009">
+  <properties/>
+  <testcase name="schedulesAndGoalBoundsAreValidated" classname="com.lifetrack.app.data.VersionTwoBackupValidationTest" time="0.004"/>
+  <testcase name="missingV2ProgressOrScheduleFieldsCannotSilentlyDefaultDuringRestore" classname="com.lifetrack.app.data.VersionTwoBackupValidationTest" time="0.002"/>
+  <testcase name="partialAndCompletedProgressMustMatchTargetSemantics" classname="com.lifetrack.app.data.VersionTwoBackupValidationTest" time="0.001"/>
+  <testcase name="validClosedPauseCannotContainCheckIns" classname="com.lifetrack.app.data.VersionTwoBackupValidationTest" time="0.0"/>
+  <testcase name="overlappingOrOrphanedPausesAreRejectedBeforeRestore" classname="com.lifetrack.app.data.VersionTwoBackupValidationTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

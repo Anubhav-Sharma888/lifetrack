@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.lifetrack.app.data.BackupCryptoTest" tests="13" skipped="0" failures="0" errors="0" timestamp="2026-10-26T16:42:28" hostname="LAPTOP-4R56SV3C" time="5.361">
+  <properties/>
+  <testcase name="plain and encrypted size bounds apply before expensive processing" classname="com.lifetrack.app.data.BackupCryptoTest" time="0.662"/>
+  <testcase name="interpretation metadata is authenticated even for allowed iteration values" classname="com.lifetrack.app.data.BackupCryptoTest" time="0.328"/>
+  <testcase name="wrong password cannot reveal plaintext" classname="com.lifetrack.app.data.BackupCryptoTest" time="0.308"/>
+  <testcase name="browser WebCrypto fixture decrypts identically in native backup utility" classname="com.lifetrack.app.data.BackupCryptoTest" time="0.152"/>
+  <testcase name="unknown format version or algorithm is rejected" classname="com.lifetrack.app.data.BackupCryptoTest" time="0.142"/>
+  <testcase name="envelope recognition is explicit and accepts a utf8 bom" classname="com.lifetrack.app.data.BackupCryptoTest" time="0.527"/>
+  <testcase name="each export uses an independent salt iv and ciphertext" classname="com.lifetrack.app.data.BackupCryptoTest" time="1.005"/>
+  <testcase name="salt and iv manipulation cannot bypass authentication" classname="com.lifetrack.app.data.BackupCryptoTest" time="0.743"/>
+  <testcase name="unicode backup round trips without changing caller password" classname="com.lifetrack.app.data.BackupCryptoTest" time="0.502"/>
+  <testcase name="weak or excessive kdf parameters are rejected before derivation" classname="com.lifetrack.app.data.BackupCryptoTest" time="0.247"/>
+  <testcase name="short export passwords are rejected" classname="com.lifetrack.app.data.BackupCryptoTest" time="0.001"/>
+  <testcase name="ciphertext tampering is rejected by authenticated encryption" classname="com.lifetrack.app.data.BackupCryptoTest" time="0.492"/>
+  <testcase name="malformed encoding missing fields and json fail safely" classname="com.lifetrack.app.data.BackupCryptoTest" time="0.249"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

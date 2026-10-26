@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.lifetrack.app.ui.HabitComponentsTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-10-26T16:43:01" hostname="LAPTOP-4R56SV3C" time="0.623">
+  <properties/>
+  <testcase name="nestedCheckInDoesNotOpenHabitAndCardStillOpensDetail" classname="com.lifetrack.app.ui.HabitComponentsTest" time="0.17"/>
+  <testcase name="holdingCheckInOpensSkipInsteadOfCompleting" classname="com.lifetrack.app.ui.HabitComponentsTest" time="0.13"/>
+  <testcase name="completedCheckInExposesUndoActionAndNamedState" classname="com.lifetrack.app.ui.HabitComponentsTest" time="0.117"/>
+  <testcase name="checkInTapInvokesCompletionExactlyOnce" classname="com.lifetrack.app.ui.HabitComponentsTest" time="0.113"/>
+  <testcase name="disabledFutureCheckInIgnoresTouch" classname="com.lifetrack.app.ui.HabitComponentsTest" time="0.092"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

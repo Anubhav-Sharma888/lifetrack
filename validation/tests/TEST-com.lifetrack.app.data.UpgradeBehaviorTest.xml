@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.lifetrack.app.data.UpgradeBehaviorTest" tests="16" skipped="0" failures="0" errors="0" timestamp="2026-10-26T16:42:44" hostname="LAPTOP-4R56SV3C" time="6.953">
+  <properties/>
+  <testcase name="undoRejectsANewerWidgetOrEditorWriteWithoutOverwritingIt" classname="com.lifetrack.app.data.UpgradeBehaviorTest" time="0.281"/>
+  <testcase name="failedNotificationClaimCanRetryAndStaleWorkerCannotReleaseReplacementClaim" classname="com.lifetrack.app.data.UpgradeBehaviorTest" time="0.139"/>
+  <testcase name="realVersionOneJsonNormalizesProgressAndArchivePause" classname="com.lifetrack.app.data.UpgradeBehaviorTest" time="0.091"/>
+  <testcase name="clockRollbackCannotMakeEditsOrReorderUnexportable" classname="com.lifetrack.app.data.UpgradeBehaviorTest" time="0.097"/>
+  <testcase name="targetAndUnitEditsCannotRewriteRecordedQuantitiesOrCompletionStatus" classname="com.lifetrack.app.data.UpgradeBehaviorTest" time="0.175"/>
+  <testcase name="encryptedRoundTripAndWrongPasswordLeaveCurrentDatabaseIntact" classname="com.lifetrack.app.data.UpgradeBehaviorTest" time="4.187"/>
+  <testcase name="numericProgressCompletesAtTargetAndWidgetFillsWholeGoal" classname="com.lifetrack.app.data.UpgradeBehaviorTest" time="0.159"/>
+  <testcase name="scheduleChangesKeepEarlierWeekdayHistoryAndRejectNewOffDayLogs" classname="com.lifetrack.app.data.UpgradeBehaviorTest" time="0.143"/>
+  <testcase name="archiveRestoreRetainsGapAndSkipsItInStreaksAndRates" classname="com.lifetrack.app.data.UpgradeBehaviorTest" time="0.148"/>
+  <testcase name="concurrentNumericIncrementsUseLatestAmountAndPreserveLatestNote" classname="com.lifetrack.app.data.UpgradeBehaviorTest" time="0.211"/>
+  <testcase name="quickUndoKeepsExistingNoteInsteadOfDeletingIt" classname="com.lifetrack.app.data.UpgradeBehaviorTest" time="0.079"/>
+  <testcase name="dailySnapshotReadsOnlyRequestedDateAndRetainsConsistentHabitsAndPauses" classname="com.lifetrack.app.data.UpgradeBehaviorTest" time="0.745"/>
+  <testcase name="exactUndoRestoresFrozenEntryAndDoesNotRefundSpentFreeze" classname="com.lifetrack.app.data.UpgradeBehaviorTest" time="0.135"/>
+  <testcase name="missedPartialGoalCanUseFreezeWithoutLosingItsNote" classname="com.lifetrack.app.data.UpgradeBehaviorTest" time="0.1"/>
+  <testcase name="immediateArchiveRestoreRemovesEmptyPauseAndRepeatedArchiveIsIdempotent" classname="com.lifetrack.app.data.UpgradeBehaviorTest" time="0.11"/>
+  <testcase name="remindersAreClaimedOnceAndNeverForCompleteSkippedArchivedOrOffDays" classname="com.lifetrack.app.data.UpgradeBehaviorTest" time="0.152"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
