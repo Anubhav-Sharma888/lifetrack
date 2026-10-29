@@ -1,0 +1,132 @@
+{
+  "colors": {
+    "Light": {
+      "paper": "#f4f6f3",
+      "surface": "#ffffff",
+      "ink": "#172c25",
+      "muted": "#56675d",
+      "line": "#dde5de",
+      "green": "#245f49",
+      "onGreen": "#ffffff",
+      "soft": "#e6f0e8",
+      "amber": "#825714",
+      "amberSoft": "#fff1d7",
+      "red": "#ab3b32",
+      "redSoft": "#fcece8"
+    },
+    "Dark": {
+      "paper": "#101b18",
+      "surface": "#192924",
+      "ink": "#edf4ef",
+      "muted": "#acbcb1",
+      "line": "#3b5047",
+      "green": "#a4d7b5",
+      "onGreen": "#102c1f",
+      "soft": "#243b2f",
+      "amber": "#e9c280",
+      "amberSoft": "#40331f",
+      "red": "#ffb3aa",
+      "redSoft": "#462b28"
+    }
+  },
+  "spacing": {
+    "0": 0,
+    "4": 4,
+    "8": 8,
+    "12": 12,
+    "16": 16,
+    "20": 20,
+    "24": 24,
+    "32": 32,
+    "48": 48
+  },
+  "radii": {
+    "8": 8,
+    "12": 12,
+    "16": 16,
+    "24": 24
+  },
+  "typography": {
+    "Display": {
+      "fontFamily": "Inter",
+      "fontStyle": "Semi Bold",
+      "fontSize": 40,
+      "lineHeight": {
+        "unit": "PIXELS",
+        "value": 48
+      }
+    },
+    "Heading": {
+      "fontFamily": "Inter",
+      "fontStyle": "Semi Bold",
+      "fontSize": 28,
+      "lineHeight": {
+        "unit": "PIXELS",
+        "value": 34
+      }
+    },
+    "Title": {
+      "fontFamily": "Inter",
+      "fontStyle": "Semi Bold",
+      "fontSize": 20,
+      "lineHeight": {
+        "unit": "PIXELS",
+        "value": 26
+      }
+    },
+    "Subtitle": {
+      "fontFamily": "Inter",
+      "fontStyle": "Semi Bold",
+      "fontSize": 16,
+      "lineHeight": {
+        "unit": "PIXELS",
+        "value": 24
+      }
+    },
+    "Body": {
+      "fontFamily": "Inter",
+      "fontStyle": "Regular",
+      "fontSize": 16,
+      "lineHeight": {
+        "unit": "PERCENT",
+        "value": 139.9999976158142
+      }
+    },
+    "Body compact": {
+      "fontFamily": "Inter",
+      "fontStyle": "Regular",
+      "fontSize": 14,
+      "lineHeight": {
+        "unit": "PIXELS",
+        "value": 20
+      }
+    },
+    "Label": {
+      "fontFamily": "Inter",
+      "fontStyle": "Medium",
+      "fontSize": 14,
+      "lineHeight": {
+        "unit": "PIXELS",
+        "value": 20
+      }
+    },
+    "Caption": {
+      "fontFamily": "Inter",
+      "fontStyle": "Medium",
+      "fontSize": 12,
+      "lineHeight": {
+        "unit": "PIXELS",
+        "value": 16
+      }
+    },
+    "Metric": {
+      "fontFamily": "Inter",
+      "fontStyle": "Semi Bold",
+      "fontSize": 32,
+      "lineHeight": {
+        "unit": "PIXELS",
+        "value": 38
+      }
+    }
+  }
+}
