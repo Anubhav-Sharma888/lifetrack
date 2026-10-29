@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#245f49">
+  <meta name="description" content="Interactive local browser preview of the LifeTrack Android app.">
+  <title>LifeTrack · App preview</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='13' fill='%23245f49'/%3E%3Cpath d='M14 13v23h22v-6H20V13z' fill='white'/%3E%3Cpath d='m24 19 4 4 9-11' fill='none' stroke='%23c3e8d1' stroke-width='4'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/analytics.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#app-view">Skip to content</a>
+  <div class="app-shell">
+    <aside class="side-col">
+      <header class="side-head">
+        <a class="brand" href="/" aria-label="LifeTrack preview home"><span class="brand-mark">L<span>✓</span></span><strong>LifeTrack.</strong></a>
+        <p class="side-tag">Small steps. Your own pace.</p>
+        <div class="head-tools">
+          <span class="local-badge"><i></i> Running locally</span>
+          <button data-action="reset-demo" class="text-button" title="Restore the sample habits">Reset demo ↻</button>
+        </div>
+      </header>
+      <nav id="bottom-nav" class="app-nav" aria-label="Main navigation"></nav>
+      <div class="side-foot">
+        <span class="side-shield" aria-hidden="true">⌑</span>
+        <strong>Private by design</strong>
+        <small>Offline. No accounts.<br>Your progress stays yours.</small>
+        <p class="side-fine">Interactive browser preview · sample data lives in this browser · the native Android app is supplied separately.</p>
+      </div>
+    </aside>
+    <main id="app-view" class="app-view" tabindex="-1"></main>
+    <aside id="today-rail" class="today-rail" aria-label="Today overview"></aside>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <dialog id="modal" aria-labelledby="modal-title"><div id="modal-content"></div></dialog>
+  <input type="file" id="import-file" accept="application/json,.json" hidden>
+</body>
+</html>
