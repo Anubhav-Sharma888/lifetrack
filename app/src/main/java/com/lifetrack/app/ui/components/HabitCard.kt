@@ -122,13 +122,16 @@ fun HabitCard(
     onLongCheckIn: () -> Unit,
     modifier: Modifier = Modifier,
     dragHandle: (@Composable () -> Unit)? = null,
+    quickActions: (@Composable () -> Unit)? = null,
     checkInEnabled: Boolean = true,
-    progress: Int = 0
+    progress: Int = 0,
+    nudged: Boolean = false
 ) {
     val accent = habitColor(habit.colorHex)
     OutlinedCard(onClick = onOpen, modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .65f))) {
+        border = BorderStroke(if (nudged) 2.dp else 1.dp,
+            if (nudged) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = .65f))) {
         BoxWithConstraints {
             val compact = maxWidth < 360.dp
             Row(Modifier.padding(if (compact) 12.dp else 16.dp), verticalAlignment = Alignment.CenterVertically,
@@ -151,6 +154,7 @@ fun HabitCard(
                     else if (!habit.description.isNullOrBlank()) Text(habit.description.orEmpty(), style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
+                if (quickActions != null) quickActions()
                 CheckInButton(status, checkInEnabled, onCheckIn, onLongCheckIn, accent = accent, label = habit.name,
                     actionLabel = if (habit.targetCount > 1 && status != LogStatus.COMPLETED) "Add 1 ${habit.targetUnit}" else null,
                     progressFraction = if (habit.targetCount > 1) progress.toFloat() / habit.targetCount else null)

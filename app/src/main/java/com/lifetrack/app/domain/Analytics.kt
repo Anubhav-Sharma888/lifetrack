@@ -29,6 +29,10 @@ object Analytics {
             date.dayOfWeek.value in scheduledDays(habit, date) &&
             pauses.none { it.habitId == habit.id && date >= it.startDate && (it.endDate == null || date < it.endDate) }
 
+    /** Habits that were due on a date but carry no check-in record at all. */
+    fun unmarked(habits: List<Habit>, logs: List<HabitLog>, date: LocalDate, pauses: List<HabitPause> = emptyList()): List<Habit> =
+        habits.filter { habit -> !habit.isArchived && eligible(habit, date, pauses) && logs.none { log -> log.habitId == habit.id && log.date == date } }
+
     fun weekStart(date: LocalDate): LocalDate = date.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
 
     /** Counts whole weeks arithmetically; long histories do not allocate every calendar date. */

@@ -137,10 +137,18 @@ fun LogEditorDialog(habit: Habit, date: LocalDate, current: HabitLog?, vm: Habit
                 Spacer(Modifier.height(12.dp))
                 Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(date.toString(), style = MaterialTheme.typography.labelLarge)
+                    Text("Tap a status to save it instantly.", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     LogStatus.entries.forEach { option ->
                         Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
                             .selectable(selected = status == option, enabled = !busy,
-                                role = androidx.compose.ui.semantics.Role.RadioButton, onClick = { statusName = option.name })
+                                role = androidx.compose.ui.semantics.Role.RadioButton, onClick = {
+                                    statusName = option.name
+                                    // One-tap save for whole-day statuses; IN_PROGRESS keeps the Save
+                                    // button because its progress field needs a deliberate value.
+                                    if (option != current?.status && option != LogStatus.IN_PROGRESS) {
+                                        vm.setLog(habit.id, date, option, note.ifBlank { null }, onSaved = onDismiss)
+                                    }
+                                })
                             .semantics(mergeDescendants = true) {}, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                             RadioButton(selected = status == option, onClick = null, enabled = !busy)
                             Spacer(Modifier.width(10.dp))

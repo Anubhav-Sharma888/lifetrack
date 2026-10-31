@@ -66,4 +66,16 @@ class AnalyticsTest {
     @Test fun weeksStartMondayAndHandleYearBoundary() {
         assertEquals(LocalDate.of(2025, 12, 29), Analytics.weekStart(LocalDate.of(2026, 1, 1)))
     }
+
+    @Test fun unmarkedListsDueHabitsWithoutRecordsAndSkipsArchivedAndFuture() {
+        val weekday = habit(2).copy(scheduledDays = listOf(1, 2, 3, 4, 5))
+        val monday = start.plusDays(2) // 2026-03-09, a Monday
+        val logs = listOf(log(2, LogStatus.COMPLETED), log(3, LogStatus.SKIPPED, habitId = 2))
+        assertEquals(listOf(2L), Analytics.unmarked(listOf(habit(), weekday), logs, monday).map { it.id })
+        val tuesday = start.plusDays(3)
+        assertEquals(listOf(1L), Analytics.unmarked(listOf(habit(), weekday), logs, tuesday).map { it.id })
+        val archived = habit(9).copy(isArchived = true, archivedOn = start)
+        val future = habit(10).copy(startDate = start.plusDays(5))
+        assertEquals(emptyList<Long>(), Analytics.unmarked(listOf(archived, future), logs, monday).map { it.id })
+    }
 }

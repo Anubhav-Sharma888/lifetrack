@@ -1,5 +1,6 @@
 package com.lifetrack.app.ui
 
+import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -11,13 +12,17 @@ import com.lifetrack.app.data.HabitRepository
 import com.lifetrack.app.data.LogStatus
 import com.lifetrack.app.data.HabitPause
 import com.lifetrack.app.data.CheckInUndo
+import com.lifetrack.app.reminder.DailyCheckInReminderScheduler
+import com.lifetrack.app.reminder.DailyReminderStore
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
@@ -50,7 +55,11 @@ sealed interface UiEvent {
 
 @HiltViewModel
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-class HabitViewModel @Inject constructor(private val repository: HabitRepository) : ViewModel() {
+class HabitViewModel @Inject constructor(
+    private val repository: HabitRepository,
+    private val dailyReminderStore: DailyReminderStore,
+    @ApplicationContext private val appContext: Context,
+) : ViewModel() {
     private val date = MutableStateFlow(LocalDate.now())
     private val _events = MutableSharedFlow<UiEvent>(extraBufferCapacity = 16)
     private val mutationMutex = Mutex()
@@ -184,6 +193,16 @@ class HabitViewModel @Inject constructor(private val repository: HabitRepository
     }
 
     fun updateSettings(settings: AppSettings) = perform { repository.updateSettings(settings) }
+
+    val dailyReminderMinutes: StateFlow<Int?> = dailyReminderStore.minutes
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    fun setDailyReminder(minutesOfDay: Int?) = perform {
+        dailyReminderStore.set(minutesOfDay)
+        DailyCheckInReminderScheduler.sync(appContext, minutesOfDay)
+        _events.emit(UiEvent.Message(if (minutesOfDay == null) "Daily reminder turned off" else "Daily reminder scheduled"))
+    }
+
     fun export(uri: Uri, password: CharArray? = null, onSaved: () -> Unit = {}) = perform {
         try {
             repository.exportTo(uri, password)

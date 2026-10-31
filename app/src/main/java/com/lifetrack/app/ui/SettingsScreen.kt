@@ -16,6 +16,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -43,6 +44,7 @@ private class CreateBackupDocument : ActivityResultContracts.CreateDocument("app
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 fun SettingsScreen(state: LifeTrackState, vm: HabitViewModel, onOpen: (Long) -> Unit) {
     val context = LocalContext.current
     val settings = state.settings
@@ -52,6 +54,8 @@ fun SettingsScreen(state: LifeTrackState, vm: HabitViewModel, onOpen: (Long) -> 
     var themeDialog by remember { mutableStateOf(false) }
     var aboutDialog by remember { mutableStateOf(false) }
     var licensesDialog by remember { mutableStateOf(false) }
+    var reminderDialog by remember { mutableStateOf(false) }
+    var pendingReminderMinutes by remember { mutableStateOf<Int?>(null) }
     var pendingImport by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingEncryptedExport by rememberSaveable { mutableStateOf<String?>(null) }
     var encryptedExport by rememberSaveable { mutableStateOf(false) }
@@ -70,6 +74,14 @@ fun SettingsScreen(state: LifeTrackState, vm: HabitViewModel, onOpen: (Long) -> 
         if (granted) vm.updateSettings(latestSettings.copy(backupReminder = true))
         else permissionMessage = "Notifications are off. You can enable them in Android settings and turn reminders on here."
     }
+    val dailyNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val minutes = pendingReminderMinutes
+        pendingReminderMinutes = null
+        if (granted && minutes != null) vm.setDailyReminder(minutes)
+        else permissionMessage = "Notifications are off. You can enable them in Android settings and turn reminders on here."
+        reminderDialog = false
+    }
+    val dailyMinutes by vm.dailyReminderMinutes.collectAsState()
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Settings", style = MaterialTheme.typography.headlineLarge)
         Text("Your data. Your device.", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -108,6 +120,9 @@ fun SettingsScreen(state: LifeTrackState, vm: HabitViewModel, onOpen: (Long) -> 
         }
         permissionMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         HorizontalDivider()
+        Text("Gentle reminders", style = MaterialTheme.typography.titleMedium)
+        SettingsAction("Daily check-in reminder", dailyMinutes?.let { m -> "Daily at %02d:%02d · system notification".format(m / 60, m % 60) } ?: "Off · choose a time", Icons.Outlined.Notifications, enabled = !busy) { reminderDialog = true }
+        HorizontalDivider()
         Text("Appearance", style = MaterialTheme.typography.titleMedium)
         SettingsAction("Theme", settings.theme.lowercase().replaceFirstChar(Char::titlecase), Icons.Outlined.DarkMode, !busy) { themeDialog = true }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -139,6 +154,31 @@ fun SettingsScreen(state: LifeTrackState, vm: HabitViewModel, onOpen: (Long) -> 
             }
         } }
     }, confirmButton = { TextButton(onClick = { themeDialog = false }) { Text("Done") } })
+    if (reminderDialog) {
+        val current = dailyMinutes
+        val timeState = rememberTimePickerState(initialHour = current?.div(60) ?: 20, initialMinute = current?.rem(60) ?: 0, is24Hour = true)
+        AlertDialog(onDismissRequest = { reminderDialog = false }, title = { Text("Daily check-in reminder") }, text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("A once-a-day notification at your time, while habits are still open.")
+                TimePicker(timeState)
+                Text("Reminders are inexact and may be deferred by Android.", style = MaterialTheme.typography.bodySmall)
+            }
+        }, confirmButton = {
+            TextButton(enabled = !busy, onClick = {
+                val minutes = timeState.hour * 60 + timeState.minute
+                reminderDialog = false
+                if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    pendingReminderMinutes = minutes
+                    dailyNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else vm.setDailyReminder(minutes)
+            }) { Text("Save") }
+        }, dismissButton = {
+            Row {
+                if (current != null) TextButton(enabled = !busy, onClick = { vm.setDailyReminder(null); reminderDialog = false }) { Text("Turn off") }
+                TextButton(onClick = { reminderDialog = false }) { Text("Cancel") }
+            }
+        })
+    }
     pendingImport?.let { path -> AlertDialog(onDismissRequest = { if (!busy) { pendingImport = null; backupPassword = "" } }, title = { Text("Replace all LifeTrack data?") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Restoring replaces current habits, history, pauses, freezes and settings. Export your current data first if you want to keep it. Invalid files or a wrong password leave existing data intact.")

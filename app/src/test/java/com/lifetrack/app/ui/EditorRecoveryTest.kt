@@ -36,7 +36,7 @@ class EditorRecoveryTest {
     @Before fun prepare() {
         val context = RuntimeEnvironment.getApplication()
         db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).allowMainThreadQueries().build()
-        vm = HabitViewModel(HabitRepository(db, context))
+        vm = HabitViewModel(HabitRepository(db, context), com.lifetrack.app.reminder.DailyReminderStore(context), context)
     }
     @After fun close() { vm.viewModelScope.cancel(); db.close() }
 

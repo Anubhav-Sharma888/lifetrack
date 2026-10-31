@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
@@ -40,6 +41,9 @@ fun TodayScreen(state: LifeTrackState, vm: HabitViewModel, onAdd: () -> Unit, on
     var category by rememberSaveable { mutableStateOf<String?>(null) }
     var filter by rememberSaveable { mutableStateOf("All") }
     var orderMenuId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var quickMenuId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var focusUnmarked by rememberSaveable { mutableStateOf(false) }
+    var nudgeDismissed by rememberSaveable { mutableStateOf<String?>(null) }
     var order by remember { mutableStateOf(emptyList<Long>()) }
     val active = state.habits.filterNot { it.isArchived }
     val byId = active.associateBy { it.id }
@@ -53,6 +57,10 @@ fun TodayScreen(state: LifeTrackState, vm: HabitViewModel, onAdd: () -> Unit, on
     }
     val due = active.filter { Analytics.eligible(it, date, state.pauses) }
     val completed = due.count { dayLogs[it.id]?.status == LogStatus.COMPLETED }
+    val unmarkedYesterday = remember(state.habits, state.logs, state.pauses, state.today) {
+        Analytics.unmarked(state.habits, state.logs, state.today.minusDays(1), state.pauses)
+    }
+    val showNudge = date == state.today && unmarkedYesterday.isNotEmpty() && nudgeDismissed != state.today.minusDays(1).toString()
     val listState = rememberLazyListState()
     val reorder = rememberReorderableLazyListState(listState) { from, to ->
         val fromIndex = order.indexOf(from.key as Long)
@@ -74,10 +82,23 @@ fun TodayScreen(state: LifeTrackState, vm: HabitViewModel, onAdd: () -> Unit, on
                 }
                 IconButton(enabled = date < state.today, onClick = { selected = date.plusDays(1).toString() }) { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, "Next day") }
             }
-            if (date != state.today) TextButton(onClick = { selected = null }) { Text("Back to today") }
+            if (date != state.today) TextButton(onClick = { selected = null; focusUnmarked = false }) { Text("Back to today") }
             Text("$completed of ${due.size} scheduled habits completed", style = MaterialTheme.typography.labelLarge)
             Spacer(Modifier.height(8.dp))
             LinearProgressIndicator(progress = { if (due.isEmpty()) 0f else completed.toFloat() / due.size }, modifier = Modifier.fillMaxWidth())
+            if (showNudge) {
+                Spacer(Modifier.height(12.dp))
+                Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("${if (unmarkedYesterday.size == 1) "One habit was" else "${unmarkedYesterday.size} habits were"} left unmarked on ${state.today.minusDays(1).format(DateTimeFormatter.ofPattern("EEE, d MMM"))}", style = MaterialTheme.typography.titleSmall)
+                        Text(unmarkedYesterday.take(3).joinToString(" · ") { it.name }, style = MaterialTheme.typography.bodySmall, maxLines = 2)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = { selected = state.today.minusDays(1).toString(); focusUnmarked = true }) { Text("Mark them now") }
+                            TextButton(onClick = { nudgeDismissed = state.today.minusDays(1).toString() }) { Text("Leave it") }
+                        }
+                    }
+                }
+            }
             if (showFilters) {
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(query, { query = it }, label = { Text("Search habits") }, singleLine = true,
@@ -118,6 +139,21 @@ fun TodayScreen(state: LifeTrackState, vm: HabitViewModel, onAdd: () -> Unit, on
                         onLongCheckIn = { editingLogId = habit.id },
                         checkInEnabled = eligible && !busy,
                         progress = log?.progress ?: 0,
+                        nudged = focusUnmarked && eligible && log == null,
+                        quickActions = {
+                            Box {
+                                IconButton(onClick = { quickMenuId = habit.id }) { Icon(Icons.Outlined.MoreVert, "More actions for ${habit.name}") }
+                                DropdownMenu(quickMenuId == habit.id, onDismissRequest = { quickMenuId = null }) {
+                                    DropdownMenuItem(text = { Text("Skip this day") }, enabled = eligible && log?.status != LogStatus.SKIPPED, onClick = {
+                                        vm.setLog(habit.id, date, LogStatus.SKIPPED, log?.note); quickMenuId = null
+                                    })
+                                    DropdownMenuItem(text = { Text("Mark as missed") }, enabled = eligible && log?.status != LogStatus.FAILED, onClick = {
+                                        vm.setLog(habit.id, date, LogStatus.FAILED, log?.note); quickMenuId = null
+                                    })
+                                    DropdownMenuItem(text = { Text("Edit check-in…") }, enabled = eligible, onClick = { editingLogId = habit.id; quickMenuId = null })
+                                }
+                            }
+                        },
                         dragHandle = {
                             Box {
                             IconButton(onClick = { orderMenuId = habit.id }, modifier = Modifier.draggableHandle(onDragStopped = { vm.reorderHabits(order) }).semantics {
@@ -145,10 +181,10 @@ fun TodayScreen(state: LifeTrackState, vm: HabitViewModel, onAdd: () -> Unit, on
                         })
                 }
             }
-            item { Text("Tap to check in, or add one unit toward a numeric goal. Hold to skip, set a count or add a note. Rest days protect your chain.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(4.dp)) }
+            item { Text("Tap to check in, use the ··· menu for one-tap skip or missed, or hold to set a count or note. Rest days protect your chain.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(4.dp)) }
         }
     }
-    if (showDate) DateSelectionDialog(date, latest = state.today, onDismiss = { showDate = false }, onSelect = { selected = it.toString(); showDate = false })
+    if (showDate) DateSelectionDialog(date, latest = state.today, onDismiss = { showDate = false }, onSelect = { selected = it.toString(); focusUnmarked = false; showDate = false })
     editingLogId?.let { id -> state.habits.firstOrNull { it.id == id }?.let { habit ->
         LogEditorDialog(habit, date, dayLogs[id], vm, onDismiss = { editingLogId = null })
     } }
