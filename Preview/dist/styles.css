@@ -31,8 +31,8 @@ body.quiet *,body.quiet *::before,body.quiet *::after{animation:none!important;t
 .side-head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:56px;padding:8px 16px;background:var(--surface);border-bottom:1px solid var(--line)}
 .brand{display:flex;align-items:center;gap:10px}
 .brand strong{font-size:19px;letter-spacing:-.5px}
-.brand-mark{position:relative;display:grid;place-items:center;width:32px;height:32px;border-radius:10px;background:var(--green);color:var(--on-green);font-size:20px;font-weight:700;padding-right:4px}
-.brand-mark span{font-size:17px;position:absolute;right:3px;top:1px;color:var(--soft)}
+.brand-mark{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;overflow:hidden;flex-shrink:0}
+.brand-mark svg{width:34px;height:34px;display:block}
 .side-tag{display:none}
 .head-tools{display:flex;align-items:center;gap:14px}
 .local-badge{display:none;font-size:12px;color:var(--muted);align-items:center;gap:7px}
@@ -163,6 +163,12 @@ body.quiet .check-button:hover:not(:disabled){transform:none}
 .card-options{margin:10px 0 0;text-align:center;font-size:12px;color:var(--muted);line-height:1.7}
 .gentle-note{margin:18px 0 4px;padding:14px 16px;border:1px dashed var(--line);border-radius:var(--r-12);display:flex;align-items:center;gap:12px;color:var(--muted);font-size:13px;line-height:1.6}
 .gentle-note span{font-size:19px;color:var(--green)}
+.nudge-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;border:1px solid color-mix(in srgb,var(--green) 35%,var(--line));background:var(--soft);border-radius:var(--r-12);padding:14px 16px;margin:-2px 0 14px}
+.nudge-banner strong{display:block;font-size:14px;line-height:1.5}
+.nudge-banner small{display:block;font-size:12px;line-height:1.5;color:var(--muted);margin-top:3px}
+.nudge-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.nudge-actions .primary-button{min-height:44px;padding:10px 16px}
+.habit-row.is-nudged{border-color:var(--amber);box-shadow:0 0 0 2px var(--amber-soft)}
 
 /* empty + feedback states */
 .empty-state{text-align:center;padding:40px 10px;border:1px dashed var(--line);border-radius:var(--r-16)}

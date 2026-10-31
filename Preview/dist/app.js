@@ -1,6 +1,6 @@
-import { renderAnalytics, heatmapHTML, currentStreak, trendHTML, periodTilesHTML, dailyCheckinsHTML, consistencyHTML } from './analytics.js';
+import { renderAnalytics, heatmapHTML, currentStreak, trendHTML, periodTilesHTML, dailyCheckinsHTML, consistencyHTML, unmarkedOn } from './analytics.js';
 import { encryptBackup, decryptBackup, MAX_ENVELOPE_BYTES } from './backup-crypto.js';
-import { ALL_DAYS, localDate, plusDays, dayDifference, dayNumber as relativeDay,
+import { ALL_DAYS, localDate, isDate, plusDays, dayDifference, dayNumber as relativeDay,
   scheduled, dueHabits, bestStreak as bestStreakValue, parseBackup, encodeBackup,
   makeBackup, validateBackup as validatePortableBackup, restoreStoredState, changeLog, changeProgress,
   redeemFreeze, archiveHabit as archiveValue, deleteHabit as deleteValue, foregroundFor, copy, validateGoalEdit } from './domain.js';
@@ -12,7 +12,8 @@ let today = localDate();
 const plus = (date, n) => { const d = new Date(date + 'T12:00:00'); d.setDate(d.getDate()+n); return iso(d); };
 const days = (a,b) => Math.round((Date.parse(b + 'T12:00:00Z')-Date.parse(a + 'T12:00:00Z'))/86400000);
 const nice = (date, options={weekday:'short',day:'numeric',month:'short'}) => new Date(date+'T12:00:00').toLocaleDateString('en-GB',options);
-const qaNamespace=new URLSearchParams(location.search).get('qa');
+const urlParams=new URLSearchParams(location.search);
+const qaNamespace=urlParams.get('qa');
 const STORE = qaNamespace===null?'lifetrack.browser-preview.v1':`lifetrack.browser-preview.qa.${qaNamespace.replace(/[^a-zA-Z0-9_-]/g,'').slice(0,40)||'review'}`;
 const icons = {
   today:'<circle cx="12" cy="12" r="8.5"/><path d="m8 12 3 3 6-7"/>',
@@ -72,7 +73,11 @@ catch(error) { try{recoveryText=localStorage.getItem(STORE);}catch{}state=demoDa
 const DRAFT_STORE=STORE+'.drafts';
 let drafts={};try{const value=JSON.parse(localStorage.getItem(DRAFT_STORE)||'{}');if(value&&typeof value==='object'&&!Array.isArray(value))drafts=value;}catch{}
 let filters={query:'',category:'',status:'all'}, filterPanelOpen=false, searchOpen=false, analyticsPeriod='week', dialogContext=null, pendingBackup=null, pendingEncryptedText=null, pendingFilename='', lastUndo=null, revision=0;
-let route='today', selectedDate=today, selectedId=null, dragging=null, holdTimer=null, held=false, toastTimer, dialogOpener=null;
+let route='today', selectedDate=today, selectedId=null, dragging=null, holdTimer=null, held=false, toastTimer, dialogOpener=null, nudgeDismissedDate=null, focusUnmarkedDate=null;
+const PREFS_STORE=STORE+'.prefs';
+let prefs={reminderMinutes:null,lastNudgeDate:null};
+try{const rawPrefs=JSON.parse(localStorage.getItem(PREFS_STORE)||'null');if(rawPrefs&&typeof rawPrefs==='object'&&!Array.isArray(rawPrefs)){if(rawPrefs.reminderMinutes===null||(Number.isInteger(rawPrefs.reminderMinutes)&&rawPrefs.reminderMinutes>=0&&rawPrefs.reminderMinutes<1440))prefs.reminderMinutes=rawPrefs.reminderMinutes;if(typeof rawPrefs.lastNudgeDate==='string')prefs.lastNudgeDate=rawPrefs.lastNudgeDate;}}catch{}
+function savePrefs(){try{localStorage.setItem(PREFS_STORE,JSON.stringify(prefs));}catch{}}
 const app=$('#app-view'), modal=$('#modal');
 function save() { if(recoveryText!==null)return;try { localStorage.setItem(STORE,JSON.stringify(state));storageWarning=''; } catch { storageWarning='Browser storage is unavailable. Changes remain in this session.';toast(storageWarning); } }
 function toast(text,undo=false) { const box=$('#toast');box.innerHTML=`<span>${esc(text)}</span>${undo?'<button data-action="undo">Undo</button>':''}`;box.classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>box.classList.remove('visible'),undo?8000:4200); }
@@ -113,9 +118,13 @@ function todayHTML() {
   const filtersActive=Boolean(filters.query||filters.category||filters.status!=='all');
   const recovery=recoveryText!==null?`<div class="recovery-banner" role="alert"><strong>Your saved records are preserved.</strong><p>${esc(storageWarning)} The sample screen below is temporary. Download the original data before resetting or importing.</p><button class="secondary-button" data-action="recover-storage">Download original data</button><button class="text-button" data-action="reset-demo">Choose a fresh start</button></div>`:storageWarning?`<p role="alert" class="form-error">${esc(storageWarning)}</p>`:'';
   const isToday=selectedDate===today;
+  const yesterday=plusDays(today,-1);
+  const unmarkedYesterday=unmarkedOn(state,yesterday);
+  const showNudge=isToday&&unmarkedYesterday.length&&nudgeDismissedDate!==yesterday;
   return `<div class="screen">${recovery}<div class="today-head"><div><h2 class="today-title">${isToday?'Today.':esc(nice(selectedDate,{weekday:'long',day:'numeric',month:'long'}))}</h2><p class="today-sub">${isToday?esc(nice(selectedDate,{weekday:'long',day:'numeric',month:'long'})):'Past check-ins · edits and backfills are welcome.'}</p></div><button class="add-habit-button" data-action="add-habit">+ Habit</button></div>
     ${dateNav()}
     ${!isToday?'<div style="margin:-6px 0 12px;text-align:center"><button class="back-today" data-action="back-today">Back to today ↗</button></div>':''}
+    ${showNudge?`<section class="nudge-banner" role="status"><div><strong>${unmarkedYesterday.length===1?'One habit was left unmarked':`${unmarkedYesterday.length} habits were left unmarked`} on ${nice(yesterday,{weekday:'long',day:'numeric',month:'short'})}</strong><small>${esc(unmarkedYesterday.slice(0,3).map(h=>h.name).join(' · '))}${unmarkedYesterday.length>3?' · …':''}</small></div><div class="nudge-actions"><button class="primary-button" data-action="focus-unmarked">Mark them now ↗</button><button class="text-button" data-action="dismiss-nudge">Leave it</button></div></section>`:''}
     <section class="day-summary${due.length?'':' calm'}" aria-label="Daily summary"><div class="day-summary-top"><div><strong>${due.length?`${completed} of ${due.length} completed`:'No habits scheduled'}</strong><small>${due.length?(completed===due.length?'Every habit done · enjoy your day':`${due.length-completed} still to do · your own pace`):'Room to breathe · rest or plan ahead'}</small></div><span class="day-percent" aria-hidden="true">${due.length?percent+'%':'—'}</span></div>${due.length?`<div class="day-bar" role="img" aria-label="${percent} percent of scheduled habits completed"><i style="width:${percent}%"></i></div>`:''}</section>
     <div class="filter-row"><button class="chip" data-action="clear-filters" aria-pressed="${!filtersActive}">All habits</button><button class="chip" data-action="toggle-filter-panel" aria-expanded="${filterPanelOpen}" aria-controls="filter-panel">${icon('sliders')} Filters${filtersActive?`<span class="chip-count">${activeFilterKeys.length}</span>`:''}</button><button class="chip" data-action="toggle-search" aria-expanded="${searchOpen}" aria-controls="search-row">${icon('search')} Search</button></div>
     ${filterPanelOpen?`<div class="filter-panel" id="filter-panel"><label>Category<select id="category-filter"><option value="">All categories</option>${categories.map(c=>`<option value="${esc(c)}" ${c===filters.category?'selected':''}>${esc(c)}</option>`).join('')}</select></label><label>Status<select id="status-filter">${STATUS_FILTERS.map(([v,t])=>`<option value="${v}" ${v===filters.status?'selected':''}>${t}</option>`).join('')}</select></label>${filtersActive?'<button class="text-button" data-action="clear-filters">Clear all</button>':''}</div>`:''}
@@ -134,7 +143,7 @@ function habitCard(h) {
   const statusBit=status==='COMPLETED'?(selectedDate===today?'Done today':'Completed'):status==='SKIPPED'?'Skipped':status==='FAILED'?'Missed':h.targetCount>1&&isDue?`${progress} of ${h.targetCount} ${esc(h.targetUnit)}`:'';
   const restState=!isDue?(h.startDate>selectedDate?'future':'rest'):null;
   const checkLabel=restState==='future'?`${h.name} has not started yet`:restState==='rest'?`Rest day for ${h.name}${log?.isFrozen?' · streak frozen':''} — no check-in needed`:status==='COMPLETED'?`Undo completion of ${h.name}`:h.targetCount>1?`Add progress to ${h.name}`:`Complete ${h.name}`;
-  return `<article class="habit-row${h.targetCount>1?' is-numeric':''}" draggable="true" data-habit="${h.id}" style="--habit-color:${esc(h.colorHex)};--habit-foreground:${foregroundFor(h.colorHex)}"><span class="drag-handle" aria-hidden="true">⠿</span><div class="row-top"><button class="row-main" data-action="open-habit" data-id="${h.id}"><span class="row-avatar" aria-hidden="true">${esc(h.icon)}</span><span class="row-copy"><strong>${esc(h.name)}</strong><span class="row-meta">${statusBit?`${statusBit} · `:''}${esc(h.category)} · <span class="day-count">${dayLabel}</span></span>${stack?`<span class="stack-cue">↳ After ${esc(stack.name)}</span>`:''}</span></button><div class="row-actions">${h.targetCount>1&&status!=='COMPLETED'&&status!=='IN_PROGRESS'?`<span class="goal-chip" aria-hidden="true">${progress}/${h.targetCount}</span>`:''}<button class="row-menu-button" data-action="row-menu" data-id="${h.id}" aria-label="More actions for ${esc(h.name)}" aria-haspopup="dialog">${icon('dots')}</button><button class="check-button ${status==='COMPLETED'?'is-done':status==='SKIPPED'?'is-skipped':status==='FAILED'?'is-failed':status==='IN_PROGRESS'?'is-partial':restState==='rest'?'is-rest':''}" data-action="check-in" data-id="${h.id}" aria-label="${esc(checkLabel)}" title="${esc(checkLabel)}" aria-pressed="${status==='COMPLETED'}" ${!isDue?'disabled':''}>${status==='IN_PROGRESS'?`<span>${progress}/${h.targetCount}</span>`:icon(status==='COMPLETED'?'check':status==='SKIPPED'||restState==='rest'?'skip':'plus')}</button></div></div>${h.targetCount>1?`<div class="goal-line"><button data-action="decrement" data-id="${h.id}" aria-label="Remove one ${esc(h.targetUnit)} from ${esc(h.name)}" ${!isDue||progress===0?'disabled':''}>−</button><span class="goal-count" aria-live="polite">${progress} / ${h.targetCount} ${esc(h.targetUnit)}</span><button data-action="increment" data-id="${h.id}" aria-label="Add one ${esc(h.targetUnit)} to ${esc(h.name)}" ${!isDue||progress>=h.targetCount?'disabled':''}>+</button></div>`:''}</article>`;
+  return `<article class="habit-row${h.targetCount>1?' is-numeric':''}${focusUnmarkedDate===selectedDate&&isDue&&!log?' is-nudged':''}" draggable="true" data-habit="${h.id}" style="--habit-color:${esc(h.colorHex)};--habit-foreground:${foregroundFor(h.colorHex)}"><span class="drag-handle" aria-hidden="true">⠿</span><div class="row-top"><button class="row-main" data-action="open-habit" data-id="${h.id}"><span class="row-avatar" aria-hidden="true">${esc(h.icon)}</span><span class="row-copy"><strong>${esc(h.name)}</strong><span class="row-meta">${statusBit?`${statusBit} · `:''}${esc(h.category)} · <span class="day-count">${dayLabel}</span></span>${stack?`<span class="stack-cue">↳ After ${esc(stack.name)}</span>`:''}</span></button><div class="row-actions">${h.targetCount>1&&status!=='COMPLETED'&&status!=='IN_PROGRESS'?`<span class="goal-chip" aria-hidden="true">${progress}/${h.targetCount}</span>`:''}<button class="row-menu-button" data-action="row-menu" data-id="${h.id}" aria-label="More actions for ${esc(h.name)}" aria-haspopup="dialog">${icon('dots')}</button><button class="check-button ${status==='COMPLETED'?'is-done':status==='SKIPPED'?'is-skipped':status==='FAILED'?'is-failed':status==='IN_PROGRESS'?'is-partial':restState==='rest'?'is-rest':''}" data-action="check-in" data-id="${h.id}" aria-label="${esc(checkLabel)}" title="${esc(checkLabel)}" aria-pressed="${status==='COMPLETED'}" ${!isDue?'disabled':''}>${status==='IN_PROGRESS'?`<span>${progress}/${h.targetCount}</span>`:icon(status==='COMPLETED'?'check':status==='SKIPPED'||restState==='rest'?'skip':'plus')}</button></div></div>${h.targetCount>1?`<div class="goal-line"><button data-action="decrement" data-id="${h.id}" aria-label="Remove one ${esc(h.targetUnit)} from ${esc(h.name)}" ${!isDue||progress===0?'disabled':''}>−</button><span class="goal-count" aria-live="polite">${progress} / ${h.targetCount} ${esc(h.targetUnit)}</span><button data-action="increment" data-id="${h.id}" aria-label="Add one ${esc(h.targetUnit)} to ${esc(h.name)}" ${!isDue||progress>=h.targetCount?'disabled':''}>+</button></div>`:''}</article>`;
 }
 function settingsRow(action,title,subtitle,symbol,last='›',extra='') {
   if(last.includes('class="toggle')){const checked=last.includes('toggle on');extra+=` role="switch" aria-checked="${checked}"`;last=last.replace(/ role="switch" aria-checked="[^"]*"/g,'').replace('<span ','<span aria-hidden="true" ');}
@@ -145,6 +154,8 @@ function settingsHTML() {
   return `<div class="screen"><div class="today-head"><div><h2 class="today-title">Settings.</h2><p class="today-sub">Your data. Your device.</p></div></div><div class="privacy-panel"><div class="privacy-icon">${icon('shield','width="19" height="19"')}</div><h3>Private by design</h3><p>No accounts, cloud sync, ads, or tracking.<br>Your habits belong to you. Always.</p></div>
     <div class="settings-section-title">Data & backups</div>${settingsRow('export-data','Export data','Save your habits, history, notes, and settings','export')}${settingsRow('import-data','Import data','Restore a LifeTrack JSON backup','import')}${settingsRow('toggle-reminder','Monthly backup reminder','A gentle nudge to keep your progress safe.','bell',`<span class="toggle ${settings.backupReminder?'on':''}" role="switch" aria-checked="${settings.backupReminder}"></span>`)}
     <p class="section-note">${settings.lastExportAt?`Last export · ${nice(iso(new Date(settings.lastExportAt)),{day:'numeric',month:'short',year:'numeric'})}`:'No backup exported yet.'}</p>
+    <div class="settings-section-title">Gentle reminders</div>${settingsRow('set-reminder','Daily check-in reminder',prefs.reminderMinutes==null?'Off · tap to choose a time':`Daily at ${String(Math.floor(prefs.reminderMinutes/60)).padStart(2,'0')}:${String(prefs.reminderMinutes%60).padStart(2,'0')} · in-app nudge`,'bell')}
+    <p class="section-note">In this preview the nudge appears in-app once per day after your time, when habits are still open. The native Android app turns this into a real notification.</p>
     <div class="settings-section-title">Make yourself at home</div>${settingsRow('choose-theme','Theme',settings.theme==='SYSTEM'?'Follow your device':settings.theme==='DARK'?'Dark mode':'Light mode','moon')}${settingsRow('toggle-dynamic','Wallpaper colors','Material You in the native Android app','palette',`<span class="toggle ${settings.dynamicColor?'on':''}" role="switch" aria-checked="${settings.dynamicColor}"></span>`)}
     ${archived.length?`<div class="settings-section-title">Archived habits · ${archived.length}</div>${archived.map(h=>settingsRow('open-habit',`${h.icon} ${h.name}`,'View history or restore','archive','›',`data-id="${h.id}"`)).join('')}`:''}
     <div class="settings-section-title">Comfort & accessibility</div>${settingsRow('toggle-animations','Celebration animations','Respect your pace and reduced-motion preferences.','palette',`<span class="toggle ${settings.animationsEnabled?'on':''}"></span>`)}${settingsRow('toggle-haptics','Check-in haptics','Saved for Android · the browser does not vibrate.','today',`<span class="toggle ${settings.hapticsEnabled?'on':''}"></span>`)}
@@ -158,7 +169,7 @@ function detailHTML() {
   const eligible=!h.isArchived&&scheduled(h,selectedDate,state.pauses), spent=state.freezes.some(f=>f.month===selectedDate.slice(0,7));
   return `<div class="screen" style="--habit-color:${esc(h.colorHex)}"><div class="detail-topbar"><button class="icon-button" data-action="navigate" data-tab="today" aria-label="Back to Today">${icon('back','width="18" height="18"')}</button><span>Your journey</span><button class="icon-button" data-action="edit-habit" data-id="${h.id}" aria-label="Edit habit">${icon('edit','width="17" height="17"')}</button></div><div class="detail-emoji">${esc(h.icon)}</div><h2 class="detail-title">${esc(h.name)}</h2><div class="habit-meta"><span class="day-count">${dayNumber(h)?`Day ${dayNumber(h)}`:'Not started'}</span><i></i>${esc(h.category)}<i></i>Since ${nice(h.startDate,{day:'numeric',month:'short'})}</div><p class="detail-description">${esc(h.description||'A small step, on your own terms.')}</p>
     ${h.isArchived?'<p class="section-note">Archived · Your history is preserved.</p>':''}<div class="detail-stats"><div><strong>${currentStreak(h,state.logs,today,state.pauses)}</strong><span>CURRENT STREAK</span></div><div><strong>${total}</strong><span>COMPLETIONS</span></div><div><strong>${bestStreak(h)}</strong><span>BEST STREAK</span></div></div>
-    ${dateNav()}<div class="detail-log"><h4>${log?.isFrozen?'❄ Streak frozen':log?.status==='COMPLETED'?'✓ You showed up.':log?.status==='SKIPPED'?'↳ A little breathing room.':log?.status==='FAILED'?'A fresh start is always possible.':log?.status==='IN_PROGRESS'?`Progress: ${log.progress}/${h.targetCount} ${esc(h.targetUnit)}`:'One small step awaits.'}</h4><p>${log?.note?esc(log.note):h.isArchived?'Restore this habit to change check-ins.':eligible?'There’s no perfect way to make progress. Just your way.':`Your timeline begins ${esc(h.startDate)}.`}</p><div class="detail-log-buttons"><button class="primary-button" data-action="edit-log" data-id="${h.id}" data-default="${log?.status||'COMPLETED'}" ${!eligible?'disabled':''}>${log?'Edit check-in':'Add check-in'}</button>${eligible&&selectedDate<=today&&log?.status!=='COMPLETED'&&log?.status!=='SKIPPED'?`<button class="secondary-button" data-action="row-skip" data-id="${h.id}">↳ Skip day</button>`:''}${eligible&&selectedDate<today&&(!log||['FAILED','IN_PROGRESS'].includes(log.status))?`<button class="secondary-button" data-action="freeze" data-id="${h.id}" ${spent?'disabled':''}>❄ ${spent?'Freeze used':'Use freeze'}</button>`:''}</div></div>
+    ${dateNav()}<div class="detail-log"><h4>${log?.isFrozen?'❄ Streak frozen':log?.status==='COMPLETED'?'✓ You showed up.':log?.status==='SKIPPED'?'↳ A little breathing room.':log?.status==='FAILED'?'A fresh start is always possible.':log?.status==='IN_PROGRESS'?`Progress: ${log.progress}/${h.targetCount} ${esc(h.targetUnit)}`:'One small step awaits.'}</h4><p>${log?.note?esc(log.note):h.isArchived?'Restore this habit to change check-ins.':eligible?'There’s no perfect way to make progress. Just your way.':`Your timeline begins ${esc(h.startDate)}.`}</p><div class="detail-log-buttons"><button class="primary-button" data-action="edit-log" data-id="${h.id}" data-default="${log?.status||'COMPLETED'}" ${!eligible?'disabled':''}>${log?'Edit check-in':'Add check-in'}</button>${eligible&&selectedDate<=today&&log?.status!=='SKIPPED'?`<button class="secondary-button" data-action="row-skip" data-id="${h.id}">↳ Skip day</button>`:''}${eligible&&selectedDate<=today&&log?.status!=='FAILED'?`<button class="secondary-button" data-action="row-fail" data-id="${h.id}">✕ Mark missed</button>`:''}${eligible&&selectedDate<today&&(!log||['FAILED','IN_PROGRESS'].includes(log.status))?`<button class="secondary-button" data-action="freeze" data-id="${h.id}" ${spent?'disabled':''}>❄ ${spent?'Freeze used':'Use freeze'}</button>`:''}</div></div>
     ${trendHTML(h,state.logs,today,state.pauses)}<p class="section-note">Skips and freezes protect your chain without adding a completion. An unfinished today has until midnight.</p>${heatmapHTML(state,today,true,h)}<button class="secondary-button wide" data-action="archive-habit" data-id="${h.id}">${h.isArchived?'Restore habit':'Archive habit · keep history'}</button><button class="text-button danger wide" data-action="delete-habit" data-id="${h.id}">Delete habit permanently</button></div>`;
 }
 function formValues(form) {
@@ -217,7 +228,8 @@ function editHabit(id,templateIndex=null) {
 function editLog(id,defaultStatus=null) {
   const h=habitFor(id),log=logFor(id),date=selectedDate;if(!h||h.isArchived||!scheduled(h,date,state.pauses))return;
   const status=defaultStatus||log?.status||'COMPLETED',draftKey=`log:${id}:${h.createdAt}:${date}`;
-  showModal(`${heading(`${h.icon} ${h.name}`,nice(date,{weekday:'long',day:'numeric',month:'long'}))}<form id="log-form" data-id="${id}" data-date="${date}" data-draft-key="${draftKey}"><input name="status" type="hidden" value="${status}"><div class="status-choice" role="group" aria-label="Check-in status">${[['COMPLETED','✓ Completed'],['SKIPPED','↳ Skipped'],['FAILED','Missed'],['IN_PROGRESS','In progress']].map(([value,label])=>`<button type="button" class="${value===status?'selected':''}" data-action="select-status" data-status="${value}" aria-pressed="${value===status}">${label}</button>`).join('')}</div>${h.targetCount>1?`<label class="field">Progress, if in progress<input name="progress" type="number" min="0" max="${h.targetCount-1}" step="1" value="${log?.status==='IN_PROGRESS'?log.progress:0}"><small>Target: ${h.targetCount} ${esc(h.targetUnit)}. Completed entries automatically use the target.</small></label>`:'<input name="progress" type="hidden" value="0">'}<p class="section-note">Skipped days protect your chain and give you room to breathe.</p><label class="field">A note for yourself · optional<textarea name="note" maxlength="4000" placeholder="How did today feel?">${esc(log?.note||'')}</textarea></label><p id="form-error" class="form-error" aria-live="polite"></p><button class="primary-button wide" type="submit">Save check-in</button>${log?`<button type="button" class="text-button danger wide" data-action="clear-log" data-id="${id}" data-date="${date}">Clear this check-in</button>`:''}<button class="text-button wide" type="button" data-action="close-modal">Keep draft & close</button></form>`,{kind:'log',id,date,draftKey});
+  const statusChoices=[['COMPLETED','✓ Completed'],['SKIPPED','↳ Skipped'],['FAILED','Missed']];if(h.targetCount>1)statusChoices.push(['IN_PROGRESS','In progress']);
+  showModal(`${heading(`${h.icon} ${h.name}`,nice(date,{weekday:'long',day:'numeric',month:'long'}))}<form id="log-form" data-id="${id}" data-date="${date}" data-draft-key="${draftKey}"><input name="status" type="hidden" value="${status}"><div class="status-choice" role="group" aria-label="Check-in status">${statusChoices.map(([value,label])=>`<button type="button" class="${value===status?'selected':''}" data-action="select-status" data-status="${value}" aria-pressed="${value===status}">${label}</button>`).join('')}</div>${h.targetCount>1?`<label class="field">Progress, if in progress<input name="progress" type="number" min="0" max="${h.targetCount-1}" step="1" value="${log?.status==='IN_PROGRESS'?log.progress:0}"><small>Target: ${h.targetCount} ${esc(h.targetUnit)}. Completed entries automatically use the target.</small></label>`:'<input name="progress" type="hidden" value="0">'}<p class="section-note">Tap a status to save it instantly. Skipped days protect your chain and give you room to breathe.</p><label class="field">A note for yourself · optional<textarea name="note" maxlength="4000" placeholder="How did today feel?">${esc(log?.note||'')}</textarea></label><p id="form-error" class="form-error" aria-live="polite"></p><button class="primary-button wide" type="submit">Save check-in</button>${log?`<button type="button" class="text-button danger wide" data-action="clear-log" data-id="${id}" data-date="${date}">Clear this check-in</button>`:''}<button class="text-button wide" type="button" data-action="close-modal">Keep draft & close</button></form>`,{kind:'log',id,date,draftKey});
 }
 function setLog(id,status,note=null,frozen=false,progress=null,date=selectedDate) {
   const next=changeLog(state,id,date,today,status,note,progress,frozen);
@@ -262,12 +274,14 @@ function rowMenu(id) {
   const h=habitFor(id);if(!h)return;
   const log=logFor(id),isDue=scheduled(h,selectedDate,state.pauses);
   const freezeSpent=state.freezes.some(f=>f.month===selectedDate.slice(0,7));
-  const canSkip=isDue&&log?.status!=='SKIPPED'&&log?.status!=='COMPLETED';
+  const canSkip=isDue&&log?.status!=='SKIPPED';
+  const canFail=isDue&&log?.status!=='FAILED';
   const canFreeze=isDue&&selectedDate<today&&(!log||['FAILED','IN_PROGRESS'].includes(log.status))&&!freezeSpent;
   const items=[
     `<button data-action="open-habit" data-id="${h.id}"><span class="menu-icon" aria-hidden="true">↗</span><span>Open details<small>History, trend, notes and management</small></span></button>`,
     `<button data-action="edit-habit" data-id="${h.id}"><span class="menu-icon" aria-hidden="true">✎</span><span>Edit habit</span></button>`,
-    canSkip?`<button data-action="row-skip" data-id="${h.id}"><span class="menu-icon" aria-hidden="true">↳</span><span>Skip this day<small>Protects your chain · can be undone</small></span></button>`:'',
+    canSkip?`<button data-action="row-skip" data-id="${h.id}"><span class="menu-icon" aria-hidden="true">↳</span><span>Skip this day<small>${log?.status==='COMPLETED'?'Replaces the completion · ':'Protects your chain · '}can be undone</small></span></button>`:'',
+    canFail?`<button data-action="row-fail" data-id="${h.id}" class="danger"><span class="menu-icon" aria-hidden="true">✕</span><span>Mark as missed<small>Breaks the chain · can be undone</small></span></button>`:'',
     `<button data-action="edit-log" data-id="${h.id}" data-default="${log?.status||'COMPLETED'}" ${!isDue?'disabled':''}><span class="menu-icon" aria-hidden="true">✓</span><span>${log?'Edit this check-in':'Add check-in with a note'}</span></button>`,
     canFreeze?`<button data-action="freeze" data-id="${h.id}"><span class="menu-icon" aria-hidden="true">❄</span><span>Use freeze for ${esc(selectedDate.slice(0,7))}<small>One freeze per month</small></span></button>`:'',
     `<button data-action="archive-habit" data-id="${h.id}"><span class="menu-icon" aria-hidden="true">⌸</span><span>${h.isArchived?'Restore habit':'Archive · keep history'}</span></button>`
@@ -298,7 +312,10 @@ document.addEventListener('click',event=>{
       case 'move-up':moveHabit(id,-1);break;
       case 'move-down':moveHabit(id,1);break;
       case 'row-menu':rowMenu(id);break;
+      case 'focus-unmarked':{focusUnmarkedDate=plusDays(today,-1);selectedDate=focusUnmarkedDate;render();const first=app.querySelector('.habit-row.is-nudged .row-main');if(first){first.focus({preventScroll:true});first.scrollIntoView({block:'center'});}break;}
+      case 'dismiss-nudge':nudgeDismissedDate=plusDays(today,-1);render();document.getElementById('checkin-date')?.focus({preventScroll:true});break;
       case 'row-skip':closeModal(true);setLog(id,'SKIPPED',logFor(id)?.note);break;
+      case 'row-fail':closeModal(true);setLog(id,'FAILED',logFor(id)?.note);break;
       case 'toggle-filter-panel':filterPanelOpen=!filterPanelOpen;render();if(filterPanelOpen)$('#category-filter')?.focus();break;
       case 'toggle-search':searchOpen=!searchOpen;render();if(searchOpen)$('#habit-search')?.focus();break;
       case 'remove-filter':{const key=button.dataset.key;if(key==='query')filters.query='';else if(key==='category')filters.category='';else if(key==='status')filters.status='all';render();break;}
@@ -312,7 +329,7 @@ document.addEventListener('click',event=>{
       case 'next-day':if(selectedDate<today){selectedDate=plusDays(selectedDate,1);render();}break;
       case 'back-today':selectedDate=today;render();break;
       case 'select-color':{const form=$('#habit-form');form.elements.colorHex.value=button.dataset.color;form.querySelectorAll('.color-swatch').forEach(chip=>{const selected=chip===button;chip.classList.toggle('selected',selected);chip.setAttribute('aria-pressed',String(selected));});captureDraft();break;}
-      case 'select-status':{const form=$('#log-form');form.elements.status.value=button.dataset.status;form.querySelectorAll('.status-choice button').forEach(chip=>{const selected=chip===button;chip.classList.toggle('selected',selected);chip.setAttribute('aria-pressed',String(selected));});captureDraft();break;}
+      case 'select-status':{const form=$('#log-form');if(!form)break;const changed=form.elements.status.value!==button.dataset.status;form.elements.status.value=button.dataset.status;form.querySelectorAll('.status-choice button').forEach(chip=>{const selected=chip===button;chip.classList.toggle('selected',selected);chip.setAttribute('aria-pressed',String(selected));});captureDraft();if(changed){if(typeof form.requestSubmit==='function')form.requestSubmit();else form.dispatchEvent(new Event('submit',{cancelable:true}));}break;}
       case 'clear-log':{
         const date=button.dataset.date,h=habitFor(id);if(!h||h.isArchived||!scheduled(h,date,state.pauses))throw Error('Restore this habit and choose a scheduled day first.');
         clearDraft(dialogContext?.draftKey);closeModal(true);commit({...state,logs:state.logs.filter(l=>!(l.habitId===id&&l.date===date))},'Check-in cleared.');break;
@@ -325,6 +342,8 @@ document.addEventListener('click',event=>{
       case 'choose-theme':showModal(`${heading('Make yourself at home')}<div class="status-choice" role="group" aria-label="Theme">${['LIGHT','DARK','SYSTEM'].map(t=>`<button class="${state.settings.theme===t?'selected':''}" data-action="set-theme" data-theme="${t}" aria-pressed="${state.settings.theme===t}">${t==='SYSTEM'?'System':t==='LIGHT'?'☀ Light':'☾ Dark'}</button>`).join('')}</div><p class="section-note">Your preference is saved only in this browser preview.</p>`);break;
       case 'set-theme':closeModal(true);commit({...state,settings:{...state.settings,theme:button.dataset.theme}},'Theme updated.',{undo:false});break;
       case 'toggle-reminder':commit({...state,settings:{...state.settings,backupReminder:!state.settings.backupReminder}},'Saved for Android. This browser does not schedule notifications.',{undo:false});break;
+      case 'set-reminder':showModal(`${heading('Daily check-in reminder','A gentle nudge at your time.')}<form id="reminder-form"><label class="field">Remind me at<input type="time" name="reminderTime" value="${prefs.reminderMinutes==null?'':`${String(Math.floor(prefs.reminderMinutes/60)).padStart(2,'0')}:${String(prefs.reminderMinutes%60).padStart(2,'0')}`}" required><small>In this preview the nudge appears in-app once per day after this time while habits are still open. The native app delivers a real notification.</small></label><p id="form-error" class="form-error" aria-live="polite"></p><button class="primary-button wide" type="submit">Save reminder time</button>${prefs.reminderMinutes!=null?'<button class="text-button wide" type="button" data-action="clear-reminder">Turn off</button>':''}<button class="text-button wide" type="button" data-action="close-modal">Cancel</button></form>`);break;
+      case 'clear-reminder':prefs.reminderMinutes=null;prefs.lastNudgeDate=null;savePrefs();closeModal(true);render();toast('Daily reminder turned off.');break;
       case 'toggle-dynamic':commit({...state,settings:{...state.settings,dynamicColor:!state.settings.dynamicColor}},'Saved for Android. Wallpaper colors require Material You.',{undo:false});break;
       case 'toggle-haptics':commit({...state,settings:{...state.settings,hapticsEnabled:!state.settings.hapticsEnabled}},'Saved for Android. This browser preview does not vibrate.',{undo:false});break;
       case 'toggle-animations':commit({...state,settings:{...state.settings,animationsEnabled:!state.settings.animationsEnabled}},'Animation preference updated.',{undo:false});break;
@@ -367,6 +386,12 @@ document.addEventListener('submit',async event=>{
     } else if(form.id==='log-form') {
       const next=changeLog(state,Number(form.dataset.id),form.dataset.date,today,values.status,values.note,Number(values.progress));
       clearDraft(form.dataset.draftKey);closeModal(true);commit(next,values.status==='SKIPPED'?'Skipped. Your chain is protected.':'Check-in saved.');
+    } else if(form.id==='reminder-form') {
+      const time=values.reminderTime;
+      if(!time)throw Error('Choose a time for the reminder.');
+      const minutes=Number(time.slice(0,2))*60+Number(time.slice(3));
+      if(!Number.isInteger(minutes)||minutes<0||minutes>1439)throw Error('Choose a valid time.');
+      prefs.reminderMinutes=minutes;prefs.lastNudgeDate=null;savePrefs();closeModal(true);render();toast(`Daily reminder set for ${time}.`);
     } else if(form.id==='delete-form'&&values.confirmation==='DELETE') {
       closeModal(true);commit(deleteValue(state,Number(form.dataset.id)),'Habit and history deleted.',{undo:false});navigate('today');
     } else if(form.id==='backup-export-form') {
@@ -391,7 +416,7 @@ document.addEventListener('input',event=>{
 });
 document.addEventListener('change',event=>{
   const target=event.target;
-  if(target.id==='checkin-date'){const date=target.value;if(date&&date<=today&&date>='1900-01-01'){selectedDate=date;render();}}
+  if(target.id==='checkin-date'){const date=target.value;if(date&&date<=today&&date>='1900-01-01'){focusUnmarkedDate=null;selectedDate=date;render();}}
   if(target.id==='category-filter'){filters.category=target.value;render();}
   if(target.id==='status-filter'){filters.status=target.value;render();}
   if(target.id==='period-select'){analyticsPeriod=target.value;render();}
@@ -430,9 +455,22 @@ modal.addEventListener('click',event=>{if(event.target===modal){const r=modal.ge
 modal.addEventListener('cancel',()=>{captureDraft();dialogContext=null;dialogOpener=null;});
 modal.addEventListener('close',()=>{dialogContext=null;if(dialogOpener&&document.contains(dialogOpener)&&!dialogOpener.disabled)dialogOpener.focus({preventScroll:true});dialogOpener=null;});
 window.addEventListener('beforeunload',captureDraft);
+function checkDailyNudge() {
+  if(prefs.reminderMinutes==null||recoveryText!==null)return;
+  if(document.visibilityState!=='visible')return;
+  const now=new Date(),minutes=now.getHours()*60+now.getMinutes();
+  if(minutes<prefs.reminderMinutes)return;
+  if(prefs.lastNudgeDate===today)return;
+  const open=unmarkedOn(state,today);
+  if(!open.length)return;
+  prefs.lastNudgeDate=today;savePrefs();
+  if(route!=='today')navigate('today');
+  toast(`Time to check in · ${open.length} habit${open.length===1?'':'s'} still open`);
+}
 function refreshClock() {
   const next=localDate(),previous=today;today=next;
   if(previous!==next){if(selectedDate===previous||selectedDate>next)selectedDate=next;lastUndo=null;render();toast('A new day, a new small beginning.');}
+  checkDailyNudge();
 }
 window.addEventListener('focus',refreshClock);
 window.addEventListener('pageshow',refreshClock);
@@ -445,4 +483,10 @@ window.addEventListener('storage',event=>{
 });
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',theme);
 
+const focusDateParam=urlParams.get('date');
+const focusDateValid=focusDateParam&&isDate(focusDateParam)&&focusDateParam<=today&&focusDateParam>='1900-01-01';
+if(focusDateValid)selectedDate=focusDateParam;
+if(urlParams.get('focus')==='unmarked')focusUnmarkedDate=focusDateValid?selectedDate:plusDays(today,-1);
 save();render();
+if(focusUnmarkedDate)requestAnimationFrame(()=>{app.querySelector('.habit-row.is-nudged')?.scrollIntoView({block:'center'});});
+checkDailyNudge();

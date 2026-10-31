@@ -12,6 +12,11 @@ const percent=rate=>rate.opportunities?Math.floor(rate.completed/rate.opportunit
 const rateFor=(state,from,through)=>completionRate(state,from,through);
 export function currentStreak(habit,logs,today,pauses=[]) { return streakValue(habit,logs,today,pauses); }
 
+/** Habits that were due on a date but carry no check-in record at all. */
+export function unmarkedOn(state, date) {
+  return state.habits.filter(habit => !habit.isArchived && scheduled(habit, date, state.pauses||[]) && !state.logs.some(log => log.habitId === habit.id && log.date === date));
+}
+
 /** Day-level completion state shared by the heatmap and consistency grids. */
 function dayState(state, cellDate, pool, dailyLogs) {
   const dueSet = new Set(pool.filter(habit => eligible(habit, cellDate, state.pauses||[])).map(habit => habit.id));

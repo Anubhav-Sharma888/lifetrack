@@ -57,6 +57,9 @@
 .an-cons-cell:hover{transform:scale(1.2);box-shadow:0 0 0 1px var(--surface,#fff),0 0 0 2px var(--green,#427c62)}
 .an-cons-cell:focus-visible{outline:2px solid var(--ink,#242b28);outline-offset:2px}
 .an-cons-cell.an-cell-today{box-shadow:0 0 0 1.5px var(--green,#427c62)}
+.an-date-picker{display:inline-flex;align-items:center;gap:8px;font-size:11px;color:var(--muted)}
+.an-date-picker input{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;min-height:34px;padding:4px 8px;max-width:150px}
+.an-date-picker input:focus{outline:2px solid var(--green);outline-offset:2px}
 .an-hab-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--line,#e7eae2)}
 .an-hab-row:first-of-type{border-top:0}
 .an-hab-icon{width:34px;height:34px;border-radius:9px;background:var(--soft,#f2f4ee);display:grid;place-items:center;font-size:17px;flex-shrink:0}

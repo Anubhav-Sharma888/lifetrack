@@ -14,7 +14,7 @@ function section(start, end) {
 const clickCode = section("document.addEventListener('click'", "document.addEventListener('submit'");
 const commitCode = section('function commit(', 'function navigate(');
 const setLogCode = section('function setLog(', 'function celebrate(');
-const act = new Function('initial', 'changeLog', `
+const act = new Function('initial', 'changeLog', 'actions', `
   let state = structuredClone(initial), revision = 0, lastUndo = null;
   const today = '2026-10-26', selectedDate = today, held = false;
   let listener;
@@ -25,10 +25,8 @@ const act = new Function('initial', 'changeLog', `
   ${setLogCode}
   ${clickCode}
   const click = action => listener({target: {closest: () => ({disabled: false, dataset: {action, id: '1'}})}});
-  click('row-skip');
-  const skipped = structuredClone(state);
-  click('undo');
-  return {skipped, undone: state};
+  for (const action of actions) click(action);
+  return state;
 `);
 
 for (const status of ['IN_PROGRESS', 'FAILED']) {
@@ -38,10 +36,36 @@ for (const status of ['IN_PROGRESS', 'FAILED']) {
       logs: [{id: 1, habitId: 1, date: '2026-10-26', status, note: 'Keep my note', progress: status === 'IN_PROGRESS' ? 3 : 0, isFrozen: false, createdAt: 100, updatedAt: 100}],
       pauses: [], freezes: []
     };
-    const {skipped, undone} = act(initial, changeLog);
+    const skipped = act(initial, changeLog, ['row-skip']);
     assert.equal(skipped.logs[0].status, 'SKIPPED');
     assert.equal(skipped.logs[0].progress, 0);
     assert.equal(skipped.logs[0].note, 'Keep my note');
+    const undone = act(initial, changeLog, ['row-skip', 'undo']);
     assert.deepEqual(undone, initial);
   });
 }
+
+test('quick mark-missed replaces a completed entry and undo restores it exactly', () => {
+  const initial = {
+    habits: [{id: 1, isArchived: false, startDate: '2026-10-01', targetCount: 8, scheduledDays: [0,1,2,3,4,5,6], scheduleHistory: []}],
+    logs: [{id: 1, habitId: 1, date: '2026-10-26', status: 'COMPLETED', note: 'Done early', progress: 8, isFrozen: false, createdAt: 100, updatedAt: 100}],
+    pauses: [], freezes: []
+  };
+  const failed = act(initial, changeLog, ['row-fail']);
+  assert.equal(failed.logs[0].status, 'FAILED');
+  assert.equal(failed.logs[0].progress, 0);
+  assert.equal(failed.logs[0].note, 'Done early');
+  const undone = act(initial, changeLog, ['row-fail', 'undo']);
+  assert.deepEqual(undone, initial);
+});
+
+test('quick actions refuse unscheduled days without touching records', () => {
+  const initial = {
+    habits: [{id: 1, isArchived: false, startDate: '2026-10-01', targetCount: 1, scheduledDays: [2], scheduleHistory: []}],
+    logs: [], pauses: [], freezes: []
+  };
+  for (const action of ['row-skip', 'row-fail']) {
+    const state = act(initial, changeLog, [action]);
+    assert.deepEqual(state.logs, [], `${action} must not write on a rest day`);
+  }
+});

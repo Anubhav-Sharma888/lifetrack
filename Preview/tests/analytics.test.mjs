@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { heatmapHTML, trendHTML, renderAnalytics, periodSummary, dailyCompletions, consistencyHTML, habitConsistencyHTML, periodTilesHTML } from '../dist/analytics.js';
+import { heatmapHTML, trendHTML, renderAnalytics, periodSummary, dailyCompletions, consistencyHTML, habitConsistencyHTML, periodTilesHTML, unmarkedOn } from '../dist/analytics.js';
 
 const today = '2026-10-28'; // Wednesday
 const habit = (id, scheduledDays = [1, 2, 3, 4, 5, 6, 7]) => ({
@@ -87,6 +87,13 @@ test('daily completions count only eligible scheduled days', () => {
   assert.deepEqual(series, [{date: '2026-10-26', count: 0}, {date: '2026-10-27', count: 1}, {date: '2026-10-28', count: 0}]);
 });
 
+test('unmarkedOn lists due habits without any record, skipping archived and future ones', () => {
+  assert.deepEqual(unmarkedOn(state, '2026-10-26').map(h => h.id), [1, 2], 'Monday: both habits due, neither has a record');
+  assert.deepEqual(unmarkedOn(state, '2026-10-27').map(h => h.id), [], 'completed and skipped days count as marked');
+  const wider = {...state, habits: [...state.habits, {...habit(3), isArchived: true, archivedOn: '2026-10-20'}, {...habit(4), startDate: '2026-10-29'}]};
+  assert.deepEqual(unmarkedOn(wider, '2026-10-26').map(h => h.id), [1, 2], 'archived and not-yet-started habits are excluded');
+});
+
 test('consistency grid marks skipped and frozen days with letters and a legend', () => {
   const html = consistencyHTML(state, today);
   assert.match(html, /data-date="2026-10-27"[^>]*>S<\/button>/);
@@ -94,13 +101,6 @@ test('consistency grid marks skipped and frozen days with letters and a legend',
   assert.match(html, /S marks a skipped day, F a frozen one/);
   assert.equal(html.match(/an-cons-col"/g).length, 12, 'twelve week columns');
   assert.match(html, /data-action="inspect-day"/);
-});
-
-test('desktop consistency grid has one keyboard entry point and an accessible date alternative', () => {
-  const html = consistencyHTML(state, today);
-  assert.equal((html.match(/tabindex="0"/g) || []).length, 1);
-  assert.match(html, new RegExp(`data-date="${today}"[^>]*tabindex="0"`));
-  assert.match(html, /<label[^>]*>Inspect a day<input type="date"[^>]*data-heatmap-date/);
 });
 
 test('habit consistency rows describe the 14-day strip accessibly', () => {
@@ -131,4 +131,11 @@ test('trend and redesigned analytics render summary-first content', () => {
   assert.doesNotMatch(page, /leaderboard|You are your only competition/);
   assert.match(page, /LONGER HISTORY/);
   assert.match(page, /period-select/);
+});
+
+test('desktop consistency grid has one keyboard entry point and an accessible date alternative', () => {
+  const html = consistencyHTML(state, today);
+  assert.equal((html.match(/tabindex="0"/g) || []).length, 1);
+  assert.match(html, new RegExp(`data-date="${today}"[^>]*tabindex="0"`));
+  assert.match(html, /<label[^>]*>Inspect a day<input type="date"[^>]*data-heatmap-date/);
 });
