@@ -8,6 +8,9 @@ const LOG_V1 = ['id','habitId','date','status','note','isFrozen','createdAt','up
 const LOG_V2 = [...LOG_V1,'progress'];
 const SETTINGS_V1 = ['id','theme','dynamicColor','backupReminder','lastExportAt'];
 const SETTINGS_V2 = [...SETTINGS_V1,'hapticsEnabled','animationsEnabled'];
+const ACTIVITY_V3 = ['id','name','icon','unit','target','sortOrder','createdAt','updatedAt'];
+const ACTIVITY_ENTRY_V3 = ['id','activityId','date','quantity','note','createdAt','updatedAt'];
+const positiveQuantity = value => typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= 1_000_000;
 
 export const copy = value => structuredClone(value);
 export const localDate = (date = new Date()) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
@@ -106,13 +109,14 @@ function maximumStart(today) {
   return value;
 }
 
-/** Validates the complete, versioned native backup before returning a normalized v2 state. */
+/** Validates the complete, versioned native backup before returning a normalized v3 state. */
 export function validateBackup(input,today=localDate()) {
-  require(input && [1,2].includes(input.formatVersion),'Choose a supported LifeTrack JSON backup (version 1 or 2).');
+  require(input && [1,2,3].includes(input.formatVersion),'Choose a supported LifeTrack JSON backup (version 1, 2 or 3).');
   const version=input.formatVersion;
-  record(input,version===1?['formatVersion','exportedAt','habits','logs','settings','freezes']:['formatVersion','exportedAt','habits','logs','settings','freezes','pauses'],'Backup');
+  record(input,version===1?['formatVersion','exportedAt','habits','logs','settings','freezes']:version===2?['formatVersion','exportedAt','habits','logs','settings','freezes','pauses']:['formatVersion','exportedAt','habits','logs','settings','freezes','pauses','activities','activityEntries'],'Backup');
   timestamp(input.exportedAt,'export');
   require(Array.isArray(input.habits)&&Array.isArray(input.logs)&&Array.isArray(input.freezes)&&(version===1||Array.isArray(input.pauses)),'Backup collections must be arrays.');
+  if (version===3) require(Array.isArray(input.activities)&&Array.isArray(input.activityEntries),'Backup collections must be arrays.');
   record(input.settings,version===1?SETTINGS_V1:SETTINGS_V2,'Settings');
   const settings=input.settings;
   require(settings.id===1&&['SYSTEM','LIGHT','DARK'].includes(settings.theme)&&typeof settings.dynamicColor==='boolean'&&typeof settings.backupReminder==='boolean','Invalid settings record.');
@@ -158,7 +162,7 @@ export function validateBackup(input,today=localDate()) {
     }
     for(const id of visited)completedStacks.add(id);
   }
-  let pauses=version===2?copy(input.pauses):[];
+  let pauses=version>=2?copy(input.pauses):[];
   if(version===1) {
     pauses=input.habits.filter(h=>h.isArchived).map((h,index)=>({id:index+1,habitId:h.id,startDate:plusDays(h.archivedOn,1),endDate:null}));
   }
@@ -202,17 +206,44 @@ export function validateBackup(input,today=localDate()) {
       require(log.status==='SKIPPED'&&freezeMonths.has(month)&&!frozenMonths.has(month),'Invalid frozen check-in or duplicate monthly freeze.');frozenMonths.add(month);
     }
   }
+  if (version===3) {
+    const activityIds=new Set();
+    for(const activity of input.activities) {
+      record(activity,ACTIVITY_V3,'Activity');
+      require(identifier(activity.id)&&!activityIds.has(activity.id),'Invalid or duplicate activity IDs.');activityIds.add(activity.id);
+      require(nonblank(activity.name,80),'Activity names must contain 1–80 characters.');
+      require(nonblank(activity.icon,32),'Choose an emoji or short icon for each activity.');
+      require(nonblank(activity.unit,24),'Activity units must contain 1–24 characters.');
+      require(activity.target===null||positiveQuantity(activity.target),'Activity targets must be between 0 and 1,000,000.');
+      require(integer(activity.sortOrder)&&activity.sortOrder<=2147483647,'Invalid activity order.');
+      timestamp(activity.createdAt,'activity creation');timestamp(activity.updatedAt,'activity update');require(activity.updatedAt>=activity.createdAt,'An activity update predates its creation.');
+    }
+    const entryIds=new Set(),entryPairs=new Set();
+    for(const entry of input.activityEntries) {
+      record(entry,ACTIVITY_ENTRY_V3,'Activity entry');
+      require(identifier(entry.id)&&!entryIds.has(entry.id),'Invalid or duplicate activity entry IDs.');entryIds.add(entry.id);
+      require(activityIds.has(entry.activityId),'An activity entry belongs to a missing activity.');
+      require(isDate(entry.date)&&entry.date>='1900-01-01'&&entry.date<=today,'Activity entries cannot be in the future.');
+      const pair=`${entry.activityId}:${entry.date}`;
+      require(!entryPairs.has(pair),'More than one activity entry exists for the same activity and date.');entryPairs.add(pair);
+      require(positiveQuantity(entry.quantity),'Activity quantities must be between 0 and 1,000,000.');
+      require(text(entry.note,1000,true),'Activity entry notes are limited to 1,000 characters.');
+      timestamp(entry.createdAt,'activity entry creation');timestamp(entry.updatedAt,'activity entry update');require(entry.updatedAt>=entry.createdAt,'An activity entry update predates its creation.');
+    }
+  }
   const normalized={
     habits:input.habits.map(h=>version===1?{...copy(h),scheduledDays:[...ALL_DAYS],targetCount:1,targetUnit:'times',reminderMinutes:null,scheduleHistory:[]}:copy(h)),
     logs:input.logs.map(l=>version===1?{...copy(l),progress:l.status==='COMPLETED'?1:0}:copy(l)),
     settings:version===1?{...copy(settings),hapticsEnabled:true,animationsEnabled:true}:copy(settings),
-    freezes:copy(input.freezes),pauses
+    freezes:copy(input.freezes),pauses,
+    activities:version===3?copy(input.activities):[],
+    activityEntries:version===3?copy(input.activityEntries):[]
   };
   return normalized;
 }
 
 export function makeBackup(state,exportedAt=Date.now()) {
-  return {formatVersion:2,exportedAt,habits:state.habits,logs:state.logs,settings:state.settings,freezes:state.freezes,pauses:state.pauses || []};
+  return {formatVersion:3,exportedAt,habits:state.habits,logs:state.logs,settings:state.settings,freezes:state.freezes,pauses:state.pauses || [],activities:state.activities || [],activityEntries:state.activityEntries || []};
 }
 export function parseBackup(text,today=localDate()) {
   require(typeof text==='string'&&new TextEncoder().encode(text).byteLength<=MAX_BACKUP_BYTES,'Backups must be 10 MB or smaller.');
@@ -228,7 +259,7 @@ export function encodeBackup(state,today=localDate(),exportedAt=Date.now()) {
 export function restoreStoredState(text,today=localDate()) {
   let state;try{state=JSON.parse(text);}catch{throw new Error('Saved preview data is not valid JSON.');}
   require(state && typeof state==='object','Saved preview data is incomplete.');
-  const version=Array.isArray(state.pauses)?2:1;
+  const version=Array.isArray(state.activities)||Array.isArray(state.activityEntries)?3:Array.isArray(state.pauses)?2:1;
   const exportedAt=Date.now();
   return validateBackup({formatVersion:version,exportedAt,...state},today);
 }
@@ -279,6 +310,70 @@ export function validateGoalEdit(existing,changed,logs) {
     changed.targetCount===existing.targetCount&&changed.targetUnit===existing.targetUnit,
     'Existing check-ins keep their original goal. Create a new habit to change its target or unit.'
   );
+}
+
+/* Activities: flexible, optional quantity tracking that never blocks on a schedule.
+   Unlike habit progress, recorded quantities are actuals — they may exceed any target. */
+
+export function saveActivity(state,input,today=localDate()) {
+  const existing=input.id?state.activities.find(a=>a.id===input.id):null;
+  const name=typeof input.name==='string'?input.name.trim():'';
+  const icon=typeof input.icon==='string'?input.icon.trim():'';
+  const unit=typeof input.unit==='string'?input.unit.trim():'';
+  require(nonblank(name,80),'Activity names must contain 1–80 characters.');
+  require(nonblank(icon,32),'Choose an emoji or short icon for the activity.');
+  require(nonblank(unit,24),'Activity units must contain 1–24 characters.');
+  const rawTarget=input.target==null||input.target===''?null:Number(input.target);
+  require(rawTarget===null||positiveQuantity(rawTarget),'Activity targets must be between 0 and 1,000,000.');
+  const now=Date.now();
+  const record=existing
+    ?{...existing,name,icon,unit,target:rawTarget,updatedAt:Math.max(now,existing.createdAt)}
+    :{id:Math.max(0,...state.activities.map(a=>a.id))+1,name,icon,unit,target:rawTarget,
+      sortOrder:Math.max(-1,...state.activities.map(a=>a.sortOrder))+1,createdAt:now,updatedAt:now};
+  const activities=existing?state.activities.map(a=>a.id===record.id?record:a):[...state.activities,record];
+  return {...state,activities};
+}
+
+export function deleteActivity(state,id) {
+  return {...state,activities:state.activities.filter(a=>a.id!==id),
+          activityEntries:state.activityEntries.filter(e=>e.activityId!==id)};
+}
+
+export function setActivityEntry(state,activityId,date,quantity,note=null,today=localDate()) {
+  const activity=state.activities.find(a=>a.id===activityId);
+  require(activity,'This activity no longer exists.');
+  require(isDate(date)&&date>='1900-01-01'&&date<=today,'Activity entries cannot be in the future.');
+  if(quantity==null||quantity==='')return clearActivityEntry(state,activityId,date);
+  const value=Number(quantity);
+  require(positiveQuantity(value),'Activity quantities must be between 0 and 1,000,000.');
+  const trimmed=typeof note==='string'&&note.trim()?note.trim().slice(0,1000):null;
+  require(text(trimmed,1000,true),'Activity entry notes are limited to 1,000 characters.');
+  const existing=state.activityEntries.find(e=>e.activityId===activityId&&e.date===date);
+  const now=Date.now();
+  const entry={id:existing?.id||Math.max(0,...state.activityEntries.map(e=>e.id))+1,activityId,date,
+               quantity:value,note:trimmed,createdAt:existing?.createdAt||now,updatedAt:Math.max(now,existing?.createdAt||0)};
+  const entries=existing?state.activityEntries.map(e=>e===existing?entry:e):[...state.activityEntries,entry];
+  return {...state,activityEntries:entries};
+}
+
+export function clearActivityEntry(state,activityId,date) {
+  return {...state,activityEntries:state.activityEntries.filter(e=>!(e.activityId===activityId&&e.date===date))};
+}
+
+export function activityEntriesFor(state,activityId) {
+  return state.activityEntries.filter(e=>e.activityId===activityId).sort((a,b)=>b.date.localeCompare(a.date));
+}
+
+export function activityTotals(state,activityId,from,through) {
+  const inRange=state.activityEntries.filter(e=>e.activityId===activityId&&e.date>=from&&e.date<=through);
+  return {total:inRange.reduce((sum,e)=>sum+e.quantity,0),days:inRange.length,
+          best:inRange.reduce((max,e)=>Math.max(max,e.quantity),0),
+          last:inRange.slice().sort((a,b)=>b.date.localeCompare(a.date))[0]||null};
+}
+
+/** Formats a quantity without a trailing .0 (32 or 1.5, never 32.0). */
+export function formatQuantity(value) {
+  return Number.isInteger(value)?String(value):String(Math.round(value*100)/100);
 }
 
 export function contrast(a,b) {

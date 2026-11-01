@@ -39,7 +39,9 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 @Composable
-fun AnalyticsScreen(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate, pauses: List<HabitPause> = emptyList()) {
+fun AnalyticsScreen(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate, pauses: List<HabitPause> = emptyList(),
+                    activities: List<com.lifetrack.app.data.WorkoutActivity> = emptyList(),
+                    activityEntries: List<com.lifetrack.app.data.ActivityEntry> = emptyList()) {
     val active = habits.filterNot { it.isArchived }
     val first = habits.minOfOrNull { it.startDate } ?: today
     val allTime = remember(habits, logs, today, pauses) { Analytics.rate(habits, logs, first, today, pauses) }
@@ -78,6 +80,28 @@ fun AnalyticsScreen(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate,
         ComparisonCard(habits, logs, today, pauses)
         AnalyticsPanel { CategoryDonut(habits, logs, today, pauses) }
         AnalyticsPanel { WeeklyBars(habits, logs, today, pauses) }
+        if (activities.isNotEmpty()) AnalyticsPanel {
+            Text("Activities · last 28 days", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(12.dp))
+            val window = today.minusDays(27)
+            activities.sortedBy { it.sortOrder }.forEach { activity ->
+                val inWindow = activityEntries.filter { it.activityId == activity.id && it.date in window..today }
+                val total = inWindow.sumOf { it.quantity }
+                val best = inWindow.maxOfOrNull { it.quantity } ?: 0.0
+                Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(activity.icon)
+                    Column(Modifier.weight(1f)) {
+                        Text(activity.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text("${activity.unit}${activity.target?.let { " · target ${if (it == it.toLong().toDouble()) it.toLong().toString() else it.toString()}/day" } ?: ""} · ${inWindow.size} day${if (inWindow.size == 1) "" else "s"} logged",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Text(if (total == total.toLong().toDouble()) total.toLong().toString() else total.toString(),
+                        fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+            Text("Actual quantities, recorded as performed — a best day above the target is a good day, never an overshoot.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         AnalyticsPanel {
             Text("Streak leaderboard", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(12.dp))

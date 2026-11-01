@@ -1,5 +1,6 @@
-import { scheduled, completionRate, currentStreak as streakValue } from './domain.js';
+import { scheduled, completionRate, currentStreak as streakValue } from './domain.js?v=1.2.0';
 const esc = (value = '') => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+const fmtQ = value => Number.isInteger(value) ? String(value) : String(Math.round(value * 100) / 100);
 const parse = value => new Date(`${value}T12:00:00Z`);
 const iso = value => value.toISOString().slice(0, 10);
 const plus = (value, days) => { const date = parse(value); date.setUTCDate(date.getUTCDate() + days); return iso(date); };
@@ -244,6 +245,27 @@ function donutHTML(state, today) {
   return `<section class="an-panel"><span class="an-eyebrow">WHAT MATTERS TO YOU</span><h2>Where your energy goes</h2><p class="an-caption">Completions by category · last 28 days</p><div class="an-donut-layout"><div class="an-donut" role="img" aria-label="Category breakdown, ${total} completions"><svg viewBox="0 0 120 120" aria-hidden="true"><circle class="an-donut-track" cx="60" cy="60" r="43"/>${arcs}</svg><span><strong>${total}</strong><small>check-ins</small></span></div><div class="an-category-list">${groups.length ? groups.map(([name,count],index) => `<div><i style="background:${palette[index % palette.length]}"></i><span>${esc(name)}</span><strong>${count}</strong></div>`).join('') : '<p class="an-caption">Your first check-in starts the picture.</p>'}</div></div></section>`;
 }
 
+/** Activities summary beside habit consistency: per-activity totals over the last 28 days. */
+export function activitiesPanelHTML(state, today, days = 28) {
+  const from = plus(today, -(days - 1));
+  const allActivities = state.activities || [];
+  const allEntries = state.activityEntries || [];
+  const rows = allActivities.slice().sort((a,b) => a.sortOrder - b.sortOrder).map(activity => {
+    const inRange = allEntries.filter(e => e.activityId === activity.id && e.date >= from && e.date <= today);
+    const total = inRange.reduce((sum, e) => sum + e.quantity, 0);
+    const best = inRange.reduce((max, e) => Math.max(max, e.quantity), 0);
+    const target = activity.target;
+    const targetNote = target == null ? '' : ` · target ${fmtQ(target)}/day`;
+    const aboveTarget = target != null && best > target ? ' · best above target ✓' : '';
+    return `<div class="an-hab-row"><span class="an-hab-icon" aria-hidden="true">${esc(activity.icon)}</span>
+      <div class="an-hab-copy"><strong>${esc(activity.name)}</strong><span class="an-hab-strip" role="img" aria-label="${esc(`${activity.name}: ${fmtQ(total)} ${activity.unit} across ${inRange.length} of the last ${days} days${targetNote}`)}">${inRange.length ? inRange.slice().sort((a,b) => a.date.localeCompare(b.date)).map(e => `<span class="an-hab-dot ${target != null && e.quantity >= target ? 'is-done' : 'is-partial'}" aria-hidden="true"></span>`).join('') : '<span class="an-caption">No entries in this window.</span>'}</span><small class="an-caption">${esc(`${fmtQ(total)} ${activity.unit} · ${inRange.length} day${inRange.length === 1 ? '' : 's'} logged${targetNote}${aboveTarget}`)}</small></div>
+      <span class="an-hab-stat"><strong>${fmtQ(total)}</strong><small>${esc(activity.unit)}</small></span></div>`;
+  }).join('');
+  return `<section class="an-panel"><div class="an-panel-heading"><div><span class="an-eyebrow">ACTIVITIES & WORKOUTS</span><h2>Activity log</h2></div><span class="an-badge">Last ${days} days</span></div>
+  <p class="an-caption">Actual quantities, recorded as performed — dots mark days at or above the target when one is set.</p>
+  ${allActivities.length ? rows : '<p class="an-caption">No activities yet — add one from Today to track workouts, runs and repetitions.</p>'}</section>`;
+}
+
 export function renderAnalytics(state, today, period = 'week') {
   const start = state.habits.reduce((first,habit) => habit.startDate < first ? habit.startDate : first,today);
   const allTime = rateFor(state,start,today);
@@ -253,6 +275,7 @@ export function renderAnalytics(state, today, period = 'week') {
   ${periodSummaryHTML(state,today,period)}
   ${dailyCheckinsHTML(state,today)}
   ${habitConsistencyHTML(state,today)}
+  ${activitiesPanelHTML(state,today)}
   ${donutHTML(state,today)}
   <section class="an-panel"><div class="an-panel-heading"><div><span class="an-eyebrow">KEEP YOUR MOMENTUM</span><h2>Current streaks</h2></div><span class="an-streak-icon" aria-hidden="true">♧</span></div><div class="an-streak-list">${leaders.length ? leaders.map(({habit,streak},index) => `<div class="an-leader"><span class="an-rank">${String(index+1).padStart(2,'0')}</span><span class="an-habit-icon">${esc(habit.icon)}</span><strong>${esc(habit.name)}</strong><span class="an-streak-count">${streak}<small>${streak === 1 ? 'day' : 'days'}</small></span></div>`).join('') : '<p class="an-caption">Your next check-in can start a new streak.</p>'}</div><p class="an-footnote">Completions add days. Skips and freezes protect the chain without counting as completions.</p></section>
   <section class="an-secondary"><span class="an-eyebrow">LONGER HISTORY</span>${heatmapHTML(state,today)}</section>

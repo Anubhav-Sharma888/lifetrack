@@ -1,0 +1,225 @@
+package com.lifetrack.app.ui
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.lifetrack.app.data.WorkoutActivity
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+
+private fun formatQuantityLabel(value: Double): String =
+    if (value == value.toLong().toDouble()) value.toLong().toString()
+    else String.format(java.util.Locale.US, "%.2f", value).trimEnd('0').trimEnd('.')
+
+/** Today-screen section: activity rows with Log/Edit and History, plus all activity dialogs. */
+@Composable
+fun ActivitySection(state: LifeTrackState, vm: HabitViewModel, date: LocalDate, modifier: Modifier = Modifier) {
+    val busy by vm.busy.collectAsState()
+    var editingActivityId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var loggingActivityId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var loggingDate by rememberSaveable { mutableStateOf<String?>(null) }
+    var historyActivityId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var deletingActivityId by rememberSaveable { mutableStateOf<Long?>(null) }
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Activities", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            TextButton(enabled = !busy, onClick = { editingActivityId = 0L }) {
+                Icon(Icons.Outlined.Add, null); Text("Activity")
+            }
+        }
+        if (state.activities.isEmpty()) {
+            Text("Track workouts, runs and repetitions — any activity, any day, in any combination.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TextButton(onClick = { editingActivityId = 0L }) { Text("Add your first activity") }
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                state.activities.sortedBy { it.sortOrder }.forEach { activity ->
+                    val entry = state.activityEntries.firstOrNull { it.activityId == activity.id && it.date == date }
+                    val weekAgo = date.minusDays(6)
+                    val week = state.activityEntries.filter { it.activityId == activity.id && it.date in weekAgo..date }
+                    val weekTotal = week.sumOf { it.quantity }
+                    val weekLabel = if (week.isEmpty()) "No entries this week" else "${formatQuantityLabel(weekTotal)} ${activity.unit} this week"
+                    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 1.dp, modifier = Modifier.fillMaxWidth()) {
+                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text(activity.icon, fontSize = 22.sp)
+                            Column(Modifier.weight(1f)) {
+                                Text(activity.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+                                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text(activity.unit + (activity.target?.let { " · target ${formatQuantityLabel(it)}" } ?: "") + " · $weekLabel",
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                entry?.note?.let { Text(it, style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1) }
+                            }
+                            entry?.let {
+                                Surface(shape = RoundedCornerShape(999.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+                                    Text("${formatQuantityLabel(it.quantity)} ${activity.unit}",
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                        style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                            IconButton(enabled = !busy, onClick = { historyActivityId = activity.id }) {
+                                Icon(Icons.Outlined.History, "History for ${activity.name}")
+                            }
+                            Button(enabled = !busy, onClick = { loggingActivityId = activity.id; loggingDate = date.toString() },
+                                modifier = Modifier.height(40.dp), contentPadding = PaddingValues(horizontal = 14.dp)) {
+                                Text(if (entry == null) "Log" else "Edit")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    editingActivityId?.let { id -> ActivityEditorDialog(id, state, vm, onDismiss = { editingActivityId = null }) }
+    loggingActivityId?.let { id ->
+        ActivityLogDialog(id, loggingDate?.let(LocalDate::parse) ?: date, state, vm, onDismiss = { loggingActivityId = null })
+    }
+    historyActivityId?.let { id ->
+        state.activities.firstOrNull { it.id == id }?.let { activity ->
+            ActivityHistoryDialog(activity, state, vm,
+                onDismiss = { historyActivityId = null },
+                onLogFor = { logDate -> historyActivityId = null; loggingActivityId = activity.id; loggingDate = logDate.toString() },
+                onDelete = { historyActivityId = null; deletingActivityId = activity.id })
+        }
+    }
+    deletingActivityId?.let { id ->
+        state.activities.firstOrNull { it.id == id }?.let { activity ->
+            val entryCount = state.activityEntries.count { it.activityId == id }
+            AlertDialog(onDismissRequest = { deletingActivityId = null }, title = { Text("Delete this activity?") }, text = {
+                Text("Deleting ${activity.name} also removes its $entryCount logged ${if (entryCount == 1) "entry" else "entries"}. This cannot be undone.")
+            }, confirmButton = { TextButton(enabled = !busy, onClick = { vm.deleteActivity(id, onSaved = { deletingActivityId = null }) }) {
+                Text("Delete activity", color = MaterialTheme.colorScheme.error) } },
+                dismissButton = { TextButton(onClick = { deletingActivityId = null }) { Text("Keep activity") } })
+        }
+    }
+}
+
+@Composable
+private fun ActivityEditorDialog(id: Long, state: LifeTrackState, vm: HabitViewModel, onDismiss: () -> Unit) {
+    val existing = state.activities.firstOrNull { it.id == id }
+    var name by rememberSaveable { mutableStateOf(existing?.name ?: "") }
+    var icon by rememberSaveable { mutableStateOf(existing?.icon ?: "💪") }
+    var unit by rememberSaveable { mutableStateOf(existing?.unit ?: "") }
+    var target by rememberSaveable { mutableStateOf(existing?.target?.let { formatQuantityLabel(it) } ?: "") }
+    val busy by vm.busy.collectAsState()
+    val operationError by vm.operationError.collectAsState()
+    LaunchedEffect(id) { vm.clearOperationError() }
+    AlertDialog(onDismissRequest = { if (!busy) onDismiss() }, title = { Text(if (existing == null) "New activity" else "Edit activity") }, text = {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedTextField(name, { if (it.length <= 80) name = it }, label = { Text("Activity name") }, singleLine = true)
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(icon, { if (it.length <= 32) icon = it }, label = { Text("Emoji") }, singleLine = true, modifier = Modifier.weight(1f))
+                OutlinedTextField(unit, { if (it.length <= 24) unit = it }, label = { Text("Unit · pushups, miles…") }, singleLine = true, modifier = Modifier.weight(2f))
+            }
+            OutlinedTextField(target, { if (it.length <= 7 && it.all { c -> c.isDigit() || c == '.' }) target = it },
+                label = { Text("Daily target · optional") }, singleLine = true,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal))
+            Text("Actual quantities are recorded as-is: logging 32 against a 20 target is a good day, never an overshoot.", style = MaterialTheme.typography.bodySmall)
+            operationError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        }
+    }, confirmButton = { TextButton(enabled = !busy, onClick = {
+        vm.saveActivity(WorkoutActivity(id = existing?.id ?: 0, name = name.trim(), icon = icon.trim().ifBlank { "💪" },
+            unit = unit.trim(), target = target.toDoubleOrNull(), sortOrder = existing?.sortOrder ?: state.activities.size,
+            createdAt = existing?.createdAt ?: System.currentTimeMillis(), updatedAt = System.currentTimeMillis()),
+            onSaved = { onDismiss() })
+    }) { Text(if (busy) "Saving…" else "Save activity") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
+}
+
+@Composable
+private fun ActivityLogDialog(activityId: Long, date: LocalDate, state: LifeTrackState, vm: HabitViewModel, onDismiss: () -> Unit) {
+    val activity = state.activities.firstOrNull { it.id == activityId } ?: return
+    val entry = state.activityEntries.firstOrNull { it.activityId == activityId && it.date == date }
+    val last = state.activityEntries.filter { it.activityId == activityId }.maxByOrNull { it.date }
+    var quantity by rememberSaveable(activityId, date) {
+        mutableStateOf(entry?.let { formatQuantityLabel(it.quantity) }
+            ?: last?.let { formatQuantityLabel(it.quantity) } ?: activity.target?.let { formatQuantityLabel(it) } ?: "")
+    }
+    var note by rememberSaveable(activityId, date) { mutableStateOf(entry?.note ?: "") }
+    val busy by vm.busy.collectAsState()
+    val operationError by vm.operationError.collectAsState()
+    LaunchedEffect(activityId, date) { vm.clearOperationError() }
+    AlertDialog(onDismissRequest = { if (!busy) onDismiss() }, title = { Text("${activity.icon} ${activity.name}") }, text = {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(date.format(java.time.format.DateTimeFormatter.ofPattern("EEEE, d MMMM")), style = MaterialTheme.typography.labelLarge)
+            OutlinedTextField(quantity, { if (it.length <= 9 && (it.isEmpty() || it.all { c -> c.isDigit() || c == '.' })) quantity = it },
+                label = { Text("Quantity · ${activity.unit}") }, singleLine = true,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal))
+            Text(if (activity.target != null) "Target ${formatQuantityLabel(activity.target)} — actuals are recorded exactly as performed, even beyond it."
+                else "No target — log the real number. Same-day logs replace the previous value.", style = MaterialTheme.typography.bodySmall)
+            OutlinedTextField(note, { if (it.length <= 1000) note = it }, label = { Text("Note · optional") }, singleLine = true)
+            operationError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        }
+    }, confirmButton = { TextButton(enabled = !busy && quantity.toDoubleOrNull()?.let { it > 0 } == true, onClick = {
+        vm.setActivityEntry(activityId, date, quantity.toDouble(), note.ifBlank { null }, onSaved = onDismiss)
+    }) { Text(if (busy) "Saving…" else "Save entry") } }, dismissButton = {
+        Row {
+            if (entry != null) TextButton(enabled = !busy, onClick = { vm.clearActivityEntry(activityId, date, onSaved = onDismiss) }) {
+                Text("Clear entry", color = MaterialTheme.colorScheme.error) }
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    })
+}
+
+@Composable
+private fun ActivityHistoryDialog(activity: WorkoutActivity, state: LifeTrackState, vm: HabitViewModel,
+                                  onDismiss: () -> Unit, onLogFor: (LocalDate) -> Unit, onDelete: () -> Unit) {
+    val history = state.activityEntries.filter { it.activityId == activity.id }.sortedByDescending { it.date }
+    val monthAgo = LocalDate.now().minusDays(27)
+    val inWindow = history.filter { it.date >= monthAgo }
+    val total = inWindow.sumOf { it.quantity }
+    val best = inWindow.maxOfOrNull { it.quantity } ?: 0.0
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("${activity.icon} ${activity.name}") }, text = {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("History · newest first", style = MaterialTheme.typography.titleSmall)
+            if (activity.target != null) Text("Target ${formatQuantityLabel(activity.target)} ${activity.unit} per day · actuals may sit above or below it.",
+                style = MaterialTheme.typography.bodySmall)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Stat("${formatQuantityLabel(total)}", "LAST 28 DAYS", Modifier.weight(1f))
+                Stat("${inWindow.size}", "DAYS LOGGED", Modifier.weight(1f))
+                Stat("${formatQuantityLabel(best)}", "BEST DAY", Modifier.weight(1f))
+            }
+            if (history.isEmpty()) Text("No entries yet — log the first session from Today.", style = MaterialTheme.typography.bodySmall)
+            else Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                history.forEach { entry ->
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("${formatQuantityLabel(entry.quantity)} ${activity.unit} · ${entry.date}", style = MaterialTheme.typography.bodyMedium)
+                            entry.note?.let { Text(it, style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1) }
+                        }
+                        IconButton(onClick = { onLogFor(entry.date) }) {
+                            Icon(Icons.Outlined.Edit, "Edit ${activity.name} entry for ${entry.date}")
+                        }
+                    }
+                }
+            }
+            TextButton(enabled = !vm.busy.collectAsState().value, onClick = onDelete) {
+                Text("Delete activity", color = MaterialTheme.colorScheme.error) }
+            Text("History sits alongside habit consistency in Analytics.", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }, confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } })
+}
+
+@Composable
+private fun Stat(value: String, label: String, modifier: Modifier) {
+    OutlinedCard(modifier) { Column(Modifier.padding(10.dp)) {
+        Text(value, style = MaterialTheme.typography.titleMedium); Text(label, style = MaterialTheme.typography.labelSmall) } }
+}

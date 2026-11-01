@@ -11,6 +11,8 @@ import com.lifetrack.app.data.HabitLog
 import com.lifetrack.app.data.HabitRepository
 import com.lifetrack.app.data.LogStatus
 import com.lifetrack.app.data.HabitPause
+import com.lifetrack.app.data.WorkoutActivity
+import com.lifetrack.app.data.ActivityEntry
 import com.lifetrack.app.data.CheckInUndo
 import com.lifetrack.app.reminder.DailyCheckInReminderScheduler
 import com.lifetrack.app.reminder.DailyReminderStore
@@ -44,6 +46,8 @@ data class LifeTrackState(
     val today: LocalDate = LocalDate.now(),
     val loaded: Boolean = false,
     val pauses: List<HabitPause> = emptyList(),
+    val activities: List<WorkoutActivity> = emptyList(),
+    val activityEntries: List<ActivityEntry> = emptyList(),
     val loadError: String? = null
 )
 
@@ -75,6 +79,8 @@ class HabitViewModel @Inject constructor(
             habits, logs, settings, freezes, today ->
         LifeTrackState(habits, logs, settings, freezes, today, loaded = true)
     }.combine(repository.pauses) { current, pauses -> current.copy(pauses = pauses) }
+        .combine(repository.activities) { current, activities -> current.copy(activities = activities) }
+        .combine(repository.activityEntries) { current, entries -> current.copy(activityEntries = entries) }
         .catch { error ->
             if (error is CancellationException) throw error
             emit(LifeTrackState(loadError = "Your local data could not be opened. Retry or restart the app; do not clear storage."))
@@ -193,6 +199,30 @@ class HabitViewModel @Inject constructor(
     }
 
     fun updateSettings(settings: AppSettings) = perform { repository.updateSettings(settings) }
+
+    fun saveActivity(activity: WorkoutActivity, onSaved: (WorkoutActivity) -> Unit = {}) = perform {
+        val saved = repository.saveActivity(activity)
+        _events.emit(UiEvent.Message(if (activity.id == 0L) "Activity ready — log the first session" else "Activity updated"))
+        onSaved(saved)
+    }
+
+    fun deleteActivity(id: Long, onSaved: () -> Unit = {}) = perform {
+        repository.deleteActivity(id)
+        _events.emit(UiEvent.Message("Activity and its history deleted"))
+        onSaved()
+    }
+
+    fun setActivityEntry(activityId: Long, date: LocalDate, quantity: Double, note: String? = null, onSaved: () -> Unit = {}) = perform {
+        repository.setActivityEntry(activityId, date, quantity, note)
+        _events.emit(UiEvent.Message("Activity entry saved"))
+        onSaved()
+    }
+
+    fun clearActivityEntry(activityId: Long, date: LocalDate, onSaved: () -> Unit = {}) = perform {
+        repository.clearActivityEntry(activityId, date)
+        _events.emit(UiEvent.Message("Activity entry cleared"))
+        onSaved()
+    }
 
     val dailyReminderMinutes: StateFlow<Int?> = dailyReminderStore.minutes
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)

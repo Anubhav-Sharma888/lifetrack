@@ -62,4 +62,22 @@ interface HabitDao {
     @Query("DELETE FROM habits") suspend fun deleteHabits()
     @Query("DELETE FROM freeze_usage") suspend fun deleteFreezes()
     @Query("DELETE FROM app_settings") suspend fun deleteSettings()
+
+    @Query("SELECT * FROM activities ORDER BY sortOrder, id") fun observeActivities(): Flow<List<WorkoutActivity>>
+    @Query("SELECT * FROM activity_entries ORDER BY date, id") fun observeActivityEntries(): Flow<List<ActivityEntry>>
+    @Query("SELECT * FROM activities ORDER BY sortOrder, id") suspend fun allActivities(): List<WorkoutActivity>
+    @Query("SELECT * FROM activity_entries ORDER BY date, id") suspend fun allActivityEntries(): List<ActivityEntry>
+    @Query("SELECT * FROM activity_entries WHERE activityId = :activityId AND date = :date")
+    suspend fun activityEntry(activityId: Long, date: LocalDate): ActivityEntry?
+    @Query("SELECT * FROM activities WHERE id = :id") suspend fun activity(id: Long): WorkoutActivity?
+    @Query("DELETE FROM activity_entries WHERE activityId = :activityId AND date = :date")
+    suspend fun deleteActivityEntry(activityId: Long, date: LocalDate)
+    @Upsert suspend fun upsertActivity(activity: WorkoutActivity)
+    @Upsert suspend fun upsertActivityEntry(entry: ActivityEntry)
+    @Query("DELETE FROM activities WHERE id = :id") suspend fun deleteActivityById(id: Long)
+    @Query("DELETE FROM activity_entries WHERE activityId = :id") suspend fun deleteActivityEntriesByActivity(id: Long)
+    @Query("DELETE FROM activity_entries") suspend fun deleteAllActivityEntries()
+    @Query("DELETE FROM activities") suspend fun deleteAllActivities()
+    @Insert suspend fun insertActivities(activities: List<WorkoutActivity>)
+    @Insert suspend fun insertActivityEntries(entries: List<ActivityEntry>)
 }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { heatmapHTML, trendHTML, renderAnalytics, periodSummary, dailyCompletions, consistencyHTML, habitConsistencyHTML, periodTilesHTML, unmarkedOn } from '../dist/analytics.js';
+import { heatmapHTML, trendHTML, renderAnalytics, periodSummary, dailyCompletions, consistencyHTML, habitConsistencyHTML, periodTilesHTML, unmarkedOn, activitiesPanelHTML } from '../dist/analytics.js';
 
 const today = '2026-10-28'; // Wednesday
 const habit = (id, scheduledDays = [1, 2, 3, 4, 5, 6, 7]) => ({
@@ -131,6 +131,25 @@ test('trend and redesigned analytics render summary-first content', () => {
   assert.doesNotMatch(page, /leaderboard|You are your only competition/);
   assert.match(page, /LONGER HISTORY/);
   assert.match(page, /period-select/);
+});
+
+test('activities panel renders totals and tolerates states without activities', () => {
+  const withActivities = {...state, activities: [{id: 1, name: 'Push-ups', icon: '💪', unit: 'pushups', target: 20, sortOrder: 0, createdAt: 100, updatedAt: 100}], activityEntries: [{id: 1, activityId: 1, date: '2026-10-27', quantity: 32, note: null, createdAt: 100, updatedAt: 100}]};
+  const html = activitiesPanelHTML(withActivities, today);
+  assert.match(html, /Push-ups/);
+  assert.match(html, /32/);
+  assert.match(html, /1 day logged/);
+  assert.match(html, /target 20\/day/);
+  assert.match(html, /is-done/, 'a day at or above the target gets a completed dot');
+  // Structure guard: strip span and caption live inside the copy div; the stat
+  // span follows as a sibling — malformed nesting once broke the real DOM.
+  assert.match(html, /<\/span><small class="an-caption">[^]*?<\/small><\/div>\s*<span class="an-hab-stat">/);
+  const rowStatCount = (html.match(/an-hab-stat/g) || []).length;
+  assert.equal(rowStatCount, 1, 'each activity row carries exactly one stat span');
+  const without = activitiesPanelHTML(state, today);
+  assert.match(without, /No activities yet/);
+  const legacy = activitiesPanelHTML({habits: state.habits, logs: state.logs, pauses: []}, today);
+  assert.match(legacy, /No activities yet/, 'pre-activity states render the empty panel');
 });
 
 test('desktop consistency grid has one keyboard entry point and an accessible date alternative', () => {

@@ -183,6 +183,7 @@ fun TodayScreen(state: LifeTrackState, vm: HabitViewModel, onAdd: () -> Unit, on
             }
             item { Text("Tap to check in, use the ··· menu for one-tap skip or missed, or hold to set a count or note. Rest days protect your chain.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(4.dp)) }
         }
+        ActivitySection(state, vm, date, modifier = Modifier.padding(horizontal = 20.dp))
     }
     if (showDate) DateSelectionDialog(date, latest = state.today, onDismiss = { showDate = false }, onSelect = { selected = it.toString(); focusUnmarked = false; showDate = false })
     editingLogId?.let { id -> state.habits.firstOrNull { it.id == id }?.let { habit ->

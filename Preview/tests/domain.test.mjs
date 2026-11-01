@@ -25,7 +25,7 @@ test('v1 migrates daily schedule, target, progress and feedback defaults',()=>{
   const b=fixture();b.formatVersion=1;delete b.pauses;
   for(const h of b.habits)for(const key of ['scheduledDays','targetCount','targetUnit','reminderMinutes','scheduleHistory'])delete h[key];
   b.logs.forEach(l=>delete l.progress);delete b.settings.hapticsEnabled;delete b.settings.animationsEnabled;
-  const state=stateOf(b);assert.equal(state.logs[0].progress,1);assert.deepEqual(state.habits[0].scheduledDays,ALL_DAYS);assert.equal(state.settings.animationsEnabled,true);assert.equal(makeBackup(state).formatVersion,2);
+  const state=stateOf(b);assert.equal(state.logs[0].progress,1);assert.deepEqual(state.habits[0].scheduledDays,ALL_DAYS);assert.equal(state.settings.animationsEnabled,true);assert.equal(makeBackup(state).formatVersion,3);
 });
 test('v1 archived habit receives a pause beginning after its inclusive archive date',()=>{
   const b=fixture();b.formatVersion=1;delete b.pauses;for(const h of b.habits){h.isArchived=true;h.archivedOn='2026-10-25';for(const key of ['scheduledDays','targetCount','targetUnit','reminderMinutes','scheduleHistory'])delete h[key];}b.logs.forEach(l=>delete l.progress);delete b.settings.hapticsEnabled;delete b.settings.animationsEnabled;

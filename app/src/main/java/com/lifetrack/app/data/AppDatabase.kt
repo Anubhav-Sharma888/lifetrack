@@ -5,8 +5,8 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 
 @Database(
-    entities = [Habit::class, HabitLog::class, FreezeUsage::class, AppSettings::class, HabitPause::class, ReminderDelivery::class],
-    version = 2,
+    entities = [Habit::class, HabitLog::class, FreezeUsage::class, AppSettings::class, HabitPause::class, ReminderDelivery::class, WorkoutActivity::class, ActivityEntry::class],
+    version = 3,
     exportSchema = true
 )
 @TypeConverters(Converters::class)

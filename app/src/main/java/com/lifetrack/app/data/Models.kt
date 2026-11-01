@@ -129,3 +129,32 @@ class Converters {
     @TypeConverter fun revisionsToString(value: List<ScheduleRevision>): String = BackupValidator.json.encodeToString(value)
     @TypeConverter fun stringToRevisions(value: String): List<ScheduleRevision> = BackupValidator.json.decodeFromString(value)
 }
+
+/** A free-form activity (push-ups, running, crunches). Optional target; actuals are recorded unclamped. */
+@Serializable
+@Entity(tableName = "activities")
+data class WorkoutActivity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @Required val name: String,
+    @Required val icon: String = "💪",
+    @Required val unit: String,
+    val target: Double? = null,
+    @Required val sortOrder: Int = 0,
+    @Required val createdAt: Long = System.currentTimeMillis(),
+    @Required val updatedAt: Long = createdAt
+)
+
+/** One quantity record per activity per day; actuals may sit above or below any target. */
+@Serializable
+@Entity(tableName = "activity_entries", foreignKeys = [ForeignKey(
+    entity = WorkoutActivity::class, parentColumns = ["id"], childColumns = ["activityId"], onDelete = ForeignKey.CASCADE
+)], indices = [Index("activityId"), Index(value = ["activityId", "date"], unique = true)])
+data class ActivityEntry(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val activityId: Long,
+    @Serializable(with = LocalDateSerializer::class) val date: LocalDate,
+    @Required val quantity: Double,
+    @Required val note: String? = null,
+    @Required val createdAt: Long = System.currentTimeMillis(),
+    @Required val updatedAt: Long = createdAt
+)

@@ -42,6 +42,39 @@ class HabitRepository @Inject constructor(
     val freezes: Flow<List<FreezeUsage>> = dao.observeFreezes()
     val settings: Flow<AppSettings> = dao.observeSettings().map { it ?: AppSettings() }
     val pauses: Flow<List<HabitPause>> = dao.observePauses()
+    val activities: Flow<List<WorkoutActivity>> = dao.observeActivities()
+    val activityEntries: Flow<List<ActivityEntry>> = dao.observeActivityEntries()
+
+    /** Actual quantities are recorded exactly as performed; targets never clamp them. */
+    suspend fun saveActivity(activity: WorkoutActivity): WorkoutActivity = db.withTransaction {
+        require(activity.name.isNotBlank() && activity.name.length <= 80) { "Activity names must contain 1–80 characters." }
+        require(activity.icon.isNotBlank() && activity.icon.length <= 32) { "Choose an emoji or short icon for the activity." }
+        require(activity.unit.isNotBlank() && activity.unit.length <= 24) { "Activity units must contain 1–24 characters." }
+        require(activity.target == null || activity.target > 0 && activity.target <= 1_000_000.0) { "Activity targets must be between 0 and 1,000,000." }
+        val now = nextTimestamp(System.currentTimeMillis())
+        val saved = if (activity.id == 0L) activity.copy(createdAt = now, updatedAt = now) else activity.copy(updatedAt = now)
+        dao.upsertActivity(saved)
+        saved
+    }
+
+    suspend fun deleteActivity(id: Long) = db.withTransaction {
+        dao.deleteActivityEntriesByActivity(id)
+        dao.deleteActivityById(id)
+    }
+
+    suspend fun setActivityEntry(activityId: Long, date: LocalDate, quantity: Double, note: String? = null) = db.withTransaction {
+        require(dao.activity(activityId) != null) { "This activity no longer exists." }
+        require(quantity.isFinite() && quantity > 0 && quantity <= 1_000_000.0) { "Activity quantities must be between 0 and 1,000,000." }
+        require(note == null || note.length <= 1_000) { "Activity entry notes are limited to 1,000 characters." }
+        val existing = dao.activityEntry(activityId, date)
+        val now = nextTimestamp(System.currentTimeMillis(), existing?.createdAt ?: 0, existing?.updatedAt ?: 0)
+        dao.upsertActivityEntry(ActivityEntry(id = existing?.id ?: 0, activityId = activityId, date = date,
+            quantity = quantity, note = note?.ifBlank { null }, createdAt = existing?.createdAt ?: now, updatedAt = now))
+    }
+
+    suspend fun clearActivityEntry(activityId: Long, date: LocalDate) = db.withTransaction {
+        dao.deleteActivityEntry(activityId, date)
+    }
 
     /** Read both tables at one point in time, including while a backup is replacing the database. */
     suspend fun readSnapshot(date: LocalDate? = null): HabitSnapshot = db.withTransaction {
@@ -274,7 +307,8 @@ class HabitRepository @Inject constructor(
             LifeTrackBackup(
                 exportedAt = now, habits = dao.allHabits(), logs = dao.allLogs(),
                 settings = (dao.getSettings() ?: AppSettings()).copy(lastExportAt = now),
-                freezes = dao.allFreezes(), pauses = dao.allPauses()
+                freezes = dao.allFreezes(), pauses = dao.allPauses(),
+                activities = dao.allActivities(), activityEntries = dao.allActivityEntries()
             )
         }
         BackupValidator.validate(snapshot)
@@ -325,10 +359,14 @@ class HabitRepository @Inject constructor(
             dao.deleteHabits()
             dao.deleteFreezes()
             dao.deleteSettings()
+            dao.deleteAllActivityEntries()
+            dao.deleteAllActivities()
             dao.insertHabits(backup.habits)
             dao.insertLogs(backup.logs)
             dao.insertPauses(backup.pauses)
             dao.insertFreezes(backup.freezes)
+            dao.insertActivities(backup.activities)
+            dao.insertActivityEntries(backup.activityEntries)
             dao.saveSettings(backup.settings)
         }
     } }

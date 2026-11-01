@@ -23,4 +23,14 @@ object DatabaseMigrations {
             db.execSQL("CREATE TABLE IF NOT EXISTS reminder_deliveries (habitId INTEGER NOT NULL, date INTEGER NOT NULL, deliveredAt INTEGER NOT NULL, PRIMARY KEY(habitId, date), FOREIGN KEY(habitId) REFERENCES habits(id) ON UPDATE NO ACTION ON DELETE CASCADE)")
         }
     }
+
+    /** Activities arrive in version 3; existing habits, logs and settings are untouched. */
+    val MIGRATION_2_3 = object : Migration(2, 3) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS activities (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, name TEXT NOT NULL, icon TEXT NOT NULL, unit TEXT NOT NULL, target REAL, sortOrder INTEGER NOT NULL, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS activity_entries (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, activityId INTEGER NOT NULL, date INTEGER NOT NULL, quantity REAL NOT NULL, note TEXT, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, FOREIGN KEY(activityId) REFERENCES activities(id) ON UPDATE NO ACTION ON DELETE CASCADE)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_activity_entries_activityId ON activity_entries(activityId)")
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_activity_entries_activityId_date ON activity_entries(activityId, date)")
+        }
+    }
 }

@@ -142,7 +142,7 @@ fun SettingsScreen(state: LifeTrackState, vm: HabitViewModel, onOpen: (Long) -> 
             archived.forEach { habit -> SettingsAction("${habit.icon} ${habit.name}", "View history or restore", Icons.Outlined.Archive) { onOpen(habit.id) } }
         }
         HorizontalDivider()
-        SettingsAction("About LifeTrack", "Version 1.1.0 · Made for your own pace", Icons.Outlined.Info) { aboutDialog = true }
+        SettingsAction("About LifeTrack", "Version 1.2.0 · Made for your own pace", Icons.Outlined.Info) { aboutDialog = true }
         SettingsAction("Open-source licenses", "Runtime library license and notices", Icons.Outlined.Description) { licensesDialog = true }
         Spacer(Modifier.height(16.dp))
     }
@@ -201,7 +201,7 @@ fun SettingsScreen(state: LifeTrackState, vm: HabitViewModel, onOpen: (Long) -> 
     }, confirmButton = { TextButton(enabled = !busy && backupPassword.length >= 10 && backupPassword == confirmPassword, onClick = {
         vm.export(Uri.parse(path), backupPassword.toCharArray()) { pendingEncryptedExport = null; backupPassword = ""; confirmPassword = "" }
     }) { Text(if (busy) "Encrypting…" else "Encrypt and export") } }, dismissButton = { TextButton(enabled = !busy, onClick = { pendingEncryptedExport = null; backupPassword = ""; confirmPassword = "" }) { Text("Cancel") } }) }
-    if (aboutDialog) AlertDialog(onDismissRequest = { aboutDialog = false }, title = { Text("LifeTrack 1.1.0") }, text = {
+    if (aboutDialog) AlertDialog(onDismissRequest = { aboutDialog = false }, title = { Text("LifeTrack 1.2.0") }, text = {
         Text("An offline habit companion. Every habit has its own Day 1.\n\nAll user records live in a local Room database. There is no Internet permission or automatic cloud backup. Choose plain JSON for readability or optional password encryption for a private portable copy.\n\nLocal habit reminders are inexact and may be deferred by Android.\n\nCharts: Vico. Reordering: Calvin Reorderable. AndroidX, Kotlin and Hilt. Runtime libraries use Apache 2.0.", Modifier.verticalScroll(rememberScrollState()))
     }, confirmButton = { TextButton(onClick = { aboutDialog = false }) { Text("Close") } })
     if (licensesDialog) {

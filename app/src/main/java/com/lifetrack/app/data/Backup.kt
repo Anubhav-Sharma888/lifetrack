@@ -13,13 +13,15 @@ import java.time.YearMonth
 
 @Serializable
 data class LifeTrackBackup(
-    @Required val formatVersion: Int = 2,
+    @Required val formatVersion: Int = 3,
     val exportedAt: Long,
     val habits: List<Habit>,
     val logs: List<HabitLog>,
     val settings: AppSettings,
     val freezes: List<FreezeUsage>,
-    val pauses: List<HabitPause> = emptyList()
+    val pauses: List<HabitPause> = emptyList(),
+    val activities: List<WorkoutActivity> = emptyList(),
+    val activityEntries: List<ActivityEntry> = emptyList()
 )
 
 /** Validation is independent of Android/Room so corrupt imports can be rejected before writes. */
@@ -62,8 +64,27 @@ object BackupValidator {
         require(settings.lastExportAt == null || settings.lastExportAt >= 0) { "Invalid backup timestamp." }
     }
 
+    fun validateActivity(activity: WorkoutActivity, today: LocalDate = LocalDate.now()) {
+        require(activity.id >= 0 && activity.id < Long.MAX_VALUE) { "Invalid activity ID." }
+        require(activity.name.isNotBlank() && activity.name.length <= 80) { "Activity names must contain 1–80 characters." }
+        require(activity.icon.isNotBlank() && activity.icon.length <= 32) { "Choose an emoji or short icon for each activity." }
+        require(activity.unit.isNotBlank() && activity.unit.length <= 24) { "Activity units must contain 1–24 characters." }
+        require(activity.target == null || activity.target.isFinite() && activity.target > 0 && activity.target <= 1_000_000.0) { "Activity targets must be between 0 and 1,000,000." }
+        require(activity.sortOrder >= 0) { "Activity order cannot be negative." }
+        require(activity.createdAt >= 0 && activity.updatedAt >= activity.createdAt) { "Invalid activity timestamps." }
+    }
+
+    fun validateActivityEntry(entry: ActivityEntry, activityIds: Set<Long>, today: LocalDate = LocalDate.now()) {
+        require(entry.id >= 0 && entry.id < Long.MAX_VALUE) { "Invalid activity entry ID." }
+        require(entry.activityId in activityIds) { "An activity entry belongs to a missing activity." }
+        require(entry.date >= earliestDate && entry.date <= today) { "Activity entries cannot be in the future." }
+        require(entry.quantity.isFinite() && entry.quantity > 0 && entry.quantity <= 1_000_000.0) { "Activity quantities must be between 0 and 1,000,000." }
+        require(entry.note == null || entry.note.length <= 1_000) { "Activity entry notes are limited to 1,000 characters." }
+        require(entry.createdAt >= 0 && entry.updatedAt >= entry.createdAt) { "Invalid activity entry timestamps." }
+    }
+
     fun validate(backup: LifeTrackBackup, today: LocalDate = LocalDate.now()) {
-        require(backup.formatVersion in 1..2) { "This backup version is not supported by this app." }
+        require(backup.formatVersion in 1..3) { "This backup version is not supported by this app." }
         require(backup.exportedAt >= 0) { "Invalid export timestamp." }
         validateSettings(backup.settings)
         require(backup.habits.map { it.id }.toSet().size == backup.habits.size) { "Duplicate habit IDs in backup." }
@@ -106,9 +127,18 @@ object BackupValidator {
                 if (pause.endDate == null) require(habit.isArchived && pause.startDate == habit.archivedOn!!.plusDays(1)) { "An open pause must match an archived habit." }
             }
         }
-        if (backup.formatVersion == 2) backup.habits.filter { it.isArchived }.forEach { habit ->
+        if (backup.formatVersion >= 2) backup.habits.filter { it.isArchived }.forEach { habit ->
             require(backup.pauses.count { it.habitId == habit.id && it.endDate == null && it.startDate == habit.archivedOn!!.plusDays(1) } == 1) { "Archived habits must retain their open pause interval." }
         }
+        val activityIds = backup.activities.associateBy { it.id }
+        require(backup.activities.map { it.id }.toSet().size == backup.activities.size) { "Duplicate activity IDs in backup." }
+        backup.activities.forEach { activity ->
+            validateActivity(activity, today)
+            require(activity.id > 0) { "Backed-up activities must have saved IDs." }
+        }
+        require(backup.activityEntries.map { it.id }.toSet().size == backup.activityEntries.size) { "Duplicate activity entry IDs in backup." }
+        require(backup.activityEntries.map { it.activityId to it.date }.toSet().size == backup.activityEntries.size) { "More than one activity entry exists for the same activity and date." }
+        backup.activityEntries.forEach { entry -> validateActivityEntry(entry, activityIds.keys, today) }
         val frozenLogMonths = mutableSetOf<String>()
         backup.logs.forEach { log ->
             val habit = habits[log.habitId]
@@ -120,7 +150,7 @@ object BackupValidator {
             require(log.note == null || log.note.length <= 4_000) { "Check-in notes are limited to 4,000 characters." }
             require(log.createdAt >= 0 && log.updatedAt >= log.createdAt) { "Invalid check-in timestamps." }
             require(log.progress in 0..habit.targetCount) { "Check-in progress is outside its goal." }
-            if (backup.formatVersion == 2) {
+            if (backup.formatVersion >= 2) {
                 require(when (log.status) {
                     LogStatus.COMPLETED -> log.progress == habit.targetCount
                     LogStatus.IN_PROGRESS -> log.progress < habit.targetCount
@@ -138,8 +168,8 @@ object BackupValidator {
     fun decode(text: String, today: LocalDate = LocalDate.now()): LifeTrackBackup {
         val document = json.parseToJsonElement(text.removePrefix("\uFEFF")).jsonObject
         val version = document["formatVersion"]?.jsonPrimitive?.intOrNull
-        require(version in 1..2) { "This backup version is not supported by this app." }
-        if (version == 2) {
+        require(version != null && version in 1..3) { "This backup version is not supported by this app." }
+        if (version >= 2) {
             require("pauses" in document) { "This version 2 backup is missing its pause history." }
             (document["habits"] as? JsonArray)?.forEach { entry ->
                 require(setOf("scheduledDays", "targetCount", "targetUnit", "reminderMinutes", "scheduleHistory").all { it in entry.jsonObject }) { "This version 2 backup is missing habit scheduling or goal fields." }
@@ -147,17 +177,20 @@ object BackupValidator {
             (document["logs"] as? JsonArray)?.forEach { require("progress" in it.jsonObject) { "This version 2 backup is missing progress." } }
             require(setOf("hapticsEnabled", "animationsEnabled").all { it in document.getValue("settings").jsonObject }) { "This version 2 backup is missing feedback settings." }
         }
+        if (version >= 3) {
+            require("activities" in document && "activityEntries" in document) { "This version 3 backup is missing its activity collections." }
+        }
         val decoded = json.decodeFromString<LifeTrackBackup>(text.removePrefix("\uFEFF"))
         val normalized = if (version == 1) {
             val byId = decoded.habits.associateBy { it.id }
             decoded.copy(
-                formatVersion = 2,
+                formatVersion = 3,
                 logs = decoded.logs.map { log -> log.copy(progress = if (log.status == LogStatus.COMPLETED) byId[log.habitId]?.targetCount ?: 1 else 0) },
                 pauses = decoded.habits.filter { it.isArchived && it.archivedOn != null }.mapIndexed { index, habit ->
                     HabitPause(index + 1L, habit.id, habit.archivedOn!!.plusDays(1))
                 }
             )
-        } else decoded
+        } else decoded.copy(formatVersion = 3)
         validate(normalized, today)
         return normalized
     }

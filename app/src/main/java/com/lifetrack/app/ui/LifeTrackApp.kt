@@ -105,7 +105,7 @@ fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, vm: HabitView
                     }
                 } else NavHost(nav, "today", Modifier.padding(padding).consumeWindowInsets(padding)) {
                     composable("today") { TodayScreen(state, vm, onAdd = { nav.navigate("edit/0") }, onOpen = { nav.navigate("habit/$it") }) }
-                    composable("analytics") { AnalyticsScreen(state.habits, state.logs, state.today, state.pauses) }
+                    composable("analytics") { AnalyticsScreen(state.habits, state.logs, state.today, state.pauses, state.activities, state.activityEntries) }
                     composable("settings") { SettingsScreen(state, vm, onOpen = { nav.navigate("habit/$it") }) }
                     composable("habit/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) {
                         val id = it.arguments!!.getLong("id")

@@ -1,9 +1,11 @@
-import { renderAnalytics, heatmapHTML, currentStreak, trendHTML, periodTilesHTML, dailyCheckinsHTML, consistencyHTML, unmarkedOn } from './analytics.js';
-import { encryptBackup, decryptBackup, MAX_ENVELOPE_BYTES } from './backup-crypto.js';
+import { renderAnalytics, heatmapHTML, currentStreak, trendHTML, periodTilesHTML, dailyCheckinsHTML, consistencyHTML, unmarkedOn } from './analytics.js?v=1.2.0';
+import { encryptBackup, decryptBackup, MAX_ENVELOPE_BYTES } from './backup-crypto.js?v=1.2.0';
 import { ALL_DAYS, localDate, isDate, plusDays, dayDifference, dayNumber as relativeDay,
   scheduled, dueHabits, bestStreak as bestStreakValue, parseBackup, encodeBackup,
   makeBackup, validateBackup as validatePortableBackup, restoreStoredState, changeLog, changeProgress,
-  redeemFreeze, archiveHabit as archiveValue, deleteHabit as deleteValue, foregroundFor, copy, validateGoalEdit } from './domain.js';
+  redeemFreeze, archiveHabit as archiveValue, deleteHabit as deleteValue, foregroundFor, copy, validateGoalEdit,
+  saveActivity, deleteActivity as deleteActivityValue, setActivityEntry, clearActivityEntry,
+  activityEntriesFor, activityTotals, formatQuantity } from './domain.js?v=1.2.0';
 
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -64,7 +66,23 @@ function demoData() {
     }
   });
   [1,4].forEach(habitId => logs.push({id:id++,habitId,date:today,status:'COMPLETED',note:null,isFrozen:false,createdAt:Date.now(),updatedAt:Date.now(),progress:habits.find(h=>h.id===habitId).targetCount}));
-  return {habits,logs,freezes:[],pauses:[],settings:{id:1,theme:'LIGHT',dynamicColor:false,backupReminder:false,lastExportAt:null,hapticsEnabled:true,animationsEnabled:true}};
+  const activityDefs = [
+    ['Push-ups','💪','pushups',20],
+    ['Running','🏃‍♂️','miles',1],
+    ['Crunches','🔥','crunches',null],
+    ['Jumping jacks','⭐','jacks',null]
+  ];
+  const activities = activityDefs.map((d,i) => {
+    const timestamp = Date.now()-86400000*(10-i);
+    return {id:i+1,name:d[0],icon:d[1],unit:d[2],target:d[3],sortOrder:i,createdAt:timestamp,updatedAt:timestamp};
+  });
+  const activityEntries = []; let aid=1;
+  const addEntry = (activityId,date,quantity,note=null) => activityEntries.push({id:aid++,activityId,date,quantity,note,createdAt:Date.now(),updatedAt:Date.now()});
+  addEntry(1,plus(today,-3),20); addEntry(2,plus(today,-3),1);
+  addEntry(3,plus(today,-2),15); addEntry(1,plus(today,-2),15);
+  addEntry(4,plus(today,-1),15); addEntry(1,plus(today,-1),15);
+  addEntry(1,today,32,'Felt stronger than the target.'); addEntry(3,today,35); addEntry(2,today,0.75);
+  return {habits,logs,freezes:[],pauses:[],settings:{id:1,theme:'LIGHT',dynamicColor:false,backupReminder:false,lastExportAt:null,hapticsEnabled:true,animationsEnabled:true},activities,activityEntries};
 }
 
 let state, recoveryText=null, storageWarning='';
@@ -132,9 +150,25 @@ function todayHTML() {
     ${activeFilterKeys.length?`<div class="active-chips">${activeFilterKeys.map(([key,value])=>`<span class="filter-chip">${esc(value)}<button data-action="remove-filter" data-key="${key}" aria-label="Remove the ${esc(value)} filter">✕</button></span>`).join('')}</div>`:''}
     <div class="section-heading"><h3>Your habits <span class="result-count">${visible.length}</span></h3><button class="text-button" data-action="reorder">Reorder</button></div>
     <div class="habit-list">${visible.length?visible.map(habitCard).join(''):emptyStateHTML(active)}</div>
+    ${activitiesSectionHTML()}
     <button class="secondary-button wide" data-action="templates">✧ Start with a simple idea</button><div class="gentle-note"><span>✧</span>Progress isn’t always a straight line.<br>A little today is still a little more than yesterday.</div></div>`;
 }
 function emptyStateHTML(active){return `<div class="empty-state"><span>🌱</span><h3>${active.length?'No matching habits':'Start with something small'}</h3><p>${active.length?'Try another filter, or make room for a new intention.':'A page. A walk. A quiet minute.<br>Choose a habit and a start date that work for you.'}</p><button class="primary-button" data-action="${active.length?'clear-filters':'add-habit'}">${active.length?'Clear filters':'Create your first habit'}</button></div>`;}
+function activityRow(a) {
+  const entry = state.activityEntries.find(e => e.activityId === a.id && e.date === selectedDate);
+  const week = activityTotals(state, a.id, plus(selectedDate,-6), selectedDate);
+  const targetLabel = a.target ? ` · target ${formatQuantity(a.target)}` : '';
+  const logged = entry ? `${formatQuantity(entry.quantity)} ${a.unit}` : null;
+  const weekLabel = week.days ? `${formatQuantity(week.total)} ${a.unit} this week` : 'No entries this week';
+  return `<article class="activity-row" data-activity="${a.id}"><button class="row-main" data-action="open-activity" data-id="${a.id}"><span class="row-avatar" aria-hidden="true">${esc(a.icon)}</span><span class="row-copy"><strong>${esc(a.name)}</strong><span class="row-meta">${esc(a.unit)}${targetLabel} · <span class="day-count">${weekLabel}</span></span>${entry?.note ? `<span class="stack-cue">${esc(entry.note)}</span>` : ''}</span></button><div class="row-actions">${logged ? `<span class="goal-chip" aria-label="Logged today: ${esc(logged)}">${esc(logged)}</span>` : ''}<button class="primary-button log-button" data-action="log-activity" data-id="${a.id}" aria-label="Log ${esc(a.name)} for ${esc(nice(selectedDate))}">${entry ? 'Edit' : 'Log'}</button></div></article>`;
+}
+function activitiesSectionHTML() {
+  const activities = state.activities.slice().sort((a,b) => a.sortOrder - b.sortOrder);
+  const count = activities.length;
+  const header = `<div class="section-heading"><h3>Activities <span class="result-count">${count}</span></h3><button class="text-button" data-action="add-activity">＋ Activity</button></div>`;
+  if (!count) return `${header}<div class="empty-state slim"><span>🏋️</span><h3>Track a workout or activity</h3><p>Push-ups, runs, crunches — any activity, any day, in any combination. Quantities are yours: 32 of a 20 target is a good day.</p><button class="primary-button" data-action="add-activity">Add your first activity</button></div>`;
+  return `${header}<div class="habit-list">${activities.map(activityRow).join('')}</div>`;
+}
 function todayRailHTML(){return `${periodTilesHTML(state,today)}${dailyCheckinsHTML(state,today)}${consistencyHTML(state,today)}`;}
 function habitCard(h) {
   const log=logFor(h.id), day=dayNumber(h), status=log?.status,stack=habitFor(h.afterHabitId),isDue=scheduled(h,selectedDate,state.pauses);
@@ -289,8 +323,30 @@ function rowMenu(id) {
   showModal(`${heading(`${h.icon} ${h.name}`,h.isArchived?'This habit is archived.':'Quick actions')}<div class="menu-list">${items.join('')}</div><button class="text-button wide" type="button" data-action="close-modal">Close</button>`,{kind:'menu',id});
 }
 
-function exportDialog() {
-  showModal(`${heading('Keep your progress safe','Choose how to protect your backup.')}<form id="backup-export-form"><label class="checkbox-field"><input name="encrypted" type="checkbox" checked> Protect with a password</label><p class="section-note">Encrypted backups use AES-256-GCM. Keep your password somewhere safe; it cannot be recovered by LifeTrack. Passwords are never saved.</p><label class="field">Password<input name="password" type="password" required minlength="10" maxlength="1024" autocomplete="new-password"></label><label class="field">Confirm password<input name="confirmation" type="password" required minlength="10" maxlength="1024" autocomplete="new-password"></label><p class="section-note">Turn password protection off to export readable JSON.</p><p id="form-error" class="form-error" aria-live="polite"></p><button class="primary-button wide" type="submit">Prepare backup</button></form>`);
+function activityEditor(id=null) {
+  const a = id ? state.activities.find(x => x.id === id) : null;
+  const draftKey = a ? `activity:${a.id}` : 'activity:new';
+  if (id === null && !a) clearDraft(draftKey);
+  const targetValue = a?.target == null ? '' : formatQuantity(a.target);
+  showModal(`${heading(a ? 'Edit activity' : 'New activity', 'Any movement, any day — your numbers.')}<form id="activity-form" data-id="${a?.id||0}" data-draft-key="${draftKey}"><label class="field">Activity name<input name="name" required maxlength="80" placeholder="e.g. Push-ups" value="${esc(a?.name||'')}"></label><div class="field-row"><label class="field">Emoji<input name="icon" required maxlength="32" value="${esc(a?.icon||'💪')}"></label><label class="field">Unit<input name="unit" required maxlength="24" placeholder="pushups, miles…" value="${esc(a?.unit||'')}"></label></div><label class="field">Daily target · optional<input type="number" name="target" min="0.01" max="1000000" step="any" inputmode="decimal" value="${targetValue}" placeholder="No target — log freely"><small>Actual quantities are recorded as-is: logging 32 against a 20 target is a good day, never an overshoot.</small></label><p id="form-error" class="form-error" aria-live="polite"></p><button class="primary-button wide" type="submit">${a?'Save activity':'Create activity'}</button><button class="text-button wide" type="button" data-action="close-modal">Keep draft & close</button></form>`,{kind:'activity',id:a?.id||0,draftKey});
+}
+function activityLogDialog(id,dateOverride=null) {
+  const a = state.activities.find(x => x.id === id);if (!a)return;
+  const date = dateOverride && isDate(dateOverride) && dateOverride <= today ? dateOverride : selectedDate;
+  const entry = state.activityEntries.find(e => e.activityId === id && e.date === date);
+  const last = activityEntriesFor(state, id)[0];
+  const draftKey = `alog:${id}:${date}`;
+  const quantity = entry ? formatQuantity(entry.quantity) : (last && last.date === date ? formatQuantity(last.quantity) : (a.target != null ? formatQuantity(a.target) : ''));
+  showModal(`${heading(`${a.icon} ${a.name}`,nice(date,{weekday:'long',day:'numeric',month:'long'}))}<form id="activity-log-form" data-id="${id}" data-date="${date}" data-draft-key="${draftKey}"><label class="field">Quantity · ${esc(a.unit)}<input type="number" name="quantity" required min="0.01" max="1000000" step="any" inputmode="decimal" value="${quantity}"><small>${a.target!=null?`Target ${formatQuantity(a.target)} — actuals are recorded exactly as performed, even beyond it.`:'No target — log the real number.'} Same-day logs replace the previous value.</small></label><label class="field">Note · optional<input name="note" maxlength="1000" value="${esc(entry?.note||'')}" placeholder="How did it go?"></label>${entry?`<button type="button" class="text-button danger wide" data-action="clear-activity-entry" data-id="${id}" data-date="${date}">Clear this entry</button>`:''}<p id="form-error" class="form-error" aria-live="polite"></p><button class="primary-button wide" type="submit">Save entry</button><button class="text-button wide" type="button" data-action="close-modal">Cancel</button></form>`);
+}
+function activityHistoryDialog(id) {
+  const a = state.activities.find(x => x.id === id);if (!a)return;
+  const history = activityEntriesFor(state, id);
+  const totals = activityTotals(state, id, plus(today,-27), today);
+  const rows = history.length ? history.map(e => `<div class="reorder-list" style="border:0"><div style="border:0"><span>${esc(formatQuantity(e.quantity))} ${esc(a.unit)} · ${nice(e.date)}${e.note?` — ${esc(e.note)}`:''}</span><button class="icon-button" data-action="log-activity" data-id="${id}" data-date="${e.date}" aria-label="Edit ${esc(a.name)} entry for ${nice(e.date)}">✎</button></div></div>`).join('') : '<p class="section-note">No entries yet — log the first session from Today.</p>';
+  showModal(`${heading(`${a.icon} ${a.name}`,'History · last entry first')}<p class="section-note">${a.target!=null?`Target ${formatQuantity(a.target)} ${esc(a.unit)} per day · actuals may sit above or below it.`:'Free-form — no target.'}</p><div class="detail-stats"><div><strong>${formatQuantity(totals.total)}</strong><span>LAST 28 DAYS</span></div><div><strong>${totals.days}</strong><span>DAYS LOGGED</span></div><div><strong>${formatQuantity(totals.best)}</strong><span>BEST DAY</span></div></div><div style="max-height:280px;overflow:auto">${rows}</div><button class="primary-button wide" data-action="log-activity" data-id="${id}">Log for ${esc(nice(selectedDate))}</button><button class="text-button wide" data-action="close-modal">Close</button>`);
+}
+function exportDialog() {  showModal(`${heading('Keep your progress safe','Choose how to protect your backup.')}<form id="backup-export-form"><label class="checkbox-field"><input name="encrypted" type="checkbox" checked> Protect with a password</label><p class="section-note">Encrypted backups use AES-256-GCM. Keep your password somewhere safe; it cannot be recovered by LifeTrack. Passwords are never saved.</p><label class="field">Password<input name="password" type="password" required minlength="10" maxlength="1024" autocomplete="new-password"></label><label class="field">Confirm password<input name="confirmation" type="password" required minlength="10" maxlength="1024" autocomplete="new-password"></label><p class="section-note">Turn password protection off to export readable JSON.</p><p id="form-error" class="form-error" aria-live="polite"></p><button class="primary-button wide" type="submit">Prepare backup</button></form>`);
 }
 function confirmImport(restored,filename) {
   pendingBackup=restored;
@@ -350,9 +406,16 @@ document.addEventListener('click',event=>{
       case 'export-data':exportDialog();break;
       case 'import-data':$('#import-file').click();break;
       case 'confirm-import':if(pendingBackup){const restored=validatePortableBackup(makeBackup(pendingBackup),today);pendingBackup=null;recoveryText=null;storageWarning='';selectedDate=today;closeModal(true);commit(restored,'Backup restored in this browser preview.',{undo:false});}break;
-      case 'about':showModal(`${heading('LifeTrack 1.1.0','Small steps. Your own pace.')}<p class="section-note">A private habit companion built for your own timeline. Every habit has its own Day 1.<br><br>This browser adaptation uses separate local sample data. The native app uses Kotlin, Compose, Room and Hilt and provides actual Android reminders, widgets and haptics.<br><br>No external requests, accounts, ads or telemetry. Backup encryption is optional; plain JSON and browser storage remain readable to anyone with access to this device.</p><button class="primary-button wide" data-action="close-modal">Keep growing 🌱</button>`);break;
+      case 'about':showModal(`${heading('LifeTrack 1.2.0','Small steps. Your own pace.')}<p class="section-note">A private habit companion built for your own timeline. Every habit has its own Day 1. Activities track workouts and movements with real quantities.<br><br>This browser adaptation uses separate local sample data. The native app uses Kotlin, Compose, Room and Hilt and provides actual Android reminders, widgets, activities and haptics.<br><br>No external requests, accounts, ads or telemetry. Backup encryption is optional; plain JSON and browser storage remain readable to anyone with access to this device.</p><button class="primary-button wide" data-action="close-modal">Keep growing 🌱</button>`);break;
       case 'reset-demo':showModal(`${heading('Start fresh?')}<p class="section-note">Reset the browser preview to its original sample habits. Current preview changes will be replaced. Your native Android data is separate.${recoveryText!==null?'<br><br>Download the preserved original records before replacing them.':''}</p><button class="primary-button wide" data-action="confirm-reset">Reset sample data</button><button class="text-button wide" data-action="close-modal">Keep exploring</button>`);break;
       case 'confirm-reset':recoveryText=null;storageWarning='';selectedDate=today;closeModal(true);commit(demoData(),'A fresh little beginning.',{undo:false});navigate('today');break;
+      case 'add-activity':activityEditor(null);break;
+      case 'edit-activity':activityEditor(id);break;
+      case 'open-activity':activityHistoryDialog(id);break;
+      case 'log-activity':closeModal(true);activityLogDialog(id,button.dataset.date||null);break;
+      case 'delete-activity':{const a=state.activities.find(x=>x.id===id);const entries=state.activityEntries.filter(e=>e.activityId===id).length;showModal(`${heading('Delete this activity?')}<p class="section-note">Deleting ${esc(a.name)} also removes its ${entries} logged ${entries===1?'entry':'entries'}. This cannot be undone.</p><button class="danger-button wide" data-action="delete-activity-confirm" data-id="${id}">Delete activity</button><button class="text-button wide" data-action="close-modal">Keep activity</button>`);break;}
+      case 'delete-activity-confirm':closeModal(true);commit(deleteActivityValue(state,id),'Activity and its history deleted.',{undo:false});break;
+      case 'clear-activity-entry':{const date=button.dataset.date;clearDraft(`alog:${id}:${date}`);commit(clearActivityEntry(state,id,date),'Entry cleared.');closeModal(true);activityHistoryDialog(id);break;}
       case 'recover-storage':if(recoveryText!==null)download(recoveryText,`lifetrack-preserved-records-${today}.json`);break;
       case 'undo':if(lastUndo&&lastUndo.revision===revision){state=lastUndo.state;lastUndo=null;revision++;save();render();toast('Previous status, progress and note restored.');}else toast('A newer change is already saved.');break;
       case 'inspect-day':{const date=button.dataset.date,habit=button.dataset.habit?habitFor(Number(button.dataset.habit)):null,due=state.habits.filter(h=>(!habit||h.id===habit.id)&&scheduled(h,date,state.pauses)),done=state.logs.filter(l=>l.date===date&&l.status==='COMPLETED'&&due.some(h=>h.id===l.habitId)).length;toast(habit?`${habit.name} · ${nice(date,{day:'numeric',month:'short',year:'numeric'})} · ${done?'Completed':due.length?'Scheduled · not completed':'Rest day'}`:`${nice(date,{day:'numeric',month:'short',year:'numeric'})} · ${done} of ${due.length} habits completed${due.length?` · ${Math.round(done/due.length*100)}%`:''}`);break;}
@@ -386,6 +449,15 @@ document.addEventListener('submit',async event=>{
     } else if(form.id==='log-form') {
       const next=changeLog(state,Number(form.dataset.id),form.dataset.date,today,values.status,values.note,Number(values.progress));
       clearDraft(form.dataset.draftKey);closeModal(true);commit(next,values.status==='SKIPPED'?'Skipped. Your chain is protected.':'Check-in saved.');
+    } else if(form.id==='activity-form') {
+      const next=saveActivity(state,{id:Number(form.dataset.id)||null,name:values.name,icon:values.icon,unit:values.unit,target:values.target},today);
+      validatePortableBackup(makeBackup(next),today);
+      clearDraft(form.dataset.draftKey);closeModal(true);commit(next,form.dataset.id==='0'?'Activity ready — log the first session.':'Activity updated.');
+    } else if(form.id==='activity-log-form') {
+      const date=form.dataset.date;
+      const next=setActivityEntry(state,Number(form.dataset.id),date,values.quantity,values.note,today);
+      validatePortableBackup(makeBackup(next),today);
+      clearDraft(form.dataset.draftKey);closeModal(true);commit(next,`Logged for ${nice(date,{day:'numeric',month:'short'})}.`);
     } else if(form.id==='reminder-form') {
       const time=values.reminderTime;
       if(!time)throw Error('Choose a time for the reminder.');
