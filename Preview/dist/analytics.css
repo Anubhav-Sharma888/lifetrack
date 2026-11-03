@@ -86,3 +86,18 @@ body.dark .an-bar{background:color-mix(in srgb,var(--green) 30%,var(--surface))}
 body.dark .an-bar-current{background:var(--green)}
 body.dark .an-trend text{fill:var(--muted)}
 body.dark .an-trend line{stroke:var(--line)}
+
+/* ---------- Flight Recorder · flat ruled panels, fingerprint cells, tiles ---------- */
+/* Owned by this stylesheet so the recorder styles win equal-specificity order. */
+.an-panel{background:transparent;border:0;border-radius:0;border-top:1px solid var(--line,#e0d7c2);padding:18px 0}
+.an-page{gap:0}
+.an-page .an-panel + .an-panel{margin-top:0}
+.an-tile{background:transparent;border:0;border-top:1px solid var(--line,#e0d7c2);border-radius:0;padding:12px 0}
+.an-tiles{gap:24px}
+.an-cell{border-radius:40%}
+.an-cell:hover{transform:none}
+.an-level-4{background:var(--orange)}
+.an-cons-cell{border-radius:40%}
+.an-secondary{border:0}
+.an-hab-strip{background:linear-gradient(to bottom,transparent 45%,var(--line,#e0d7c2) 45%,var(--line,#e0d7c2) 55%,transparent 55%) left/100% 2px no-repeat}
+.an-hab-strip .an-hab-dot{background-clip:padding-box}

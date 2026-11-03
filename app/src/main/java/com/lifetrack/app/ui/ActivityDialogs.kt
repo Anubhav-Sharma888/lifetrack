@@ -3,6 +3,7 @@ package com.lifetrack.app.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -19,6 +20,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -43,17 +47,29 @@ private fun recorderLabel(status: LogStatus, progress: Int, isFrozen: Boolean): 
 }
 
 /** Flight Recorder: seven-day recording strip. The orange marker tracks the selected day;
- *  a filled tick marks days with completed recordings. Tapping a day switches the date. */
+ *  a filled tick marks days with completed recordings. Cells are at least 48dp wide
+ *  (horizontally scrollable on narrow screens) and expose full date, selection and
+ *  recording state to accessibility services. Tapping a day switches the date. */
 @Composable
 fun RecordingStrip(selected: LocalDate, today: LocalDate, completedDates: Set<LocalDate>, onSelect: (LocalDate) -> Unit, modifier: Modifier = Modifier) {
-    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    Row(modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         (6 downTo 0).forEach { ago ->
             val day = today.minusDays(ago.toLong())
             val isSelected = day == selected
             val hasLogs = day in completedDates
+            val dayLabel = day.format(DateTimeFormatter.ofPattern("EEEE, d MMMM", Locale.getDefault()))
             Column(
-                modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp))
+                modifier = Modifier.widthIn(min = 52.dp).clip(RoundedCornerShape(8.dp))
                     .clickable(enabled = day <= today, onClick = { onSelect(day) })
+                    .semantics {
+                        contentDescription = "$dayLabel · " + when {
+                            hasLogs && isSelected -> "has recordings · selected day"
+                            hasLogs -> "has recordings"
+                            isSelected -> "selected day · no recordings yet"
+                            else -> "no recordings yet"
+                        }
+                        this.selected = isSelected
+                    }
                     .padding(vertical = 6.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {

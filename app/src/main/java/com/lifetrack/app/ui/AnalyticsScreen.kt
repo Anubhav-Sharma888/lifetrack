@@ -86,20 +86,27 @@ fun AnalyticsScreen(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate,
             val window = today.minusDays(27)
             activities.sortedBy { it.sortOrder }.forEach { activity ->
                 val inWindow = activityEntries.filter { it.activityId == activity.id && it.date in window..today }
+                    .sortedBy { it.date }
                 val total = inWindow.sumOf { it.quantity }
                 val best = inWindow.maxOfOrNull { it.quantity } ?: 0.0
+                val datedText = if (inWindow.isEmpty()) "No entries in this window."
+                    else "Oldest to newest: " + inWindow.joinToString(" · ") { entry ->
+                        "${if (entry.quantity == entry.quantity.toLong().toDouble()) entry.quantity.toLong().toString() else entry.quantity.toString()} ${activity.unit} on ${entry.date}"
+                    }
                 Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(activity.icon)
                     Column(Modifier.weight(1f)) {
                         Text(activity.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text("${activity.unit}${activity.target?.let { " · target ${if (it == it.toLong().toDouble()) it.toLong().toString() else it.toString()}/day" } ?: ""} · ${inWindow.size} day${if (inWindow.size == 1) "" else "s"} logged",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (inWindow.isNotEmpty()) ExerciseTrace(activity, inWindow, modifier = Modifier.padding(top = 4.dp))
+                        Text(datedText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Text(if (total == total.toLong().toDouble()) total.toLong().toString() else total.toString(),
                         fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
                 }
             }
-            Text("Actual quantities, recorded as performed — a best day above the target is a good day, never an overshoot.",
+            Text("Actual quantities, recorded as performed — a best day above the target is a good day, never an overshoot. Each activity is compared separately; a day total is not a single-set record.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         AnalyticsPanel {
