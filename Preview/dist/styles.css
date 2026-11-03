@@ -197,7 +197,7 @@ body.quiet .check-button:hover:not(:disabled){transform:none}
 .primary-button,.secondary-button,.danger-button{border:0;border-radius:var(--r-12);min-height:48px;padding:12px 18px;font-size:14px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:8px}
 .primary-button{background:var(--green);color:var(--on-green)}
 .primary-button:hover{filter:brightness(1.08)}
-body.dark .primary-button:hover{filter:none;background:#b8e2c6}
+body.dark .primary-button:hover{filter:none;background:var(--orange)}
 .secondary-button{background:var(--soft);color:var(--green)}
 .secondary-button:hover{filter:brightness(.985)}
 .danger-button{background:var(--red-soft);color:var(--red)}
@@ -320,15 +320,13 @@ body.dark .toast{background:#dfeee2;color:#132119}
 /* ---------- Flight Recorder · recording strip, spine, traces, fingerprint ---------- */
 .today-title{font-family:var(--font-display);font-size:40px;line-height:.95;font-weight:700;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
 .today-sub{font-size:12px;letter-spacing:.6px;text-transform:uppercase}
-.record-strip{display:flex;gap:4px;margin:0 0 4px}
-.record-strip button{flex:1;min-height:48px;border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:10px;letter-spacing:.5px;color:var(--muted);border-top:3px solid transparent;padding-top:6px;cursor:pointer}
+.record-strip{display:flex;gap:4px;margin:0 0 4px;overflow-x:auto}
+.record-strip button{flex:0 0 auto;min-width:48px;min-height:48px;border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:10px;letter-spacing:.5px;color:var(--muted);border-top:3px solid transparent;padding-top:6px;cursor:pointer}
 .record-strip button .d{font-size:16px;font-variant-numeric:tabular-nums}
 .record-strip button:hover{color:var(--ink)}
 .record-strip button[aria-pressed="true"]{color:var(--ink);border-top-color:var(--orange);font-weight:600}
 .record-strip button .tick{width:7px;height:7px;border-radius:50%;background:var(--orange);visibility:hidden}
 .record-strip button.has-logs .tick{visibility:visible}
-.record-strip{overflow-x:auto}
-.record-strip button{flex:0 0 auto;min-width:48px;min-height:48px}
 .habit-list{position:relative;padding-left:22px}
 .habit-list::before{content:"";position:absolute;left:5px;top:16px;bottom:16px;width:2px;background:var(--line)}
 .habit-list .habit-row::before,.habit-list .activity-row::before{content:"";position:absolute;left:-22px;top:50%;width:8px;height:8px;margin-top:-4px;border-radius:50%;background:var(--paper);border:2px solid var(--muted)}
@@ -339,7 +337,9 @@ body.dark .toast{background:#dfeee2;color:#132119}
 .nudge-banner{border-color:var(--orange);background:var(--orange-soft)}
 .nudge-banner strong,.nudge-banner small{color:var(--ink)}
 .nudge-banner .primary-button{background:var(--ink);color:var(--paper);border:1.5px solid var(--orange)}
-body.dark .nudge-banner .primary-button{color:var(--ink);border-color:var(--orange)}
+/* Dark mode inherits the same rule: cream button with charcoal text (14.5:1).
+   Hover shifts to the electric orange marker with charcoal text (6.8:1). */
+body.dark .primary-button:hover{background:var(--orange)}
 .section-heading{border-top:1px solid var(--line);padding-top:12px;margin-top:16px}
 .modal-heading{border-bottom:1px solid var(--line);padding-bottom:10px}
 .settings-section-title{border-top:1px solid var(--line);padding-top:14px;margin-top:22px}
