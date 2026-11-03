@@ -130,12 +130,12 @@ fun AnalyticsScreen(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate,
     }
 }
 
+/** Flight Recorder: flat ruled section — a thin measurement rule instead of a card. */
 @Composable
 fun AnalyticsPanel(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-    OutlinedCard(modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .6f))) {
-        Column(Modifier.padding(18.dp), content = content)
+    Column(modifier.fillMaxWidth()) {
+        Box(Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
+        Column(Modifier.padding(top = 16.dp, bottom = 6.dp), content = content)
     }
 }
 
@@ -143,8 +143,8 @@ fun AnalyticsPanel(modifier: Modifier = Modifier, content: @Composable ColumnSco
 private fun MetricCard(label: String, value: String, modifier: Modifier) {
     AnalyticsPanel(modifier) {
         Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(8.dp))
-        Text(value, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(6.dp))
+        Text(value, style = MaterialTheme.typography.headlineMedium.copy(fontFeatureSettings = "tnum"), fontWeight = FontWeight.Bold)
     }
 }
 
