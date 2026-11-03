@@ -1,7 +1,11 @@
 package com.lifetrack.app.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -13,17 +17,117 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lifetrack.app.data.ActivityEntry
+import com.lifetrack.app.data.HabitLog
+import com.lifetrack.app.data.LogStatus
 import com.lifetrack.app.data.WorkoutActivity
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 private fun formatQuantityLabel(value: Double): String =
     if (value == value.toLong().toDouble()) value.toLong().toString()
     else String.format(java.util.Locale.US, "%.2f", value).trimEnd('0').trimEnd('.')
+
+private fun recorderLabel(status: LogStatus, progress: Int, isFrozen: Boolean): String = when (status) {
+    LogStatus.COMPLETED -> "Completed"
+    LogStatus.SKIPPED -> if (isFrozen) "Frozen" else "Skipped"
+    LogStatus.FAILED -> "Missed"
+    LogStatus.IN_PROGRESS -> "$progress in progress"
+}
+
+/** Flight Recorder: seven-day recording strip. The orange marker tracks the selected day;
+ *  a filled tick marks days with completed recordings. Tapping a day switches the date. */
+@Composable
+fun RecordingStrip(selected: LocalDate, today: LocalDate, completedDates: Set<LocalDate>, onSelect: (LocalDate) -> Unit, modifier: Modifier = Modifier) {
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        (6 downTo 0).forEach { ago ->
+            val day = today.minusDays(ago.toLong())
+            val isSelected = day == selected
+            val hasLogs = day in completedDates
+            Column(
+                modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp))
+                    .clickable(enabled = day <= today, onClick = { onSelect(day) })
+                    .padding(vertical = 6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(Modifier.fillMaxWidth(0.6f).height(3.dp).clip(RoundedCornerShape(2.dp))
+                    .background(if (isSelected) MaterialTheme.colorScheme.secondary else Color.Transparent))
+                Spacer(Modifier.height(4.dp))
+                Text(day.format(DateTimeFormatter.ofPattern("EEE", Locale.getDefault())),
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("${day.dayOfMonth}", style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                    color = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(4.dp))
+                Box(Modifier.size(7.dp).clip(CircleShape).background(
+                    when {
+                        hasLogs -> MaterialTheme.colorScheme.secondary
+                        isSelected -> MaterialTheme.colorScheme.primary
+                        else -> Color.Transparent
+                    }))
+            }
+        }
+    }
+}
+
+/** Flight Recorder spine: thin vertical rule with a node dot, wrapping recorder rows. */
+@Composable
+fun SpineItem(nodeColor: Color = MaterialTheme.colorScheme.onSurfaceVariant, content: @Composable () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(20.dp)) {
+            Box(Modifier.width(2.dp).height(14.dp).background(MaterialTheme.colorScheme.outlineVariant))
+            Box(Modifier.size(9.dp).clip(CircleShape).border(2.dp, nodeColor, CircleShape).background(MaterialTheme.colorScheme.surface))
+            Box(Modifier.width(2.dp).height(14.dp).background(MaterialTheme.colorScheme.outlineVariant))
+        }
+        Box(Modifier.weight(1f)) { content() }
+    }
+}
+
+/** Exercise trace: recent entries as scaled ticks on a shared baseline, units in the label. */
+@Composable
+fun ExerciseTrace(activity: WorkoutActivity, entries: List<ActivityEntry>, modifier: Modifier = Modifier) {
+    if (entries.isEmpty()) return
+    val max = maxOf(1.0, entries.maxOfOrNull { it.quantity } ?: 1.0)
+    Column(modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth().height(34.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+            entries.forEach { entry ->
+                Box(Modifier.weight(1f).height((30 * (entry.quantity / max).coerceIn(0.06, 1.0)).dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)))
+            }
+        }
+        Text("Last ${entries.size} sessions · ${activity.unit}", style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** Recent habit recordings as dated spine rows with labeled status nodes. */
+@Composable
+fun HistorySpine(logs: List<HabitLog>, modifier: Modifier = Modifier) {
+    Column(modifier.fillMaxWidth()) {
+        logs.sortedByDescending { it.date }.take(10).forEach { log ->
+            SpineItem(nodeColor = when (log.status) {
+                LogStatus.COMPLETED -> MaterialTheme.colorScheme.secondary
+                LogStatus.FAILED -> MaterialTheme.colorScheme.error
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            }) {
+                Column {
+                    Text(recorderLabel(log.status, log.progress, log.isFrozen) + " · " + log.date,
+                        style = MaterialTheme.typography.bodyMedium)
+                    log.note?.let { Text(it, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                }
+            }
+        }
+    }
+}
 
 /** Today-screen section: activity rows with Log/Edit and History, plus all activity dialogs. */
 @Composable
@@ -54,32 +158,39 @@ fun ActivitySection(state: LifeTrackState, vm: HabitViewModel, date: LocalDate, 
                     val week = state.activityEntries.filter { it.activityId == activity.id && it.date in weekAgo..date }
                     val weekTotal = week.sumOf { it.quantity }
                     val weekLabel = if (week.isEmpty()) "No entries this week" else "${formatQuantityLabel(weekTotal)} ${activity.unit} this week"
-                    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface,
-                        tonalElevation = 1.dp, modifier = Modifier.fillMaxWidth()) {
-                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text(activity.icon, fontSize = 22.sp)
-                            Column(Modifier.weight(1f)) {
-                                Text(activity.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
-                                    maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                Text(activity.unit + (activity.target?.let { " · target ${formatQuantityLabel(it)}" } ?: "") + " · $weekLabel",
-                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                entry?.note?.let { Text(it, style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1) }
-                            }
-                            entry?.let {
-                                Surface(shape = RoundedCornerShape(999.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
-                                    Text("${formatQuantityLabel(it.quantity)} ${activity.unit}",
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                        style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                    val recent = state.activityEntries.filter { it.activityId == activity.id }
+                        .sortedByDescending { it.date }.take(14)
+                    SpineItem(nodeColor = if (entry != null) MaterialTheme.colorScheme.secondary
+                        else MaterialTheme.colorScheme.onSurfaceVariant) {
+                        Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface,
+                            tonalElevation = 1.dp, modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(12.dp)) {
+                                Row(Modifier.padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Text(activity.icon, fontSize = 22.sp)
+                                    Column(Modifier.weight(1f)) {
+                                        Text(activity.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+                                            maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                        Text(activity.unit + (activity.target?.let { " · target ${formatQuantityLabel(it)}" } ?: "") + " · $weekLabel",
+                                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        entry?.note?.let { Text(it, style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1) }
+                                    }
+                                    entry?.let {
+                                        Surface(shape = RoundedCornerShape(999.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+                                            Text("${formatQuantityLabel(it.quantity)} ${activity.unit}", modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                                style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                                        }
+                                    }
+                                    IconButton(enabled = !busy, onClick = { historyActivityId = activity.id }) {
+                                        Icon(Icons.Outlined.History, "History for ${activity.name}")
+                                    }
+                                    Button(enabled = !busy, onClick = { loggingActivityId = activity.id; loggingDate = date.toString() },
+                                        modifier = Modifier.height(40.dp), contentPadding = PaddingValues(horizontal = 14.dp)) {
+                                        Text(if (entry == null) "Log" else "Edit")
+                                    }
                                 }
-                            }
-                            IconButton(enabled = !busy, onClick = { historyActivityId = activity.id }) {
-                                Icon(Icons.Outlined.History, "History for ${activity.name}")
-                            }
-                            Button(enabled = !busy, onClick = { loggingActivityId = activity.id; loggingDate = date.toString() },
-                                modifier = Modifier.height(40.dp), contentPadding = PaddingValues(horizontal = 14.dp)) {
-                                Text(if (entry == null) "Log" else "Edit")
+                                if (recent.isNotEmpty()) ExerciseTrace(activity, recent)
                             }
                         }
                     }
@@ -112,7 +223,7 @@ fun ActivitySection(state: LifeTrackState, vm: HabitViewModel, date: LocalDate, 
 }
 
 @Composable
-private fun ActivityEditorDialog(id: Long, state: LifeTrackState, vm: HabitViewModel, onDismiss: () -> Unit) {
+fun ActivityEditorDialog(id: Long, state: LifeTrackState, vm: HabitViewModel, onDismiss: () -> Unit) {
     val existing = state.activities.firstOrNull { it.id == id }
     var name by rememberSaveable { mutableStateOf(existing?.name ?: "") }
     var icon by rememberSaveable { mutableStateOf(existing?.icon ?: "💪") }
@@ -143,13 +254,12 @@ private fun ActivityEditorDialog(id: Long, state: LifeTrackState, vm: HabitViewM
 }
 
 @Composable
-private fun ActivityLogDialog(activityId: Long, date: LocalDate, state: LifeTrackState, vm: HabitViewModel, onDismiss: () -> Unit) {
+fun ActivityLogDialog(activityId: Long, date: LocalDate, state: LifeTrackState, vm: HabitViewModel, onDismiss: () -> Unit) {
     val activity = state.activities.firstOrNull { it.id == activityId } ?: return
     val entry = state.activityEntries.firstOrNull { it.activityId == activityId && it.date == date }
     val last = state.activityEntries.filter { it.activityId == activityId }.maxByOrNull { it.date }
     var quantity by rememberSaveable(activityId, date) {
-        mutableStateOf(entry?.let { formatQuantityLabel(it.quantity) }
-            ?: last?.let { formatQuantityLabel(it.quantity) } ?: activity.target?.let { formatQuantityLabel(it) } ?: "")
+        mutableStateOf(entry?.let { formatQuantityLabel(it.quantity) } ?: last?.let { formatQuantityLabel(it.quantity) } ?: activity.target?.let { formatQuantityLabel(it) } ?: "")
     }
     var note by rememberSaveable(activityId, date) { mutableStateOf(entry?.note ?: "") }
     val busy by vm.busy.collectAsState()
@@ -178,8 +288,8 @@ private fun ActivityLogDialog(activityId: Long, date: LocalDate, state: LifeTrac
 }
 
 @Composable
-private fun ActivityHistoryDialog(activity: WorkoutActivity, state: LifeTrackState, vm: HabitViewModel,
-                                  onDismiss: () -> Unit, onLogFor: (LocalDate) -> Unit, onDelete: () -> Unit) {
+fun ActivityHistoryDialog(activity: WorkoutActivity, state: LifeTrackState, vm: HabitViewModel,
+                          onDismiss: () -> Unit, onLogFor: (LocalDate) -> Unit, onDelete: () -> Unit) {
     val history = state.activityEntries.filter { it.activityId == activity.id }.sortedByDescending { it.date }
     val monthAgo = LocalDate.now().minusDays(27)
     val inWindow = history.filter { it.date >= monthAgo }

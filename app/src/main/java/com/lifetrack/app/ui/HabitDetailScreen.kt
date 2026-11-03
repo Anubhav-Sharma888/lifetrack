@@ -86,6 +86,10 @@ fun HabitDetailScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
                 }
             }
             CompletionTrend(habit, ownLogs, state.today, pauses = state.pauses)
+            if (ownLogs.isNotEmpty()) {
+                Text("Recent recordings", style = MaterialTheme.typography.titleMedium)
+                HistorySpine(ownLogs)
+            }
             Text("Your whole routine", style = MaterialTheme.typography.titleLarge)
             Text("Color shows the percentage of all eligible habits completed each day.", style = MaterialTheme.typography.bodySmall)
             HeatmapWidget(state.habits, state.logs, state.today, pauses = state.pauses)

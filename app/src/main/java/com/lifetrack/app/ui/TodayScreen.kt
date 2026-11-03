@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lifetrack.app.data.*
 import com.lifetrack.app.domain.Analytics
@@ -82,6 +83,18 @@ fun TodayScreen(state: LifeTrackState, vm: HabitViewModel, onAdd: () -> Unit, on
                 }
                 IconButton(enabled = date < state.today, onClick = { selected = date.plusDays(1).toString() }) { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, "Next day") }
             }
+            // Flight Recorder: oversized date headline in tabular numerals over a thin measurement rule.
+            Text(
+                date.format(DateTimeFormatter.ofPattern("EEEE d MMMM")),
+                style = MaterialTheme.typography.displayLarge.copy(fontWeight = FontWeight.Black, fontFeatureSettings = "tnum"),
+                modifier = Modifier.padding(top = 2.dp, bottom = 10.dp)
+            )
+            HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
+            // Flight Recorder: seven-day recording strip over the measurement rule.
+            RecordingStrip(selected = date, today = state.today,
+                completedDates = state.logs.filter { it.status == LogStatus.COMPLETED }.map { it.date }.toSet(),
+                onSelect = { selected = it.toString(); focusUnmarked = false })
+            HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
             if (date != state.today) TextButton(onClick = { selected = null; focusUnmarked = false }) { Text("Back to today") }
             Text("$completed of ${due.size} scheduled habits completed", style = MaterialTheme.typography.labelLarge)
             Spacer(Modifier.height(8.dp))
@@ -127,6 +140,11 @@ fun TodayScreen(state: LifeTrackState, vm: HabitViewModel, onAdd: () -> Unit, on
                 val log = dayLogs[habit.id]
                 val eligible = Analytics.eligible(habit, date, state.pauses)
                 ReorderableItem(reorder, key = habit.id) { _ ->
+                    SpineItem(nodeColor = when (log?.status) {
+                        LogStatus.COMPLETED -> MaterialTheme.colorScheme.secondary
+                        LogStatus.FAILED -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    }) {
                     HabitCard(habit = habit,
                         dayLabel = Analytics.dayNumber(habit, date)?.let { "Day $it${if (!eligible) " · Rest day" else ""}" } ?: "Starts ${habit.startDate}",
                         status = log?.status,
@@ -179,6 +197,7 @@ fun TodayScreen(state: LifeTrackState, vm: HabitViewModel, onAdd: () -> Unit, on
                             }
                             }
                         })
+                    }
                 }
             }
             item { Text("Tap to check in, use the ··· menu for one-tap skip or missed, or hold to set a count or note. Rest days protect your chain.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(4.dp)) }

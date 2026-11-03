@@ -1,11 +1,11 @@
-import { renderAnalytics, heatmapHTML, currentStreak, trendHTML, periodTilesHTML, dailyCheckinsHTML, consistencyHTML, unmarkedOn } from './analytics.js?v=1.2.0';
-import { encryptBackup, decryptBackup, MAX_ENVELOPE_BYTES } from './backup-crypto.js?v=1.2.0';
+import { renderAnalytics, heatmapHTML, currentStreak, trendHTML, periodTilesHTML, dailyCheckinsHTML, consistencyHTML, unmarkedOn } from './analytics.js?v=fr1';
+import { encryptBackup, decryptBackup, MAX_ENVELOPE_BYTES } from './backup-crypto.js?v=fr1';
 import { ALL_DAYS, localDate, isDate, plusDays, dayDifference, dayNumber as relativeDay,
   scheduled, dueHabits, bestStreak as bestStreakValue, parseBackup, encodeBackup,
   makeBackup, validateBackup as validatePortableBackup, restoreStoredState, changeLog, changeProgress,
   redeemFreeze, archiveHabit as archiveValue, deleteHabit as deleteValue, foregroundFor, copy, validateGoalEdit,
   saveActivity, deleteActivity as deleteActivityValue, setActivityEntry, clearActivityEntry,
-  activityEntriesFor, activityTotals, formatQuantity } from './domain.js?v=1.2.0';
+  activityEntriesFor, activityTotals, formatQuantity } from './domain.js?v=fr1';
 
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -125,6 +125,14 @@ function dateNav() {
   return `<div class="day-nav"><button class="icon-button" data-action="previous-day" aria-label="Previous day" ${selectedDate==='1900-01-01'?'disabled':''}>${icon('back','width="18" height="18"')}</button><label class="day-nav-label">${selectedDate===today?'Today, ':''}${nice(selectedDate)}<span class="caret">▾</span><input aria-label="Choose check-in date" type="date" min="1900-01-01" max="${today}" value="${selectedDate}" id="checkin-date"></label><button class="icon-button" data-action="next-day" aria-label="Next day" style="transform:scaleX(-1)" ${selectedDate===today?'disabled':''}>${icon('back','width="18" height="18"')}</button></div>`;
 }
 const STATUS_FILTERS=[['all','All habits'],['due','Due today'],['open','Still to do'],['done','Completed'],['upcoming','Upcoming']];
+function recordStripHTML(selected,today) {
+  const days = Array.from({length:7},(_,i)=>plus(today,i-6));
+  const doneDays = new Set(state.logs.filter(l=>l.status==='COMPLETED'&&l.date>=days[0]).map(l=>l.date));
+  return `<div class="record-strip" role="group" aria-label="Recording strip · last seven days">${days.map(d=>{
+    const selectedDay=d===selected, isToday=d===today;
+    return `<button type="button" data-action="strip-day" data-date="${d}" aria-pressed="${selectedDay}" aria-label="Record ${nice(d,{weekday:'long',day:'numeric',month:'long'})}${doneDays.has(d)?' · has recordings':''}"${isToday?' data-today':''} class="${selectedDay?'on':''} ${doneDays.has(d)?'has-logs':''}"><span class="tick" aria-hidden="true"></span><span class="w">${nice(d,{weekday:'narrow'})}</span><span class="d">${d.slice(8)}</span></button>`;
+  }).join('')}</div>`;
+}
 function todayHTML() {
   const active=state.habits.filter(h=>!h.isArchived).sort((a,b)=>a.sortOrder-b.sortOrder);
   const due=dueHabits(state,selectedDate), completed=due.filter(h=>logFor(h.id)?.status==='COMPLETED').length;
@@ -139,7 +147,8 @@ function todayHTML() {
   const yesterday=plusDays(today,-1);
   const unmarkedYesterday=unmarkedOn(state,yesterday);
   const showNudge=isToday&&unmarkedYesterday.length&&nudgeDismissedDate!==yesterday;
-  return `<div class="screen">${recovery}<div class="today-head"><div><h2 class="today-title">${isToday?'Today.':esc(nice(selectedDate,{weekday:'long',day:'numeric',month:'long'}))}</h2><p class="today-sub">${isToday?esc(nice(selectedDate,{weekday:'long',day:'numeric',month:'long'})):'Past check-ins · edits and backfills are welcome.'}</p></div><button class="add-habit-button" data-action="add-habit">+ Habit</button></div>
+  return `<div class="screen">${recovery}<div class="today-head"><div><h2 class="today-title">${esc(nice(selectedDate,{weekday:'long',day:'numeric',month:'long'}))}</h2><p class="today-sub">${isToday?'Today · recording':'Past check-ins · edits and backfills are welcome.'}</p></div><button class="add-habit-button" data-action="add-habit">+ Habit</button></div>
+    ${recordStripHTML(selectedDate,today)}
     ${dateNav()}
     ${!isToday?'<div style="margin:-6px 0 12px;text-align:center"><button class="back-today" data-action="back-today">Back to today ↗</button></div>':''}
     ${showNudge?`<section class="nudge-banner" role="status"><div><strong>${unmarkedYesterday.length===1?'One habit was left unmarked':`${unmarkedYesterday.length} habits were left unmarked`} on ${nice(yesterday,{weekday:'long',day:'numeric',month:'short'})}</strong><small>${esc(unmarkedYesterday.slice(0,3).map(h=>h.name).join(' · '))}${unmarkedYesterday.length>3?' · …':''}</small></div><div class="nudge-actions"><button class="primary-button" data-action="focus-unmarked">Mark them now ↗</button><button class="text-button" data-action="dismiss-nudge">Leave it</button></div></section>`:''}
@@ -408,6 +417,7 @@ document.addEventListener('click',event=>{
       case 'confirm-import':if(pendingBackup){const restored=validatePortableBackup(makeBackup(pendingBackup),today);pendingBackup=null;recoveryText=null;storageWarning='';selectedDate=today;closeModal(true);commit(restored,'Backup restored in this browser preview.',{undo:false});}break;
       case 'about':showModal(`${heading('LifeTrack 1.2.0','Small steps. Your own pace.')}<p class="section-note">A private habit companion built for your own timeline. Every habit has its own Day 1. Activities track workouts and movements with real quantities.<br><br>This browser adaptation uses separate local sample data. The native app uses Kotlin, Compose, Room and Hilt and provides actual Android reminders, widgets, activities and haptics.<br><br>No external requests, accounts, ads or telemetry. Backup encryption is optional; plain JSON and browser storage remain readable to anyone with access to this device.</p><button class="primary-button wide" data-action="close-modal">Keep growing 🌱</button>`);break;
       case 'reset-demo':showModal(`${heading('Start fresh?')}<p class="section-note">Reset the browser preview to its original sample habits. Current preview changes will be replaced. Your native Android data is separate.${recoveryText!==null?'<br><br>Download the preserved original records before replacing them.':''}</p><button class="primary-button wide" data-action="confirm-reset">Reset sample data</button><button class="text-button wide" data-action="close-modal">Keep exploring</button>`);break;
+      case 'strip-day':selectedDate=button.dataset.date;render();app.querySelector('.day-summary')?.scrollIntoView({block:'nearest'});break;
       case 'confirm-reset':recoveryText=null;storageWarning='';selectedDate=today;closeModal(true);commit(demoData(),'A fresh little beginning.',{undo:false});navigate('today');break;
       case 'add-activity':activityEditor(null);break;
       case 'edit-activity':activityEditor(id);break;

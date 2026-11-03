@@ -66,9 +66,9 @@ fun HeatmapWidget(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate, m
                             density.fraction <= .75f -> .72f
                             else -> 1f
                         }
-                        Box(Modifier.size(18.dp).clip(RoundedCornerShape(4.dp))
+                        Box(Modifier.size(18.dp).clip(RoundedCornerShape(7.dp))
                             .background(if (date > today) Color.Transparent else if (alpha == 0f) empty else primary.copy(alpha = alpha))
-                            .border(if (date == selected) 2.dp else 0.dp, if (date == selected) MaterialTheme.colorScheme.onSurface else Color.Transparent, RoundedCornerShape(4.dp))
+                            .border(if (date == selected) 2.dp else 0.dp, if (date == selected) MaterialTheme.colorScheme.tertiary else Color.Transparent, RoundedCornerShape(7.dp))
                             .semantics {
                                 contentDescription = "$date, ${density.completed} of ${density.opportunities} habits completed, ${density.percent} percent"
                                 this.selected = date == selected

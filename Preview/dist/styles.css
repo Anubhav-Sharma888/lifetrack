@@ -1,19 +1,23 @@
-/* LifeTrack compact dashboard · tokens from design-handoff/2026-10-29/LifeTrack-Design-Tokens.json */
+/* LifeTrack 1.2 — Flight Recorder · warm instrument paper, ink type, electric orange markers */
 :root{
-  --paper:#f4f6f3;--surface:#ffffff;--ink:#172c25;--muted:#56675d;--line:#dde5de;
-  --green:#245f49;--on-green:#ffffff;--soft:#e6f0e8;
-  --amber:#825714;--amber-soft:#fff1d7;--red:#ab3b32;--red-soft:#fcece8;
+  --paper:#f5f0e4;--surface:#fcf9f0;--ink:#1b1710;--muted:#6e6552;--line:#e0d7c2;
+  --green:#1b1710;--on-green:#f5f0e4;--soft:#ede5d2;
+  --amber:#8a6420;--amber-soft:#f3e6c8;--red:#a63a22;--red-soft:#f6e2da;
+  --orange:#d9571b;--orange-soft:#fbe9dc;
   --font:Inter,"Segoe UI",Arial,sans-serif;
+  --font-display:"Bahnschrift","Arial Narrow",Inter,"Segoe UI",Arial,sans-serif;
   --r-8:8px;--r-12:12px;--r-16:16px;--r-24:24px;
   color-scheme:light;font-synthesis:none;
 }
 body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--font);font-weight:400}
 body.dark{
-  --paper:#101b18;--surface:#192924;--ink:#edf4ef;--muted:#acbcb1;--line:#3b5047;
-  --green:#a4d7b5;--on-green:#102c1f;--soft:#243b2f;
-  --amber:#e9c280;--amber-soft:#40331f;--red:#ffb3aa;--red-soft:#462b28;
+  --paper:#1b1813;--surface:#26221a;--ink:#f1e8d4;--muted:#a3987f;--line:#3b3528;
+  --green:#f1e8d4;--on-green:#1b1710;--soft:#322c21;
+  --amber:#e5b75d;--amber-soft:#3d331e;--red:#ffa387;--red-soft:#4a2c22;
+  --orange:#ff7a33;--orange-soft:#453322;
   color-scheme:dark;
 }
+.day-count,.goal-count,.day-percent,.result-count,.goal-chip,.an-bar-count,.an-streak-count,.an-rank{font-variant-numeric:tabular-nums}
 *{box-sizing:border-box}
 button,input,textarea,select{font:inherit;color:inherit}
 button{cursor:pointer}button:disabled{cursor:not-allowed;opacity:.4}
@@ -312,3 +316,37 @@ body.dark .toast{background:#dfeee2;color:#132119}
 /* ---------- Narrow screens ---------- */
 @media(max-width:360px){.screen{padding-left:14px;padding-right:14px}.habit-row{padding:10px 8px 10px 10px}.row-avatar{width:38px;height:38px;font-size:18px}.row-main{gap:9px}.chip{padding:9px 12px}}
 @media(max-width:1100px) and (min-width:361px){.screen{padding:20px 22px 28px}}
+
+/* ---------- Flight Recorder · recording strip, spine, traces, fingerprint ---------- */
+.today-title{font-family:var(--font-display);font-size:40px;line-height:.95;font-weight:700;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+.today-sub{font-size:12px;letter-spacing:.6px;text-transform:uppercase}
+.record-strip{display:flex;gap:4px;margin:0 0 4px}
+.record-strip button{flex:1;min-height:48px;border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:10px;letter-spacing:.5px;color:var(--muted);border-top:3px solid transparent;padding-top:6px;cursor:pointer}
+.record-strip button .d{font-size:16px;font-variant-numeric:tabular-nums}
+.record-strip button:hover{color:var(--ink)}
+.record-strip button[aria-pressed="true"]{color:var(--ink);border-top-color:var(--orange);font-weight:600}
+.record-strip button .tick{width:7px;height:7px;border-radius:50%;background:var(--orange);visibility:hidden}
+.record-strip button.has-logs .tick{visibility:visible}
+.habit-list{position:relative;padding-left:22px}
+.habit-list::before{content:"";position:absolute;left:5px;top:16px;bottom:16px;width:2px;background:var(--line)}
+.habit-list .habit-row::before,.habit-list .activity-row::before{content:"";position:absolute;left:-22px;top:50%;width:8px;height:8px;margin-top:-4px;border-radius:50%;background:var(--paper);border:2px solid var(--muted)}
+.habit-list .activity-row::before{left:calc(-22px - 0px)}
+.day-bar i{background:var(--orange)}
+.day-percent{color:var(--ink)}
+.an-panel{background:transparent;border:0;border-radius:0;border-top:1px solid var(--line);padding:18px 0}
+.an-page{gap:0}
+.an-page .an-panel + .an-panel{margin-top:0}
+.an-tile{background:transparent;border-top:1px solid var(--line);border-radius:0;padding:12px 0}
+.an-tiles{gap:24px}
+.an-cell{border-radius:40%}
+.an-cell:hover{transform:none}
+.an-level-4{background:var(--orange)}
+.an-cons-cell{border-radius:40%}
+.an-hab-strip{background:linear-gradient(to bottom,transparent 45%,var(--line) 45%,var(--line) 55%,transparent 55%) left/100% 2px no-repeat}
+.an-hab-strip .an-hab-dot{background-clip:padding-box}
+.an-secondary{border:0}
+.chip[aria-pressed="true"],.chip[aria-expanded="true"]{border-color:var(--ink);color:var(--ink)}
+.nudge-banner{border-color:var(--orange);background:var(--orange-soft)}
+.nudge-banner .primary-button{background:var(--orange);color:#fff}
+body.dark .nudge-banner .primary-button{color:#1b1710}
+.section-heading{border-top:1px solid var(--line);padding-top:12px;margin-top:16px}

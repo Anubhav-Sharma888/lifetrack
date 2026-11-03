@@ -51,7 +51,6 @@ fun AnalyticsScreen(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate,
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         Text("Analytics", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
         Text("You are your only competition.", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        AnalyticsPanel { HeatmapWidget(habits, logs, today, pauses = pauses) }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             MetricCard("Active habits", active.size.toString(), Modifier.weight(1f))
             MetricCard("All-time rate", if (allTime.opportunities == 0L) "—" else "${allTime.percent}%", Modifier.weight(1f))
@@ -78,6 +77,7 @@ fun AnalyticsScreen(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate,
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         ComparisonCard(habits, logs, today, pauses)
+        AnalyticsPanel { HeatmapWidget(habits, logs, today, pauses = pauses) }
         AnalyticsPanel { CategoryDonut(habits, logs, today, pauses) }
         AnalyticsPanel { WeeklyBars(habits, logs, today, pauses) }
         if (activities.isNotEmpty()) AnalyticsPanel {
