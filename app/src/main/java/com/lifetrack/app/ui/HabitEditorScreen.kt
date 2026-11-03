@@ -96,6 +96,7 @@ fun HabitEditorScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
             OutlinedTextField(name, { if (it.length <= 120) name = it }, label = { Text("Habit name") }, singleLine = true,
                 supportingText = { Text("${name.length}/120") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(description, { if (it.length <= 2000) description = it }, label = { Text("Description · optional") }, minLines = 2, modifier = Modifier.fillMaxWidth())
+            HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(icon, { if (it.length <= 32) icon = it }, label = { Text("Emoji / icon") }, singleLine = true, modifier = Modifier.weight(1f))
                 OutlinedTextField(category, { if (it.length <= 40) category = it }, label = { Text("Category") }, singleLine = true, modifier = Modifier.weight(2f))
@@ -115,6 +116,7 @@ fun HabitEditorScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
             }
             if (selectedDays.isEmpty()) Text("Choose at least one scheduled day.", color = MaterialTheme.colorScheme.error)
             Text("Weekday changes apply from today; past schedules remain in your history.", style = MaterialTheme.typography.bodySmall)
+            HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
             Text("A measurable intention", style = MaterialTheme.typography.titleMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(target, { if (it.length <= 6 && it.all(Char::isDigit)) target = it }, enabled = !targetProtected, label = { Text("Daily target") },
@@ -124,6 +126,7 @@ fun HabitEditorScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
             }
             Text("Use 1 time for a simple check-in, or track a count toward your goal.", style = MaterialTheme.typography.bodySmall)
             if (targetProtected) Text("Existing check-ins keep their original goal. Create a new habit to change its target or unit; your other settings remain editable.", style = MaterialTheme.typography.bodySmall)
+            HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
             Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 Text("Habit reminder", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                 Switch(reminder, onCheckedChange = { enabled ->
@@ -140,6 +143,7 @@ fun HabitEditorScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
                 Text("A local nudge at or after this time on scheduled days. Android may delay background work; this is not an exact alarm.", style = MaterialTheme.typography.bodySmall)
                 permissionNote?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
             }
+            HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
             Text("Color", style = MaterialTheme.typography.titleMedium)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("#43866B", "#547DBB", "#B67B98", "#B48647", "#8877B0", "#BA7166").forEach { hex ->
@@ -151,6 +155,7 @@ fun HabitEditorScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
                 }
             }
             OutlinedTextField(color, { if (it.length <= 7) color = it }, label = { Text("Hex color") }, isError = !Regex("#[0-9a-fA-F]{6}").matches(color), singleLine = true, modifier = Modifier.fillMaxWidth())
+            HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
             Text("Habit stacking", style = MaterialTheme.typography.titleMedium)
             Box {
                 OutlinedButton(onClick = { stackMenu = true }, modifier = Modifier.fillMaxWidth()) {
