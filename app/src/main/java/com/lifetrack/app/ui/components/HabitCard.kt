@@ -68,7 +68,14 @@ fun CheckInButton(
     val scale by animateFloatAsState(if (preferences.animationsEnabled && status == LogStatus.COMPLETED) 1.05f else 1f,
         animationSpec = if (preferences.animationsEnabled) tween(180) else snap(), label = "checkScale")
     val foreground = if (!enabled) MaterialTheme.colorScheme.onSurfaceVariant else when (status) {
-        LogStatus.COMPLETED -> if (accent.luminance() > .179f) Color.Black else Color.White
+        LogStatus.COMPLETED -> {
+            val ink = Color(0xFF1B1710)
+            val paper = Color(0xFFFCF9F0)
+            val luminance = accent.luminance() + .05f
+            val inkContrast = luminance / (ink.luminance() + .05f)
+            val paperContrast = (paper.luminance() + .05f) / luminance
+            if (inkContrast >= paperContrast) ink else paper
+        }
         LogStatus.FAILED -> MaterialTheme.colorScheme.onErrorContainer
         LogStatus.SKIPPED -> MaterialTheme.colorScheme.onSecondaryContainer
         LogStatus.IN_PROGRESS -> MaterialTheme.colorScheme.onSurface

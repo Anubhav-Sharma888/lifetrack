@@ -142,7 +142,7 @@ fun SettingsScreen(state: LifeTrackState, vm: HabitViewModel, onOpen: (Long) -> 
             archived.forEach { habit -> SettingsAction("${habit.icon} ${habit.name}", "View history or restore", Icons.Outlined.Archive) { onOpen(habit.id) } }
         }
         HorizontalDivider()
-        SettingsAction("About LifeTrack", "Version 1.3.0 · Made for your own pace", Icons.Outlined.Info) { aboutDialog = true }
+        SettingsAction("About LifeTrack", "Version 1.4.0 · Made for your own pace", Icons.Outlined.Info) { aboutDialog = true }
         SettingsAction("Open-source licenses", "Runtime library license and notices", Icons.Outlined.Description) { licensesDialog = true }
         Spacer(Modifier.height(16.dp))
     }

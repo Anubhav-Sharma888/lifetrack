@@ -249,7 +249,7 @@ fun ActivityEditorDialog(id: Long, state: LifeTrackState, vm: HabitViewModel, on
     val operationError by vm.operationError.collectAsState()
     LaunchedEffect(id) { vm.clearOperationError() }
     AlertDialog(onDismissRequest = { if (!busy) onDismiss() }, title = { Text(if (existing == null) "New activity" else "Edit activity") }, text = {
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(name, { if (it.length <= 80) name = it }, label = { Text("Activity name") }, singleLine = true)
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(icon, { if (it.length <= 32) icon = it }, label = { Text("Emoji") }, singleLine = true, modifier = Modifier.weight(1f))
@@ -282,7 +282,7 @@ fun ActivityLogDialog(activityId: Long, date: LocalDate, state: LifeTrackState, 
     val operationError by vm.operationError.collectAsState()
     LaunchedEffect(activityId, date) { vm.clearOperationError() }
     AlertDialog(onDismissRequest = { if (!busy) onDismiss() }, title = { Text("${activity.icon} ${activity.name}") }, text = {
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(date.format(java.time.format.DateTimeFormatter.ofPattern("EEEE, d MMMM")), style = MaterialTheme.typography.labelLarge)
             OutlinedTextField(quantity, { if (it.length <= 9 && (it.isEmpty() || it.all { c -> c.isDigit() || c == '.' })) quantity = it },
                 label = { Text("Quantity · ${activity.unit}") }, singleLine = true,

@@ -106,7 +106,7 @@ fun AnalyticsScreen(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate,
                         fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
                 }
             }
-            Text("Actual quantities, recorded as performed — a best day above the target is a good day, never an overshoot. Each activity is compared separately; a day total is not a single-set record.",
+            Text("Actual workout quantities by day. A day total can include multiple sets.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         AnalyticsPanel {

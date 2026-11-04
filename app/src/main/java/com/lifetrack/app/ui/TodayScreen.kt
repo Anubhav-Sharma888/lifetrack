@@ -64,78 +64,92 @@ fun TodayScreen(state: LifeTrackState, vm: HabitViewModel, onAdd: () -> Unit, on
     val showNudge = date == state.today && unmarkedYesterday.isNotEmpty() && nudgeDismissed != state.today.minusDays(1).toString()
     val listState = rememberLazyListState()
     val reorder = rememberReorderableLazyListState(listState) { from, to ->
-        val fromIndex = order.indexOf(from.key as Long)
-        val toIndex = order.indexOf(to.key as Long)
+        val fromIndex = (from.key as? Long)?.let(order::indexOf) ?: -1
+        val toIndex = (to.key as? Long)?.let(order::indexOf) ?: -1
         if (fromIndex >= 0 && toIndex >= 0) order = order.toMutableList().apply { add(toIndex, removeAt(fromIndex)) }
     }
-    Column(Modifier.fillMaxSize()) {
-        Column(Modifier.padding(horizontal = 24.dp, vertical = 14.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) { Text("LifeTrack", style = MaterialTheme.typography.headlineLarge); Text("Small steps. Your own pace.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                IconButton(onClick = { showFilters = !showFilters }) { Icon(Icons.Outlined.FilterList, "Search and filter habits") }
-                FilledTonalIconButton(onClick = onAdd) { Icon(Icons.Outlined.Add, "Add habit") }
-            }
-            Spacer(Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(enabled = date > minimum, onClick = { selected = date.minusDays(1).toString() }) { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, "Previous day") }
-                TextButton(onClick = { showDate = true }, modifier = Modifier.weight(1f)) {
-                    Text(if (date == state.today) "Today · ${date.format(DateTimeFormatter.ofPattern("EEE, d MMM"))}" else date.format(DateTimeFormatter.ofPattern("EEE, d MMM yyyy")))
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        state = listState,
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item(key = "today-header") {
+            Column(Modifier.padding(horizontal = 4.dp, vertical = 14.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) { Text("LifeTrack", style = MaterialTheme.typography.headlineLarge); Text("Small steps. Your own pace.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    IconButton(onClick = { showFilters = !showFilters }) { Icon(Icons.Outlined.FilterList, "Search and filter habits") }
+                    FilledTonalIconButton(onClick = onAdd) { Icon(Icons.Outlined.Add, "Add habit") }
                 }
-                IconButton(enabled = date < state.today, onClick = { selected = date.plusDays(1).toString() }) { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, "Next day") }
-            }
-            // Flight Recorder: oversized date headline in tabular numerals over a thin measurement rule.
-            Text(
-                date.format(DateTimeFormatter.ofPattern("EEEE d MMMM")),
-                style = MaterialTheme.typography.displayLarge.copy(fontWeight = FontWeight.Black, fontFeatureSettings = "tnum"),
-                modifier = Modifier.padding(top = 2.dp, bottom = 10.dp)
-            )
-            HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
-            // Flight Recorder: seven-day recording strip over the measurement rule.
-            RecordingStrip(selected = date, today = state.today,
-                completedDates = state.logs.filter { it.status == LogStatus.COMPLETED }.map { it.date }.toSet(),
-                onSelect = { selected = it.toString(); focusUnmarked = false })
-            HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
-            if (date != state.today) TextButton(onClick = { selected = null; focusUnmarked = false }) { Text("Back to today") }
-            Text("$completed of ${due.size} scheduled habits completed", style = MaterialTheme.typography.labelLarge)
-            Spacer(Modifier.height(8.dp))
-            LinearProgressIndicator(progress = { if (due.isEmpty()) 0f else completed.toFloat() / due.size }, modifier = Modifier.fillMaxWidth())
-            if (showNudge) {
                 Spacer(Modifier.height(12.dp))
-                Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("${if (unmarkedYesterday.size == 1) "One habit was" else "${unmarkedYesterday.size} habits were"} left unmarked on ${state.today.minusDays(1).format(DateTimeFormatter.ofPattern("EEE, d MMM"))}", style = MaterialTheme.typography.titleSmall)
-                        Text(unmarkedYesterday.take(3).joinToString(" · ") { it.name }, style = MaterialTheme.typography.bodySmall, maxLines = 2)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { selected = state.today.minusDays(1).toString(); focusUnmarked = true }) { Text("Mark them now") }
-                            TextButton(onClick = { nudgeDismissed = state.today.minusDays(1).toString() }) { Text("Leave it") }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(enabled = date > minimum, onClick = { selected = date.minusDays(1).toString() }) { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, "Previous day") }
+                    TextButton(onClick = { showDate = true }, modifier = Modifier.weight(1f)) {
+                        Text(if (date == state.today) "Today · ${date.format(DateTimeFormatter.ofPattern("EEE, d MMM"))}" else date.format(DateTimeFormatter.ofPattern("EEE, d MMM yyyy")))
+                    }
+                    IconButton(enabled = date < state.today, onClick = { selected = date.plusDays(1).toString() }) { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, "Next day") }
+                }
+                // Flight Recorder: oversized date headline in tabular numerals over a thin measurement rule.
+                Text(
+                    date.format(DateTimeFormatter.ofPattern("EEEE d MMMM")),
+                    style = MaterialTheme.typography.displayLarge.copy(fontWeight = FontWeight.Black, fontFeatureSettings = "tnum"),
+                    modifier = Modifier.padding(top = 2.dp, bottom = 10.dp)
+                )
+                HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
+                // Flight Recorder: seven-day recording strip over the measurement rule.
+                RecordingStrip(selected = date, today = state.today,
+                    completedDates = state.logs.filter { it.status == LogStatus.COMPLETED }.map { it.date }.toSet(),
+                    onSelect = { selected = it.toString(); focusUnmarked = false })
+                HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
+                if (date != state.today) TextButton(onClick = { selected = null; focusUnmarked = false }) { Text("Back to today") }
+                Text("$completed of ${due.size} scheduled habits completed", style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.height(8.dp))
+                LinearProgressIndicator(progress = { if (due.isEmpty()) 0f else completed.toFloat() / due.size }, modifier = Modifier.fillMaxWidth())
+                if (showNudge) {
+                    Spacer(Modifier.height(12.dp))
+                    Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("${if (unmarkedYesterday.size == 1) "One habit was" else "${unmarkedYesterday.size} habits were"} left unmarked on ${state.today.minusDays(1).format(DateTimeFormatter.ofPattern("EEE, d MMM"))}", style = MaterialTheme.typography.titleSmall)
+                            Text(unmarkedYesterday.take(3).joinToString(" · ") { it.name }, style = MaterialTheme.typography.bodySmall, maxLines = 2)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(onClick = { selected = state.today.minusDays(1).toString(); focusUnmarked = true }) { Text("Mark them now") }
+                                TextButton(onClick = { nudgeDismissed = state.today.minusDays(1).toString() }) { Text("Leave it") }
+                            }
                         }
                     }
                 }
-            }
-            if (showFilters) {
-                Spacer(Modifier.height(12.dp))
-                OutlinedTextField(query, { query = it }, label = { Text("Search habits") }, singleLine = true,
-                    leadingIcon = { Icon(Icons.Outlined.Search, null) },
-                    trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Outlined.Close, "Clear search") } }, modifier = Modifier.fillMaxWidth())
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FilterChip(category == null, { category = null }, label = { Text("All categories") })
-                    active.map { it.category }.distinct().sorted().forEach { name -> FilterChip(category == name, { category = name }, label = { Text(name) }) }
-                }
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("All", "Due", "Completed", "Rest / planned").forEach { choice -> FilterChip(filter == choice, { filter = choice }, label = { Text(choice) }) }
+                if (showFilters) {
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(query, { query = it }, label = { Text("Search habits") }, singleLine = true,
+                        leadingIcon = { Icon(Icons.Outlined.Search, null) },
+                        trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Outlined.Close, "Clear search") } }, modifier = Modifier.fillMaxWidth())
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FilterChip(category == null, { category = null }, label = { Text("All categories") })
+                        active.map { it.category }.distinct().sorted().forEach { name -> FilterChip(category == name, { category = name }, label = { Text(name) }) }
+                    }
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("All", "Due", "Completed", "Rest / planned").forEach { choice -> FilterChip(filter == choice, { filter = choice }, label = { Text(choice) }) }
+                    }
                 }
             }
         }
         if (active.isEmpty()) {
-            Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+            item(key = "empty-habits") { Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("🌱", style = MaterialTheme.typography.displayLarge)
                 Spacer(Modifier.height(16.dp)); Text("Start with something small", style = MaterialTheme.typography.headlineSmall)
                 Text("A page. A walk. A quiet minute. Pick a suggestion or create your own habit. Choose the days and pace that work for you.", Modifier.padding(vertical = 16.dp))
                 Button(onClick = onAdd) { Text("Create your first habit") }
             }
+            }
         } else if (habits.isEmpty()) {
-            Column(Modifier.padding(32.dp)) { Text("No matching habits", style = MaterialTheme.typography.titleLarge); Text("Try another search or filter."); TextButton(onClick = { query = ""; category = null; filter = "All" }) { Text("Clear filters") } }
-        } else LazyColumn(state = listState, contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item(key = "filtered-habits") {
+                Column(Modifier.padding(12.dp)) {
+                    Text("No matching habits", style = MaterialTheme.typography.titleLarge)
+                    Text("Try another search or filter.")
+                    TextButton(onClick = { query = ""; category = null; filter = "All" }) { Text("Reset all filters") }
+                }
+            }
+        } else {
             items(habits, key = { it.id }) { habit ->
                 val log = dayLogs[habit.id]
                 val eligible = Analytics.eligible(habit, date, state.pauses)
@@ -202,7 +216,9 @@ fun TodayScreen(state: LifeTrackState, vm: HabitViewModel, onAdd: () -> Unit, on
             }
             item { Text("Tap to check in, use the ··· menu for one-tap skip or missed, or hold to set a count or note. Rest days protect your chain.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(4.dp)) }
         }
-        ActivitySection(state, vm, date, modifier = Modifier.padding(horizontal = 20.dp))
+        item(key = "activity-section") {
+            ActivitySection(state, vm, date)
+        }
     }
     if (showDate) DateSelectionDialog(date, latest = state.today, onDismiss = { showDate = false }, onSelect = { selected = it.toString(); focusUnmarked = false; showDate = false })
     editingLogId?.let { id -> state.habits.firstOrNull { it.id == id }?.let { habit ->

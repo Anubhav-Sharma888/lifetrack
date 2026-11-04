@@ -2,11 +2,15 @@ package com.lifetrack.app.ui
 
 import android.app.Application
 import android.os.Looper
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.junit4.StateRestorationTester
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewModelScope
 import androidx.room.Room
 import com.lifetrack.app.data.*
@@ -96,6 +100,21 @@ class EditorRecoveryTest {
         compose.setContent { MaterialTheme { HabitEditorScreen(1, LifeTrackState(habits = listOf(habit), logs = listOf(log), loaded = true), vm) {} } }
         compose.onNodeWithText("Daily target").assertIsNotEnabled()
         compose.onNodeWithText("Existing check-ins keep their original goal. Create a new habit to change its target or unit; your other settings remain editable.").assertExists()
+    }
+
+    @Test fun todayCanScrollFromTheHeaderToActivitiesOnAShortScreen() {
+        val habit = Habit(id = 1, name = "Read", startDate = today.minusDays(1))
+        val state = LifeTrackState(habits = listOf(habit), today = today, loaded = true)
+        compose.setContent {
+            MaterialTheme {
+                Box(Modifier.height(320.dp)) {
+                    TodayScreen(state, vm, onAdd = {}, onOpen = {})
+                }
+            }
+        }
+        compose.onNode(hasScrollAction() and hasAnyDescendant(hasText("LifeTrack")))
+            .performScrollToNode(hasText("Activities"))
+        compose.onNodeWithText("Activities").assertIsDisplayed()
     }
 
     @Test fun reorderHasANonDragMenu() {
