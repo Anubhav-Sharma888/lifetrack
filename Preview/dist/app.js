@@ -1,11 +1,11 @@
-import { renderAnalytics, heatmapHTML, currentStreak, trendHTML, periodTilesHTML, dailyCheckinsHTML, consistencyHTML, unmarkedOn } from './analytics.js?v=fr1';
-import { encryptBackup, decryptBackup, MAX_ENVELOPE_BYTES } from './backup-crypto.js?v=fr1';
+import { renderAnalytics, heatmapHTML, currentStreak, trendHTML, periodTilesHTML, dailyCheckinsHTML, consistencyHTML, unmarkedOn } from './analytics.js?v=1.5.0';
+import { encryptBackup, decryptBackup, MAX_ENVELOPE_BYTES } from './backup-crypto.js?v=1.5.0';
 import { ALL_DAYS, localDate, isDate, plusDays, dayDifference, dayNumber as relativeDay,
   scheduled, dueHabits, bestStreak as bestStreakValue, parseBackup, encodeBackup,
   makeBackup, validateBackup as validatePortableBackup, restoreStoredState, changeLog, changeProgress,
-  redeemFreeze, archiveHabit as archiveValue, deleteHabit as deleteValue, foregroundFor, copy, validateGoalEdit,
+  redeemFreeze, archiveHabit as archiveValue, deleteHabit as deleteValue, foregroundFor, copy, validateGoalEdit, goalAt,
   saveActivity, deleteActivity as deleteActivityValue, setActivityEntry, clearActivityEntry,
-  activityEntriesFor, activityTotals, formatQuantity } from './domain.js?v=fr1';
+  activityEntriesFor, activityTotals, formatQuantity } from './domain.js?v=1.5.0';
 
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -162,7 +162,7 @@ function todayHTML() {
     ${activitiesSectionHTML()}
     <button class="secondary-button wide" data-action="templates">✧ Start with a simple idea</button><div class="gentle-note"><span>✧</span>Progress isn’t always a straight line.<br>A little today is still a little more than yesterday.</div></div>`;
 }
-function emptyStateHTML(active){return `<div class="empty-state"><span>🌱</span><h3>${active.length?'No matching habits':'Start with something small'}</h3><p>${active.length?'Try another filter, or make room for a new intention.':'A page. A walk. A quiet minute.<br>Choose a habit and a start date that work for you.'}</p><button class="primary-button" data-action="${active.length?'clear-filters':'add-habit'}">${active.length?'Clear filters':'Create your first habit'}</button></div>`;}
+function emptyStateHTML(active){return `<div class="empty-state"><span>🌱</span><h3>${active.length?'No matching habits':'Start with something small'}</h3><p>${active.length?'Try another filter, or make room for a new intention.':'A page. A walk. A quiet minute.<br>Choose a habit and a start date that work for you.'}</p><button class="primary-button" data-action="${active.length?'clear-filters':'add-habit'}">${active.length?'Reset all filters':'Create your first habit'}</button></div>`;}
 function activityRow(a) {
   const entry = state.activityEntries.find(e => e.activityId === a.id && e.date === selectedDate);
   const week = activityTotals(state, a.id, plus(selectedDate,-6), selectedDate);
@@ -180,6 +180,7 @@ function activitiesSectionHTML() {
 }
 function todayRailHTML(){return `${periodTilesHTML(state,today)}${dailyCheckinsHTML(state,today)}${consistencyHTML(state,today)}`;}
 function habitCard(h) {
+  h=goalAt(h,selectedDate);
   const log=logFor(h.id), day=dayNumber(h), status=log?.status,stack=habitFor(h.afterHabitId),isDue=scheduled(h,selectedDate,state.pauses);
   const progress=log?.progress||0;
   const dayLabel=!day?`Starts ${nice(h.startDate,{day:'numeric',month:'short'})}`:`Day ${day}${!isDue?' · Rest day':''}${log?.isFrozen?' · ❄ Frozen':''}`;
@@ -207,7 +208,8 @@ function settingsHTML() {
 }
 function bestStreak(h) { return bestStreakValue(h,state.logs,today,state.pauses); }
 function detailHTML() {
-  const h=habitFor(selectedId);if(!h){route='today';return todayHTML();}
+  const selected=habitFor(selectedId);if(!selected){route='today';return todayHTML();}
+  const h=goalAt(selected,selectedDate);
   const log=logFor(h.id), total=state.logs.filter(l=>l.habitId===h.id&&l.status==='COMPLETED').length;
   const eligible=!h.isArchived&&scheduled(h,selectedDate,state.pauses), spent=state.freezes.some(f=>f.month===selectedDate.slice(0,7));
   return `<div class="screen" style="--habit-color:${esc(h.colorHex)}"><div class="detail-topbar"><button class="icon-button" data-action="navigate" data-tab="today" aria-label="Back to Today">${icon('back','width="18" height="18"')}</button><span>Your journey</span><button class="icon-button" data-action="edit-habit" data-id="${h.id}" aria-label="Edit habit">${icon('edit','width="17" height="17"')}</button></div><div class="detail-emoji">${esc(h.icon)}</div><h2 class="detail-title">${esc(h.name)}</h2><div class="habit-meta"><span class="day-count">${dayNumber(h)?`Day ${dayNumber(h)}`:'Not started'}</span><i></i>${esc(h.category)}<i></i>Since ${nice(h.startDate,{day:'numeric',month:'short'})}</div><p class="detail-description">${esc(h.description||'A small step, on your own terms.')}</p>
@@ -258,18 +260,19 @@ const templates=[
 ];
 function editHabit(id,templateIndex=null) {
   const h=habitFor(id),seed=h||templates[templateIndex]||{},selected=seed.colorHex||'#43866B';
-  const hasHistory=Boolean(h&&state.logs.some(log=>log.habitId===h.id));
+  const hasCheckInToday=Boolean(h&&state.logs.some(log=>log.habitId===h.id&&log.date===today));
   const draftKey=h?`habit:${h.id}:${h.createdAt}`:'habit:new';
   const weekdays=seed.scheduledDays||ALL_DAYS;
   const reminder=seed.reminderMinutes==null?'':`${String(Math.floor(seed.reminderMinutes/60)).padStart(2,'0')}:${String(seed.reminderMinutes%60).padStart(2,'0')}`;
   if(templateIndex!==null)clearDraft(draftKey);
   showModal(`${heading(h?'Edit habit':'A new beginning','Make room for what matters.')}<form id="habit-form" data-id="${h?.id||0}" data-draft-key="${draftKey}"><label class="field">Habit name<input name="name" required maxlength="120" placeholder="e.g. Read a few pages" value="${esc(seed.name||'')}"></label><div class="field-row"><label class="field">Emoji<input name="icon" required maxlength="32" value="${esc(seed.icon||'🌱')}"></label><label class="field">Category<input name="category" required maxlength="40" list="categories" value="${esc(seed.category||'Personal')}"><datalist id="categories">${['Health','Mind','Learning','Creativity','Work','Personal'].map(x=>`<option>${x}</option>`).join('')}</datalist></label></div><label class="field">Your Day 1<input type="date" name="startDate" required min="1900-01-01" max="${Number(today.slice(0,4))+100}${today.slice(4)}" value="${seed.startDate||today}"><small>Start in the past to backfill, or choose a future beginning.</small></label>
     <fieldset class="weekday-field"><legend>Repeat on</legend><div class="weekday-options">${['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((day,index)=>`<label><input type="checkbox" name="scheduledDays" value="${index+1}" ${weekdays.includes(index+1)?'checked':''}><span>${day}</span></label>`).join('')}</div><p class="section-note">Days off do not break your chain. Schedule changes begin today; previous patterns stay in history.</p></fieldset>
-    <div class="field-row equal"><label class="field">Daily target<input type="number" name="targetCount" required min="1" max="100000" step="1" value="${seed.targetCount||1}" ${hasHistory?'disabled':''}></label><label class="field">Unit<input name="targetUnit" required maxlength="24" value="${esc(seed.targetUnit||'times')}" placeholder="pages, glasses…" ${hasHistory?'disabled':''}></label></div>${hasHistory?'<p class="section-note">Existing check-ins keep their original goal. Create a new habit to change its target or unit.</p>':'<p class="section-note">A target of 1 is a simple done-or-not-done habit. Larger targets track quantities.</p>'}<label class="field">Color<input type="hidden" name="colorHex" value="${selected}"><span class="color-swatches">${['#245f49','#547DBB','#B67B98','#B48647','#8877B0','#BA7166'].map(c=>`<button type="button" class="color-swatch ${c===selected?'selected':''}" style="--swatch:${c}" data-action="select-color" data-color="${c}" aria-pressed="${c===selected}" aria-label="Choose color ${c}"></button>`).join('')}</span></label>
+    <div class="field-row equal"><label class="field">Daily target<input type="number" name="targetCount" required min="1" max="100000" step="1" value="${seed.targetCount||1}"></label><label class="field">Unit<input name="targetUnit" required maxlength="24" value="${esc(seed.targetUnit||'times')}" placeholder="pages, glasses…"></label></div>${h?`<p class="section-note">Goal changes start ${hasCheckInToday?'tomorrow':'today'}. Earlier check-ins keep their original goal.</p>`:'<p class="section-note">A target of 1 is a simple done-or-not-done habit. Larger targets track quantities.</p>'}<label class="field">Color<input type="hidden" name="colorHex" value="${selected}"><span class="color-swatches">${['#254A43','#334E68','#6B435C','#8A492D','#77602C','#4D526D','#6E3937','#525B3C'].map(c=>`<button type="button" class="color-swatch ${c===selected?'selected':''}" style="--swatch:${c}" data-action="select-color" data-color="${c}" aria-pressed="${c===selected}" aria-label="Choose color ${c}"></button>`).join('')}</span></label>
     <details class="more-options"><summary>More options · description, reminder, stacking</summary><div><label class="field">Description · optional<textarea name="description" maxlength="2000" placeholder="A gentle intention…">${esc(seed.description||'')}</textarea></label><label class="field">Reminder time · optional<input type="time" name="reminderTime" value="${reminder}"><small>Saved for the native Android app. This browser preview does not schedule notifications.</small></label><label class="field">Habit stacking · optional<select name="afterHabitId"><option value="">No linked habit</option>${state.habits.filter(p=>p.id!==h?.id&&(!p.isArchived||p.id===h?.afterHabitId)).map(p=>`<option value="${p.id}" ${p.id===h?.afterHabitId?'selected':''}>After ${esc(p.name)}</option>`).join('')}</select><small>“After I do this, I will begin my new habit.”</small></label></div></details><p id="form-error" class="form-error" aria-live="polite"></p><button class="primary-button wide" type="submit">${h?'Save changes':'Create habit'}</button><button class="text-button wide" type="button" data-action="close-modal">Keep draft & close</button></form>`,{kind:'habit',id:h?.id||0,draftKey});
 }
 function editLog(id,defaultStatus=null) {
-  const h=habitFor(id),log=logFor(id),date=selectedDate;if(!h||h.isArchived||!scheduled(h,date,state.pauses))return;
+  const original=habitFor(id),log=logFor(id),date=selectedDate;if(!original||original.isArchived||!scheduled(original,date,state.pauses))return;
+  const h=goalAt(original,date);
   const status=defaultStatus||log?.status||'COMPLETED',draftKey=`log:${id}:${h.createdAt}:${date}`;
   const statusChoices=[['COMPLETED','✓ Completed'],['SKIPPED','↳ Skipped'],['FAILED','Missed']];if(h.targetCount>1)statusChoices.push(['IN_PROGRESS','In progress']);
   showModal(`${heading(`${h.icon} ${h.name}`,nice(date,{weekday:'long',day:'numeric',month:'long'}))}<form id="log-form" data-id="${id}" data-date="${date}" data-draft-key="${draftKey}"><input name="status" type="hidden" value="${status}"><div class="status-choice" role="group" aria-label="Check-in status">${statusChoices.map(([value,label])=>`<button type="button" class="${value===status?'selected':''}" data-action="select-status" data-status="${value}" aria-pressed="${value===status}">${label}</button>`).join('')}</div>${h.targetCount>1?`<label class="field">Progress, if in progress<input name="progress" type="number" min="0" max="${h.targetCount-1}" step="1" value="${log?.status==='IN_PROGRESS'?log.progress:0}"><small>Target: ${h.targetCount} ${esc(h.targetUnit)}. Completed entries automatically use the target.</small></label>`:'<input name="progress" type="hidden" value="0">'}<p class="section-note">Tap a status to save it instantly. Skipped days protect your chain and give you room to breathe.</p><label class="field">A note for yourself · optional<textarea name="note" maxlength="4000" placeholder="How did today feel?">${esc(log?.note||'')}</textarea></label><p id="form-error" class="form-error" aria-live="polite"></p><button class="primary-button wide" type="submit">Save check-in</button>${log?`<button type="button" class="text-button danger wide" data-action="clear-log" data-id="${id}" data-date="${date}">Clear this check-in</button>`:''}<button class="text-button wide" type="button" data-action="close-modal">Keep draft & close</button></form>`,{kind:'log',id,date,draftKey});
@@ -284,7 +287,8 @@ function celebrate() {
   for(let i=0;i<24;i++){const piece=document.createElement('i');piece.className='confetti';piece.style.cssText=`left:${15+Math.random()*70}%;background:${colors[i%4]};--dx:${Math.random()*160-80}px;animation-delay:${Math.random()*.2}s`;document.body.append(piece);setTimeout(()=>piece.remove(),1900);}
 }
 function checkIn(id) {
-  const h=habitFor(id),existing=logFor(id);if(!h||h.isArchived||!scheduled(h,selectedDate,state.pauses))return;
+  const original=habitFor(id),existing=logFor(id);if(!original||original.isArchived||!scheduled(original,selectedDate,state.pauses))return;
+  const h=goalAt(original,selectedDate);
   if(h.targetCount>1){const next=changeProgress(state,id,selectedDate,today,existing?.status==='COMPLETED'?-1:1);commit(next,'Progress updated.');if(logFor(id)?.status==='COMPLETED'&&state.settings.animationsEnabled&&[7,30,100,365].includes(dayNumber(h)))celebrate();return;}
   if(existing?.status==='COMPLETED'){
     const next=existing.note?changeLog(state,id,selectedDate,today,'IN_PROGRESS',existing.note,0):{...state,logs:state.logs.filter(l=>l!==existing)};
@@ -314,13 +318,16 @@ function moveHabit(id,delta) {
   const button=modal.querySelector(`[data-action="${delta<0?'move-up':'move-down'}"][data-id="${id}"]`);if(button&&!button.disabled)button.focus();
 }
 function rowMenu(id) {
-  const h=habitFor(id);if(!h)return;
+  const original=habitFor(id);if(!original)return;
+  const h=goalAt(original,selectedDate);
   const log=logFor(id),isDue=scheduled(h,selectedDate,state.pauses);
   const freezeSpent=state.freezes.some(f=>f.month===selectedDate.slice(0,7));
   const canSkip=isDue&&log?.status!=='SKIPPED';
   const canFail=isDue&&log?.status!=='FAILED';
   const canFreeze=isDue&&selectedDate<today&&(!log||['FAILED','IN_PROGRESS'].includes(log.status))&&!freezeSpent;
+  const steps=isDue&&h.targetCount>1&&log?.status!=="COMPLETED"?[[1,"+1"],[Math.ceil(h.targetCount/4),"+25% of goal"],[Math.ceil(h.targetCount/2),"+50% of goal"],[h.targetCount,"Complete goal"]]:[];
   const items=[
+    ...steps.map(([amount,label])=>`<button data-action="goal-step" data-id="${h.id}" data-step="${amount}"><span class="menu-icon" aria-hidden="true">+</span><span>${label}</span></button>`),
     `<button data-action="open-habit" data-id="${h.id}"><span class="menu-icon" aria-hidden="true">↗</span><span>Open details<small>History, trend, notes and management</small></span></button>`,
     `<button data-action="edit-habit" data-id="${h.id}"><span class="menu-icon" aria-hidden="true">✎</span><span>Edit habit</span></button>`,
     canSkip?`<button data-action="row-skip" data-id="${h.id}"><span class="menu-icon" aria-hidden="true">↳</span><span>Skip this day<small>${log?.status==='COMPLETED'?'Replaces the completion · ':'Protects your chain · '}can be undone</small></span></button>`:'',
@@ -386,6 +393,7 @@ document.addEventListener('click',event=>{
       case 'remove-filter':{const key=button.dataset.key;if(key==='query')filters.query='';else if(key==='category')filters.category='';else if(key==='status')filters.status='all';render();break;}
       case 'clear-filters':filters={query:'',category:'',status:'all'};render();break;
       case 'check-in':checkIn(id);break;
+      case 'goal-step':closeModal(true);commit(changeProgress(state,id,selectedDate,today,Number(button.dataset.step)),'Progress added.');break;
       case 'increment':commit(changeProgress(state,id,selectedDate,today,1),'Progress added.');break;
       case 'decrement':commit(changeProgress(state,id,selectedDate,today,-1),'Progress adjusted.');break;
       case 'edit-log':closeModal(true);editLog(id,button.dataset.default||null);break;
@@ -439,7 +447,7 @@ document.addEventListener('submit',async event=>{
   try {
     if(form.id==='habit-form') {
       const id=Number(form.dataset.id),old=habitFor(id),after=values.afterHabitId?Number(values.afterHabitId):null,startDate=values.startDate,scheduledDays=values.scheduledDays.map(Number).sort((a,b)=>a-b),targetCount=values.targetCount===undefined?old?.targetCount:Number(values.targetCount),targetUnit=values.targetUnit===undefined?old?.targetUnit:values.targetUnit.trim();
-      validateGoalEdit(old,{targetCount,targetUnit},state.logs);
+      const goalHistory=validateGoalEdit(old,{targetCount,targetUnit},state.logs,today);
       if(!values.name.trim()||!values.icon.trim()||!values.category.trim())throw Error('Give your habit a name, icon, and category.');
       if(!scheduledDays.length)throw Error('Choose at least one weekday.');
       if(old&&state.logs.some(l=>l.habitId===id&&l.date<startDate))throw Error('Your start date cannot move past an existing check-in.');
@@ -451,7 +459,7 @@ document.addEventListener('submit',async event=>{
         history=history.filter(r=>r.effectiveFrom<today);history.push({effectiveFrom:today,days:scheduledDays});
       }
       const reminderMinutes=values.reminderTime?Number(values.reminderTime.slice(0,2))*60+Number(values.reminderTime.slice(3)):null;
-      const now=Math.max(Date.now(),old?.createdAt||0),habit={id:id||Math.max(0,...state.habits.map(h=>h.id))+1,name:values.name.trim(),description:values.description.trim()||null,icon:values.icon.trim(),colorHex:values.colorHex,startDate,isArchived:old?.isArchived||false,sortOrder:old?.sortOrder??Math.max(-1,...state.habits.map(h=>h.sortOrder))+1,category:values.category.trim(),afterHabitId:after,archivedOn:old?.archivedOn||null,createdAt:old?.createdAt||now,updatedAt:now,scheduledDays,targetCount,targetUnit,reminderMinutes,scheduleHistory:history};
+      const now=Math.max(Date.now(),old?.createdAt||0),habit={id:id||Math.max(0,...state.habits.map(h=>h.id))+1,name:values.name.trim(),description:values.description.trim()||null,icon:values.icon.trim(),colorHex:values.colorHex,startDate,isArchived:old?.isArchived||false,sortOrder:old?.sortOrder??Math.max(-1,...state.habits.map(h=>h.sortOrder))+1,category:values.category.trim(),afterHabitId:after,archivedOn:old?.archivedOn||null,createdAt:old?.createdAt||now,updatedAt:now,scheduledDays,targetCount,targetUnit,reminderMinutes,scheduleHistory:history,...(goalHistory.length?{goalHistory}:{})};
       const habits=old?state.habits.map(h=>h.id===id?habit:h):[...state.habits,habit];
       const logs=state.logs;
       const next={...state,habits,logs};validatePortableBackup(makeBackup(next),today);

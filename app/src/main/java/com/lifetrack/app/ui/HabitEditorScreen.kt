@@ -65,7 +65,7 @@ fun HabitEditorScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
         if (!granted) permissionNote = "The habit will be saved. Enable notifications in Android settings to receive its reminder."
     }
     val busy by vm.busy.collectAsState()
-    val targetProtected = state.logs.any { it.habitId == id }
+    val hasCheckInToday = state.logs.any { it.habitId == id && it.date == state.today }
     val selectedDays = days.split(',').mapNotNull(String::toIntOrNull).sorted()
     val targetNumber = target.toIntOrNull()
     val reminderNumber = if (reminder && hour.toIntOrNull() in 0..23 && minute.toIntOrNull() in 0..59) hour.toInt() * 60 + minute.toInt() else null
@@ -119,13 +119,17 @@ fun HabitEditorScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
             HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
             Text("A measurable intention", style = MaterialTheme.typography.titleMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(target, { if (it.length <= 6 && it.all(Char::isDigit)) target = it }, enabled = !targetProtected, label = { Text("Daily target") },
+                OutlinedTextField(target, { if (it.length <= 6 && it.all(Char::isDigit)) target = it }, label = { Text("Daily target") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true,
                     isError = targetNumber == null || targetNumber !in 1..100_000, modifier = Modifier.weight(1f))
-                OutlinedTextField(unit, { if (it.length <= 24) unit = it }, enabled = !targetProtected, label = { Text("Unit") }, placeholder = { Text("pages, glasses…") }, singleLine = true, modifier = Modifier.weight(1.5f))
+                OutlinedTextField(unit, { if (it.length <= 24) unit = it }, label = { Text("Unit") }, placeholder = { Text("pages, glasses…") }, singleLine = true, modifier = Modifier.weight(1.5f))
             }
             Text("Use 1 time for a simple check-in, or track a count toward your goal.", style = MaterialTheme.typography.bodySmall)
-            if (targetProtected) Text("Existing check-ins keep their original goal. Create a new habit to change its target or unit; your other settings remain editable.", style = MaterialTheme.typography.bodySmall)
+            if (original != null) Text(
+                if (hasCheckInToday) "Goal changes start tomorrow. Existing check-ins keep their original goal."
+                else "Goal changes start today. Earlier check-ins keep their original goal.",
+                style = MaterialTheme.typography.bodySmall
+            )
             HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
             Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 Text("Habit reminder", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
@@ -146,7 +150,7 @@ fun HabitEditorScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
             HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
             Text("Color", style = MaterialTheme.typography.titleMedium)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("#43866B", "#547DBB", "#B67B98", "#B48647", "#8877B0", "#BA7166").forEach { hex ->
+                listOf("#254A43", "#334E68", "#6B435C", "#8A492D", "#77602C", "#4D526D", "#6E3937", "#525B3C").forEach { hex ->
                     Box(Modifier.size(48.dp), contentAlignment = androidx.compose.ui.Alignment.Center) {
                         Surface(color = Color(android.graphics.Color.parseColor(hex)), shape = CircleShape,
                             border = if (hex.equals(color, true)) BorderStroke(3.dp, MaterialTheme.colorScheme.onSurface) else null,

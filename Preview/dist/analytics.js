@@ -1,4 +1,4 @@
-import { scheduled, completionRate, currentStreak as streakValue } from './domain.js?v=fr1';
+import { scheduled, completionRate, currentStreak as streakValue } from './domain.js?v=1.5.0';
 const esc = (value = '') => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const fmtQ = value => Number.isInteger(value) ? String(value) : String(Math.round(value * 100) / 100);
 const parse = value => new Date(`${value}T12:00:00Z`);

@@ -60,15 +60,18 @@ class UpgradeBehaviorTest {
         repo.setProgress(id, today, 4, "Four actual glasses")
         val originalHabit = db.dao().habit(id)!!
         val originalLogs = repo.logs.first()
-        rejected { repo.saveHabit(originalHabit.copy(targetCount = 3)) }
-        rejected { repo.saveHabit(originalHabit.copy(targetCount = 12)) }
-        rejected { repo.saveHabit(originalHabit.copy(targetUnit = "litres")) }
-        assertEquals(originalHabit, db.dao().habit(id))
+        repo.saveHabit(originalHabit.copy(targetCount = 12, targetUnit = "litres"))
+        val updated = db.dao().habit(id)!!
+        assertEquals(8, updated.goalOn(today).targetCount)
+        assertEquals("glasses", updated.goalOn(today.minusDays(1)).targetUnit)
+        assertEquals(12, updated.goalOn(today.plusDays(1)).targetCount)
         assertEquals(originalLogs, repo.logs.first())
-        assertEquals(listOf(LogStatus.COMPLETED, LogStatus.IN_PROGRESS), originalLogs.map { it.status })
-        assertEquals(listOf(8, 4), originalLogs.map { it.progress })
-        repo.saveHabit(originalHabit.copy(name = "Water throughout the day"))
-        assertEquals(originalLogs, repo.logs.first())
+        val backup = LifeTrackBackup(formatVersion = 4, exportedAt = 1, habits = listOf(updated), logs = originalLogs, settings = AppSettings(), freezes = emptyList())
+        assertEquals(backup, BackupValidator.decode(BackupValidator.json.encodeToString(LifeTrackBackup.serializer(), backup), today))
+        repo.incrementProgress(id, today, 25)
+        val partial = repo.logs.first().first { it.date == today }
+        assertEquals(6, partial.progress)
+        assertEquals("Four actual glasses", partial.note)
         val unused = repo.saveHabit(Habit(name = "New goal", startDate = today, targetCount = 2))
         repo.saveHabit(db.dao().habit(unused)!!.copy(targetCount = 12, targetUnit = "pages"))
         assertEquals(12, db.dao().habit(unused)!!.targetCount)

@@ -45,6 +45,7 @@ fun HabitDetailScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
     val operationError by vm.operationError.collectAsState()
     val ownLogs = state.logs.filter { it.habitId == id }
     val log = ownLogs.firstOrNull { it.date == date }
+    val goal = habit.goalOn(date)
     val eligible = !habit.isArchived && Analytics.eligible(habit, date, state.pauses) && date <= state.today
     val spent = state.freezes.any { it.month == YearMonth.from(date).toString() }
     Scaffold(topBar = {
@@ -70,10 +71,10 @@ fun HabitDetailScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(log?.let { if (it.isFrozen) "❄ Streak frozen" else when (it.status) { LogStatus.COMPLETED -> "✓ Completed"; LogStatus.SKIPPED -> "↪ Skipped"; LogStatus.FAILED -> "Missed"; LogStatus.IN_PROGRESS -> "In progress" } } ?: "No check-in yet", style = MaterialTheme.typography.titleLarge)
-                    if (habit.targetCount > 1) {
-                        val count = if (log?.status == LogStatus.COMPLETED) maxOf(habit.targetCount, log.progress) else log?.progress ?: 0
-                        Text("$count / ${habit.targetCount} ${habit.targetUnit}", style = MaterialTheme.typography.titleMedium)
-                        LinearProgressIndicator(progress = { (count.toFloat() / habit.targetCount).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                    if (goal.targetCount > 1) {
+                        val count = if (log?.status == LogStatus.COMPLETED) maxOf(goal.targetCount, log.progress) else log?.progress ?: 0
+                        Text("$count / ${goal.targetCount} ${goal.targetUnit}", style = MaterialTheme.typography.titleMedium)
+                        LinearProgressIndicator(progress = { (count.toFloat() / goal.targetCount).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
                     }
                     log?.note?.let { Text(it) }
                     Button(enabled = eligible && !busy, onClick = { showLog = true }, modifier = Modifier.fillMaxWidth()) { Text(if (log == null) "Add check-in / note" else "Edit check-in / note") }
@@ -127,7 +128,8 @@ fun LogEditorDialog(habit: Habit, date: LocalDate, current: HabitLog?, vm: Habit
     var statusName by rememberSaveable(habit.id, date) { mutableStateOf(initialStatus.name) }
     val status = LogStatus.valueOf(statusName)
     var note by rememberSaveable(habit.id, date) { mutableStateOf(current?.note ?: "") }
-    var progress by rememberSaveable(habit.id, date) { mutableStateOf((if (current?.status == LogStatus.COMPLETED) maxOf(habit.targetCount, current.progress) else current?.progress ?: 0).toString()) }
+    val goal = habit.goalOn(date)
+    var progress by rememberSaveable(habit.id, date) { mutableStateOf((if (current?.status == LogStatus.COMPLETED) maxOf(goal.targetCount, current.progress) else current?.progress ?: 0).toString()) }
     val busy by vm.busy.collectAsState()
     val operationError by vm.operationError.collectAsState()
     LaunchedEffect(habit.id, date) { vm.clearOperationError() }
@@ -164,8 +166,8 @@ fun LogEditorDialog(habit: Habit, date: LocalDate, current: HabitLog?, vm: Habit
                             }, style = MaterialTheme.typography.bodyMedium)
                         }
                     }
-                    if (habit.targetCount > 1 || status == LogStatus.IN_PROGRESS) OutlinedTextField(progress,
-                        { if (it.length <= 6 && it.all(Char::isDigit)) progress = it }, label = { Text("Progress · ${habit.targetCount} ${habit.targetUnit} goal") },
+                    if (goal.targetCount > 1 || status == LogStatus.IN_PROGRESS) OutlinedTextField(progress,
+                        { if (it.length <= 6 && it.all(Char::isDigit)) progress = it }, label = { Text("Progress · ${goal.targetCount} ${goal.targetUnit} goal") },
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number), singleLine = true)
                     OutlinedTextField(note, { if (it.length <= 4000) note = it }, label = { Text("Note · optional") }, minLines = 2, modifier = Modifier.fillMaxWidth())
                     operationError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }

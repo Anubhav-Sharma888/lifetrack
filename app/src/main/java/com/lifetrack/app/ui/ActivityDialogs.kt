@@ -110,16 +110,20 @@ fun SpineItem(nodeColor: Color = MaterialTheme.colorScheme.onSurfaceVariant, con
 @Composable
 fun ExerciseTrace(activity: WorkoutActivity, entries: List<ActivityEntry>, modifier: Modifier = Modifier) {
     if (entries.isEmpty()) return
-    val max = maxOf(1.0, entries.maxOfOrNull { it.quantity } ?: 1.0)
+    val ordered = entries.sortedBy { it.date }
+    val max = ordered.maxOf { it.quantity }
+    val baseline = MaterialTheme.colorScheme.outlineVariant
     Column(modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth().height(34.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-            entries.forEach { entry ->
+        Row(Modifier.fillMaxWidth().height(34.dp).padding(bottom = 3.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+            ordered.forEach { entry ->
                 Box(Modifier.weight(1f).height((30 * (entry.quantity / max).coerceIn(0.06, 1.0)).dp)
                     .clip(RoundedCornerShape(3.dp))
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)))
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.55f))
+                    .semantics { contentDescription = entry.date.toString() + ": " + formatQuantityLabel(entry.quantity) + " " + activity.unit })
             }
         }
-        Text("Last ${entries.size} sessions · ${activity.unit}", style = MaterialTheme.typography.labelSmall,
+        HorizontalDivider(color = baseline)
+        Text("Daily totals · " + activity.unit + " · oldest to newest", style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

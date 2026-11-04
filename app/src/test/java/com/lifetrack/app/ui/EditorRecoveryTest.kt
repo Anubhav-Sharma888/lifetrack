@@ -94,12 +94,12 @@ class EditorRecoveryTest {
         compose.onNodeWithText("Keep the status").assertExists()
     }
 
-    @Test fun historicalGoalsAreDisabledAndExplainedInTheEditor() {
+    @Test fun goalEditsAreEnabledAndExplainWhenTheyStart() {
         val habit = Habit(id = 1, name = "Water", startDate = today, targetCount = 8, targetUnit = "glasses")
         val log = HabitLog(id = 1, habitId = 1, date = today, status = LogStatus.COMPLETED, progress = 8)
         compose.setContent { MaterialTheme { HabitEditorScreen(1, LifeTrackState(habits = listOf(habit), logs = listOf(log), loaded = true), vm) {} } }
-        compose.onNodeWithText("Daily target").assertIsNotEnabled()
-        compose.onNodeWithText("Existing check-ins keep their original goal. Create a new habit to change its target or unit; your other settings remain editable.").assertExists()
+        compose.onNodeWithText("Daily target").assertIsEnabled()
+        compose.onNodeWithText("Goal changes start tomorrow. Existing check-ins keep their original goal.").assertExists()
     }
 
     @Test fun todayCanScrollFromTheHeaderToActivitiesOnAShortScreen() {

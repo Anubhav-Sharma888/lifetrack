@@ -159,8 +159,8 @@ class HabitViewModel @Inject constructor(
         onSaved()
     }
 
-    fun incrementProgress(id: Long, date: LocalDate) = perform {
-        if (repository.incrementProgress(id, date)) {
+    fun incrementProgress(id: Long, date: LocalDate, percent: Int? = null) = perform {
+        if (repository.incrementProgress(id, date, percent)) {
             val day = state.value.habits.firstOrNull { it.id == id }?.let { ChronoUnit.DAYS.between(it.startDate, date) + 1 } ?: 0
             _events.emit(UiEvent.CheckedIn(id, day))
         } else _events.emit(UiEvent.Message("Progress saved"))

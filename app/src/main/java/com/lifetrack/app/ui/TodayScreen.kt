@@ -150,7 +150,8 @@ fun TodayScreen(state: LifeTrackState, vm: HabitViewModel, onAdd: () -> Unit, on
                 }
             }
         } else {
-            items(habits, key = { it.id }) { habit ->
+            items(habits, key = { it.id }) { savedHabit ->
+                val habit = savedHabit.goalOn(date)
                 val log = dayLogs[habit.id]
                 val eligible = Analytics.eligible(habit, date, state.pauses)
                 ReorderableItem(reorder, key = habit.id) { _ ->
@@ -176,6 +177,13 @@ fun TodayScreen(state: LifeTrackState, vm: HabitViewModel, onAdd: () -> Unit, on
                             Box {
                                 IconButton(onClick = { quickMenuId = habit.id }) { Icon(Icons.Outlined.MoreVert, "More actions for ${habit.name}") }
                                 DropdownMenu(quickMenuId == habit.id, onDismissRequest = { quickMenuId = null }) {
+                                    if (habit.targetCount > 1 && eligible && log?.status != LogStatus.COMPLETED) {
+                                        DropdownMenuItem(text = { Text("+1 " + habit.targetUnit) }, enabled = !busy, onClick = { vm.incrementProgress(habit.id, date); quickMenuId = null })
+                                        DropdownMenuItem(text = { Text("+25% of goal") }, enabled = !busy, onClick = { vm.incrementProgress(habit.id, date, 25); quickMenuId = null })
+                                        DropdownMenuItem(text = { Text("+50% of goal") }, enabled = !busy, onClick = { vm.incrementProgress(habit.id, date, 50); quickMenuId = null })
+                                        DropdownMenuItem(text = { Text("Complete goal") }, enabled = !busy, onClick = { vm.quickCheckIn(habit.id, date); quickMenuId = null })
+                                        HorizontalDivider()
+                                    }
                                     DropdownMenuItem(text = { Text("Skip this day") }, enabled = eligible && log?.status != LogStatus.SKIPPED, onClick = {
                                         vm.setLog(habit.id, date, LogStatus.SKIPPED, log?.note); quickMenuId = null
                                     })
