@@ -1,5 +1,7 @@
 package com.lifetrack.app.ui
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -29,8 +31,9 @@ import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
 @Composable
-fun TodayScreen(state: LifeTrackState, vm: HabitViewModel, onAdd: () -> Unit, onOpen: (Long) -> Unit) {
+fun TodayScreen(state: LifeTrackState, vm: HabitViewModel, onAdd: () -> Unit, onOpen: (Long) -> Unit, onRestoreBackup: () -> Unit = {}) {
     val busy by vm.busy.collectAsState()
+    val wasReset by vm.wasReset.collectAsState()
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
     val minimum = LocalDate.of(1900, 1, 1)
     val date = selected?.let(LocalDate::parse)?.coerceIn(minimum, state.today) ?: state.today
@@ -63,70 +66,130 @@ fun TodayScreen(state: LifeTrackState, vm: HabitViewModel, onAdd: () -> Unit, on
     val showNudge = date == state.today && unmarkedYesterday.isNotEmpty() && nudgeDismissed != state.today.minusDays(1).toString()
     val listState = rememberLazyListState()
     val reorder = rememberReorderableLazyListState(listState) { from, to ->
-        val fromIndex = order.indexOf(from.key as Long)
-        val toIndex = order.indexOf(to.key as Long)
+        val fromIndex = (from.key as? Long)?.let(order::indexOf) ?: -1
+        val toIndex = (to.key as? Long)?.let(order::indexOf) ?: -1
         if (fromIndex >= 0 && toIndex >= 0) order = order.toMutableList().apply { add(toIndex, removeAt(fromIndex)) }
     }
-    Column(Modifier.fillMaxSize()) {
-        Column(Modifier.padding(horizontal = 24.dp, vertical = 14.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) { Text("LifeTrack", style = MaterialTheme.typography.headlineLarge); Text("Small steps. Your own pace.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                IconButton(onClick = { showFilters = !showFilters }) { Icon(Icons.Outlined.FilterList, "Search and filter habits") }
-                FilledTonalIconButton(onClick = onAdd) { Icon(Icons.Outlined.Add, "Add habit") }
-            }
-            Spacer(Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(enabled = date > minimum, onClick = { selected = date.minusDays(1).toString() }) { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, "Previous day") }
-                TextButton(onClick = { showDate = true }, modifier = Modifier.weight(1f)) {
-                    Text(if (date == state.today) "Today · ${date.format(DateTimeFormatter.ofPattern("EEE, d MMM"))}" else date.format(DateTimeFormatter.ofPattern("EEE, d MMM yyyy")))
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        state = listState,
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item(key = "today-header") {
+            Column(Modifier.padding(horizontal = 4.dp, vertical = 14.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) { Text("LifeTrack", style = MaterialTheme.typography.headlineLarge); Text("Small steps. Your own pace.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    IconButton(onClick = { showFilters = !showFilters }) { Icon(Icons.Outlined.FilterList, "Search and filter habits") }
+                    FilledTonalIconButton(onClick = onAdd) { Icon(Icons.Outlined.Add, "Add habit") }
                 }
-                IconButton(enabled = date < state.today, onClick = { selected = date.plusDays(1).toString() }) { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, "Next day") }
-            }
-            if (date != state.today) TextButton(onClick = { selected = null; focusUnmarked = false }) { Text("Back to today") }
-            Text("$completed of ${due.size} scheduled habits completed", style = MaterialTheme.typography.labelLarge)
-            Spacer(Modifier.height(8.dp))
-            LinearProgressIndicator(progress = { if (due.isEmpty()) 0f else completed.toFloat() / due.size }, modifier = Modifier.fillMaxWidth())
-            if (showNudge) {
                 Spacer(Modifier.height(12.dp))
-                Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("${if (unmarkedYesterday.size == 1) "One habit was" else "${unmarkedYesterday.size} habits were"} left unmarked on ${state.today.minusDays(1).format(DateTimeFormatter.ofPattern("EEE, d MMM"))}", style = MaterialTheme.typography.titleSmall)
-                        Text(unmarkedYesterday.take(3).joinToString(" · ") { it.name }, style = MaterialTheme.typography.bodySmall, maxLines = 2)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { selected = state.today.minusDays(1).toString(); focusUnmarked = true }) { Text("Mark them now") }
-                            TextButton(onClick = { nudgeDismissed = state.today.minusDays(1).toString() }) { Text("Leave it") }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(enabled = date > minimum, onClick = { selected = date.minusDays(1).toString() }) { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, "Previous day") }
+                    TextButton(onClick = { showDate = true }, modifier = Modifier.weight(1f)) {
+                        Text(if (date == state.today) "Today · ${date.format(DateTimeFormatter.ofPattern("EEE, d MMM"))}" else date.format(DateTimeFormatter.ofPattern("EEE, d MMM yyyy")))
+                    }
+                    IconButton(enabled = date < state.today, onClick = { selected = date.plusDays(1).toString() }) { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, "Next day") }
+                }
+                // Almanac: oversized Newsreader date with a vertical-rule day/month seal lockup.
+                Row(Modifier.padding(top = 2.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        date.format(DateTimeFormatter.ofPattern("EEEE d MMMM")),
+                        style = MaterialTheme.typography.displayLarge.copy(fontFeatureSettings = "tnum"),
+                        modifier = Modifier.weight(1f)
+                    )
+                    Box(Modifier.padding(start = 12.dp).width(1.dp).height(44.dp).background(MaterialTheme.colorScheme.outlineVariant))
+                    Column(Modifier.padding(start = 10.dp), horizontalAlignment = Alignment.End) {
+                        Text(date.dayOfMonth.toString().padStart(2, '0'), style = AlmanacType.monoData, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(date.format(DateTimeFormatter.ofPattern("MMM yyyy")).uppercase(), style = AlmanacType.labelCaps, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
+                // Flight Recorder: seven-day recording strip over the measurement rule.
+                RecordingStrip(selected = date, today = state.today,
+                    completedDates = state.logs.filter { it.status == LogStatus.COMPLETED }.map { it.date }.toSet(),
+                    onSelect = { selected = it.toString(); focusUnmarked = false })
+                HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
+                if (date != state.today) TextButton(onClick = { selected = null; focusUnmarked = false }) { Text("Back to today") }
+                // Almanac register summary: sunken parchment well, mono metric, 4dp sage progress line.
+                Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceVariant,
+                    border = BorderStroke(1.dp, almanacColors().rule), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("$completed of ${due.size} scheduled habits completed", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("$completed/${due.size}", style = AlmanacType.monoMetric, color = MaterialTheme.colorScheme.onSurface)
+                        LinearProgressIndicator(
+                            progress = { if (due.isEmpty()) 0f else completed.toFloat() / due.size },
+                            modifier = Modifier.fillMaxWidth().height(4.dp),
+                            color = MaterialTheme.colorScheme.secondary, trackColor = MaterialTheme.colorScheme.outlineVariant
+                        )
+                    }
+                }
+                if (showNudge) {
+                    Spacer(Modifier.height(12.dp))
+                    Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.tertiaryContainer,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = .35f)), modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("${if (unmarkedYesterday.size == 1) "One habit was" else "${unmarkedYesterday.size} habits were"} left unmarked on ${state.today.minusDays(1).format(DateTimeFormatter.ofPattern("EEE, d MMM"))}", style = MaterialTheme.typography.titleSmall)
+                            Text(unmarkedYesterday.take(3).joinToString(" · ") { it.name }, style = MaterialTheme.typography.bodySmall, maxLines = 2)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(onClick = { selected = state.today.minusDays(1).toString(); focusUnmarked = true }) { Text("Mark them now") }
+                                TextButton(onClick = { nudgeDismissed = state.today.minusDays(1).toString() }) { Text("Leave it") }
+                            }
                         }
                     }
                 }
-            }
-            if (showFilters) {
-                Spacer(Modifier.height(12.dp))
-                OutlinedTextField(query, { query = it }, label = { Text("Search habits") }, singleLine = true,
-                    leadingIcon = { Icon(Icons.Outlined.Search, null) },
-                    trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Outlined.Close, "Clear search") } }, modifier = Modifier.fillMaxWidth())
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FilterChip(category == null, { category = null }, label = { Text("All categories") })
-                    active.map { it.category }.distinct().sorted().forEach { name -> FilterChip(category == name, { category = name }, label = { Text(name) }) }
-                }
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("All", "Due", "Completed", "Rest / planned").forEach { choice -> FilterChip(filter == choice, { filter = choice }, label = { Text(choice) }) }
+                if (showFilters) {
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(query, { query = it }, label = { Text("Search habits") }, singleLine = true,
+                        colors = almanacFieldColors(),
+                        leadingIcon = { Icon(Icons.Outlined.Search, null) },
+                        trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Outlined.Close, "Clear search") } }, modifier = Modifier.fillMaxWidth())
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FilterChip(category == null, { category = null }, label = { Text("All categories") })
+                        active.map { it.category }.distinct().sorted().forEach { name -> FilterChip(category == name, { category = name }, label = { Text(name) }) }
+                    }
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("All", "Due", "Completed", "Rest / planned").forEach { choice -> FilterChip(filter == choice, { filter = choice }, label = { Text(choice) }) }
+                    }
                 }
             }
         }
         if (active.isEmpty()) {
-            Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("🌱", style = MaterialTheme.typography.displayLarge)
-                Spacer(Modifier.height(16.dp)); Text("Start with something small", style = MaterialTheme.typography.headlineSmall)
-                Text("A page. A walk. A quiet minute. Pick a suggestion or create your own habit. Choose the days and pace that work for you.", Modifier.padding(vertical = 16.dp))
-                Button(onClick = onAdd) { Text("Create your first habit") }
+            item(key = "empty-habits") { Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                if (wasReset) {
+                    Text("🌱", style = MaterialTheme.typography.displayLarge)
+                    Spacer(Modifier.height(16.dp)); Text("Ready for a fresh start", style = MaterialTheme.typography.headlineSmall)
+                    Text("Everything was erased. Add a habit, or restore a backup to continue where you left off.", Modifier.padding(vertical = 16.dp))
+                    Button(onClick = onAdd, modifier = Modifier.heightIn(min = 48.dp)) { Text("Add a habit") }
+                    Spacer(Modifier.height(8.dp)); OutlinedButton(onClick = onRestoreBackup, modifier = Modifier.heightIn(min = 48.dp)) { Text("Restore a backup") }
+                } else {
+                    Text("🌱", style = MaterialTheme.typography.displayLarge)
+                    Spacer(Modifier.height(16.dp)); Text("Start with something small", style = MaterialTheme.typography.headlineSmall)
+                    Text("A page. A walk. A quiet minute. Pick a suggestion or create your own habit. Choose the days and pace that work for you.", Modifier.padding(vertical = 16.dp))
+                    Button(onClick = onAdd) { Text("Create your first habit") }
+                }
+            }
             }
         } else if (habits.isEmpty()) {
-            Column(Modifier.padding(32.dp)) { Text("No matching habits", style = MaterialTheme.typography.titleLarge); Text("Try another search or filter."); TextButton(onClick = { query = ""; category = null; filter = "All" }) { Text("Clear filters") } }
-        } else LazyColumn(state = listState, contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(habits, key = { it.id }) { habit ->
+            item(key = "filtered-habits") {
+                Column(Modifier.padding(12.dp)) {
+                    Text("No matching habits", style = MaterialTheme.typography.titleLarge)
+                    Text("Try another search or filter.")
+                    TextButton(onClick = { query = ""; category = null; filter = "All" }) { Text("Reset all filters") }
+                }
+            }
+        } else {
+            items(habits, key = { it.id }) { savedHabit ->
+                val habit = savedHabit.goalOn(date)
                 val log = dayLogs[habit.id]
                 val eligible = Analytics.eligible(habit, date, state.pauses)
                 ReorderableItem(reorder, key = habit.id) { _ ->
+                    SpineItem(nodeColor = when (log?.status) {
+                        LogStatus.COMPLETED -> MaterialTheme.colorScheme.secondary
+                        LogStatus.SKIPPED -> MaterialTheme.colorScheme.tertiary
+                        LogStatus.FAILED -> almanacColors().terracotta
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    }) {
                     HabitCard(habit = habit,
                         dayLabel = Analytics.dayNumber(habit, date)?.let { "Day $it${if (!eligible) " · Rest day" else ""}" } ?: "Starts ${habit.startDate}",
                         status = log?.status,
@@ -144,6 +207,13 @@ fun TodayScreen(state: LifeTrackState, vm: HabitViewModel, onAdd: () -> Unit, on
                             Box {
                                 IconButton(onClick = { quickMenuId = habit.id }) { Icon(Icons.Outlined.MoreVert, "More actions for ${habit.name}") }
                                 DropdownMenu(quickMenuId == habit.id, onDismissRequest = { quickMenuId = null }) {
+                                    if (habit.targetCount > 1 && eligible && log?.status != LogStatus.COMPLETED) {
+                                        DropdownMenuItem(text = { Text("+1 " + habit.targetUnit) }, enabled = !busy, onClick = { vm.incrementProgress(habit.id, date); quickMenuId = null })
+                                        DropdownMenuItem(text = { Text("+25% of goal") }, enabled = !busy, onClick = { vm.incrementProgress(habit.id, date, 25); quickMenuId = null })
+                                        DropdownMenuItem(text = { Text("+50% of goal") }, enabled = !busy, onClick = { vm.incrementProgress(habit.id, date, 50); quickMenuId = null })
+                                        DropdownMenuItem(text = { Text("Complete goal") }, enabled = !busy, onClick = { vm.quickCheckIn(habit.id, date); quickMenuId = null })
+                                        HorizontalDivider()
+                                    }
                                     DropdownMenuItem(text = { Text("Skip this day") }, enabled = eligible && log?.status != LogStatus.SKIPPED, onClick = {
                                         vm.setLog(habit.id, date, LogStatus.SKIPPED, log?.note); quickMenuId = null
                                     })
@@ -179,11 +249,14 @@ fun TodayScreen(state: LifeTrackState, vm: HabitViewModel, onAdd: () -> Unit, on
                             }
                             }
                         })
+                    }
                 }
             }
             item { Text("Tap to check in, use the ··· menu for one-tap skip or missed, or hold to set a count or note. Rest days protect your chain.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(4.dp)) }
         }
-        ActivitySection(state, vm, date, modifier = Modifier.padding(horizontal = 20.dp))
+        item(key = "activity-section") {
+            ActivitySection(state, vm, date)
+        }
     }
     if (showDate) DateSelectionDialog(date, latest = state.today, onDismiss = { showDate = false }, onSelect = { selected = it.toString(); focusUnmarked = false; showDate = false })
     editingLogId?.let { id -> state.habits.firstOrNull { it.id == id }?.let { habit ->

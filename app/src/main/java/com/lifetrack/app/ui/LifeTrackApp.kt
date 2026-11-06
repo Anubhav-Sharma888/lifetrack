@@ -1,19 +1,29 @@
 package com.lifetrack.app.ui
 
-import android.view.HapticFeedbackConstants
+import android.net.Uri
 import android.os.Build
+import android.view.HapticFeedbackConstants
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
@@ -38,6 +48,14 @@ fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, vm: HabitView
     val scope = rememberCoroutineScope()
     var celebration by remember { mutableIntStateOf(0) }
     val owner = LocalLifecycleOwner.current
+    val busy by vm.busy.collectAsState()
+    val operationError by vm.operationError.collectAsState()
+    var pendingImport by rememberSaveable { mutableStateOf<String?>(null) }
+    // A password is deliberately never put into saved instance state or preferences.
+    var backupPassword by remember { mutableStateOf("") }
+    // One import trigger shared by the Settings row and the Today restore action.
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> vm.clearOperationError(); backupPassword = ""; pendingImport = uri?.toString() }
+    val launchImport = { importLauncher.launch(arrayOf("application/json", "text/json", "text/plain", "application/octet-stream")) }
     DisposableEffect(owner) {
         val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) vm.refreshToday() }
         owner.lifecycle.addObserver(observer)
@@ -64,6 +82,7 @@ fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, vm: HabitView
                         scope.launch { snackbar.showSnackbar("Day ${event.day}. Look how far you've come! 🎉") }
                     }
                 }
+                is UiEvent.DataReset -> nav.navigate("today") { popUpTo(nav.graph.findStartDestination().id) { inclusive = true }; launchSingleTop = true }
             }
         }
     }
@@ -104,9 +123,9 @@ fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, vm: HabitView
                         CircularProgressIndicator()
                     }
                 } else NavHost(nav, "today", Modifier.padding(padding).consumeWindowInsets(padding)) {
-                    composable("today") { TodayScreen(state, vm, onAdd = { nav.navigate("edit/0") }, onOpen = { nav.navigate("habit/$it") }) }
+                    composable("today") { TodayScreen(state, vm, onAdd = { nav.navigate("edit/0") }, onOpen = { nav.navigate("habit/$it") }, onRestoreBackup = launchImport) }
                     composable("analytics") { AnalyticsScreen(state.habits, state.logs, state.today, state.pauses, state.activities, state.activityEntries) }
-                    composable("settings") { SettingsScreen(state, vm, onOpen = { nav.navigate("habit/$it") }) }
+                    composable("settings") { SettingsScreen(state, vm, onOpen = { nav.navigate("habit/$it") }, onImport = launchImport) }
                     composable("habit/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) {
                         val id = it.arguments!!.getLong("id")
                         HabitDetailScreen(id, state, vm, onBack = { nav.popBackStack() }, onEdit = { nav.navigate("edit/$id") })
@@ -116,6 +135,17 @@ fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, vm: HabitView
                     }
                 }
             }
+            pendingImport?.let { path -> AlertDialog(onDismissRequest = { if (!busy) { pendingImport = null; backupPassword = "" } }, title = { Text("Replace all LifeTrack data?") }, text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Restoring replaces current habits, history, pauses, freezes and settings. Export your current data first if you want to keep it. Invalid files or a wrong password leave existing data intact.")
+                    OutlinedTextField(backupPassword, { if (it.length <= 1024) backupPassword = it }, label = { Text("Password · encrypted backups only") },
+                        visualTransformation = PasswordVisualTransformation(), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Password), singleLine = true)
+                    Text("Leave the password empty for a plain JSON backup. A failed restore stays open so you can retry.", style = MaterialTheme.typography.bodySmall)
+                    operationError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
+                }
+            }, confirmButton = { TextButton(enabled = !busy, onClick = {
+                vm.import(Uri.parse(path), backupPassword.takeIf { it.isNotEmpty() }?.toCharArray()) { pendingImport = null; backupPassword = "" }
+            }) { Text(if (busy) "Restoring…" else "Replace and restore") } }, dismissButton = { TextButton(enabled = !busy, onClick = { pendingImport = null; backupPassword = "" }) { Text("Cancel") } }) }
             if (state.settings.animationsEnabled) MilestoneConfetti(celebration)
         }
     }

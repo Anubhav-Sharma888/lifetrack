@@ -1,4 +1,4 @@
-import { scheduled, completionRate, currentStreak as streakValue } from './domain.js?v=1.2.0';
+import { scheduled, completionRate, currentStreak as streakValue } from './domain.js?v=1.6.0';
 const esc = (value = '') => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 const fmtQ = value => Number.isInteger(value) ? String(value) : String(Math.round(value * 100) / 100);
 const parse = value => new Date(`${value}T12:00:00Z`);
@@ -251,18 +251,24 @@ export function activitiesPanelHTML(state, today, days = 28) {
   const allActivities = state.activities || [];
   const allEntries = state.activityEntries || [];
   const rows = allActivities.slice().sort((a,b) => a.sortOrder - b.sortOrder).map(activity => {
-    const inRange = allEntries.filter(e => e.activityId === activity.id && e.date >= from && e.date <= today);
+    const inRange = allEntries.filter(e => e.activityId === activity.id && e.date >= from && e.date <= today)
+        .slice().sort((a,b) => a.date.localeCompare(b.date));
     const total = inRange.reduce((sum, e) => sum + e.quantity, 0);
     const best = inRange.reduce((max, e) => Math.max(max, e.quantity), 0);
     const target = activity.target;
     const targetNote = target == null ? '' : ` · target ${fmtQ(target)}/day`;
-    const aboveTarget = target != null && best > target ? ' · best above target ✓' : '';
+    const aboveTarget = target != null && best > target ? ' · best day above target ✓' : '';
+    const trace = inRange.length ? inRange.slice().sort((a,b) => a.date.localeCompare(b.date)).map(e => `<span class="an-hab-dot ${target != null && e.quantity >= target ? 'is-done' : 'is-partial'}" aria-hidden="true"></span>`).join('') : '<span class="an-caption">No entries in this window.</span>';
+    const dated = inRange.length
+      ? `Oldest to newest (left to right): ${inRange.map(e => `${fmtQ(e.quantity)} ${esc(activity.unit)} on ${esc(format(e.date,{weekday:'short',day:'numeric',month:'short'}))}`).join(' · ')}`
+      : '';
+    const aria = `${activity.name}: ${fmtQ(total)} ${activity.unit} total across ${inRange.length} of the last ${days} days${targetNote}. ${dated}`;
     return `<div class="an-hab-row"><span class="an-hab-icon" aria-hidden="true">${esc(activity.icon)}</span>
-      <div class="an-hab-copy"><strong>${esc(activity.name)}</strong><span class="an-hab-strip" role="img" aria-label="${esc(`${activity.name}: ${fmtQ(total)} ${activity.unit} across ${inRange.length} of the last ${days} days${targetNote}`)}">${inRange.length ? inRange.slice().sort((a,b) => a.date.localeCompare(b.date)).map(e => `<span class="an-hab-dot ${target != null && e.quantity >= target ? 'is-done' : 'is-partial'}" aria-hidden="true"></span>`).join('') : '<span class="an-caption">No entries in this window.</span>'}</span><small class="an-caption">${esc(`${fmtQ(total)} ${activity.unit} · ${inRange.length} day${inRange.length === 1 ? '' : 's'} logged${targetNote}${aboveTarget}`)}</small></div>
+      <div class="an-hab-copy"><strong>${esc(activity.name)}</strong><span class="an-hab-strip" role="img" aria-label="${esc(aria)}">${trace}</span><small class="an-caption">${esc(`${fmtQ(total)} ${activity.unit} day-total across ${inRange.length} day${inRange.length === 1 ? '' : 's'} logged${targetNote}${aboveTarget}`)}</small><small class="an-caption an-trace-dates">${dated}</small></div>
       <span class="an-hab-stat"><strong>${fmtQ(total)}</strong><small>${esc(activity.unit)}</small></span></div>`;
   }).join('');
   return `<section class="an-panel"><div class="an-panel-heading"><div><span class="an-eyebrow">ACTIVITIES & WORKOUTS</span><h2>Activity log</h2></div><span class="an-badge">Last ${days} days</span></div>
-  <p class="an-caption">Actual quantities, recorded as performed — dots mark days at or above the target when one is set.</p>
+  <p class="an-caption">Actual quantities, recorded as performed — dots mark days at or above the target when one is set. Each activity is compared separately.</p>
   ${allActivities.length ? rows : '<p class="an-caption">No activities yet — add one from Today to track workouts, runs and repetitions.</p>'}</section>`;
 }
 

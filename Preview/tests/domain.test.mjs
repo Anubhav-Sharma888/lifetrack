@@ -78,12 +78,16 @@ test('returning progress to zero keeps a saved note',()=>{
   let state=stateOf(fixture());state.habits[0].targetCount=2;state.logs[0]={...state.logs[0],date:today,progress:2};state=changeProgress(state,1,today,today,-2);
   assert.equal(state.logs[0].status,'IN_PROGRESS');assert.equal(state.logs[0].progress,0);assert.equal(state.logs[0].note,'Keep this note');
 });
-test('saved quantities and units cannot be changed after any check-in',()=>{
-  const state=stateOf(fixture()),habit=state.habits[0],original=structuredClone(state.logs);
-  assert.throws(()=>validateGoalEdit(habit,{...habit,targetCount:10},state.logs),/original goal/);
-  assert.throws(()=>validateGoalEdit(habit,{...habit,targetUnit:'pages'},state.logs),/original goal/);
-  assert.doesNotThrow(()=>validateGoalEdit(habit,{...habit,name:'Edited name'},state.logs));
+test('goal changes retain previous completed quantities through backup and date edits',()=>{
+  let state=stateOf(fixture()),habit=state.habits[0],original=structuredClone(state.logs);
+  const changed={...habit,targetCount:10,targetUnit:'pages'};
+  state.habits=[{...changed,goalHistory:validateGoalEdit(habit,changed,state.logs,today)}];
+  state=parseBackup(encodeBackup(state,today,100),today);
   assert.deepEqual(state.logs,original);
+  state=changeLog(state,1,'2026-10-25',today,'COMPLETED','Updated note');
+  assert.equal(state.logs[0].progress,1);
+  state=changeProgress(state,1,today,today,5);
+  assert.equal(state.logs.find(l=>l.date===today).status,'IN_PROGRESS');
 });
 test('a habit without check-ins can choose a new goal or unit',()=>{
   const habit=fixture().habits[0];assert.doesNotThrow(()=>validateGoalEdit(habit,{...habit,targetCount:10,targetUnit:'pages'},[]));

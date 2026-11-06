@@ -6,6 +6,8 @@ import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import androidx.room.TypeConverter
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Required
 import kotlinx.serialization.Serializable
@@ -51,8 +53,23 @@ data class Habit(
     @ColumnInfo(defaultValue = "1") val targetCount: Int = 1,
     @ColumnInfo(defaultValue = "'times'") val targetUnit: String = "times",
     @ColumnInfo(defaultValue = "NULL") val reminderMinutes: Int? = null,
-    @ColumnInfo(defaultValue = "'[]'") val scheduleHistory: List<ScheduleRevision> = emptyList()
+    @ColumnInfo(defaultValue = "'[]'") val scheduleHistory: List<ScheduleRevision> = emptyList(),
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @ColumnInfo(defaultValue = "'[]'") val goalHistory: List<GoalRevision> = emptyList()
 )
+
+@Serializable
+data class GoalRevision(
+    @Serializable(with = LocalDateSerializer::class) val effectiveFrom: LocalDate,
+    val targetCount: Int,
+    val targetUnit: String
+)
+
+internal fun Habit.goalOn(date: LocalDate): Habit {
+    val goal = goalHistory.lastOrNull { it.effectiveFrom <= date } ?: goalHistory.firstOrNull() ?: return this
+    return copy(targetCount = goal.targetCount, targetUnit = goal.targetUnit)
+}
 
 @Serializable
 data class ScheduleRevision(
@@ -126,6 +143,8 @@ class Converters {
     @TypeConverter fun stringToStatus(value: String): LogStatus = LogStatus.valueOf(value)
     @TypeConverter fun daysToString(value: List<Int>): String = value.joinToString(",")
     @TypeConverter fun stringToDays(value: String): List<Int> = value.split(',').mapNotNull(String::toIntOrNull)
+    @TypeConverter fun goalsToString(value: List<GoalRevision>): String = BackupValidator.json.encodeToString(value)
+    @TypeConverter fun stringToGoals(value: String): List<GoalRevision> = BackupValidator.json.decodeFromString(value)
     @TypeConverter fun revisionsToString(value: List<ScheduleRevision>): String = BackupValidator.json.encodeToString(value)
     @TypeConverter fun stringToRevisions(value: String): List<ScheduleRevision> = BackupValidator.json.decodeFromString(value)
 }

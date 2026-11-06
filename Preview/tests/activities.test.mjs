@@ -109,7 +109,7 @@ test('setActivityEntry upserts, trims notes, clears on empty and refuses future 
   state = setActivityEntry(state, 1, '2026-10-31', '35', null);
   assert.equal(state.activityEntries.length, 1);
   assert.equal(state.activityEntries[0].quantity, 35);
-  assert.throws(() => setActivityEntry(state, 1, '2026-11-05', 10), /future/);
+  assert.throws(() => setActivityEntry(state, 1, '2026-11-05', 10, null, today), /future/);
   assert.throws(() => setActivityEntry(state, 1, '2026-10-31', 0), /0 and 1,000,000/);
   state = setActivityEntry(state, 1, '2026-10-31', '');
   assert.deepEqual(state.activityEntries, []);

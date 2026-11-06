@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.lifetrack.app.data.*
 import com.lifetrack.app.domain.Analytics
@@ -45,6 +46,7 @@ fun HabitDetailScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
     val operationError by vm.operationError.collectAsState()
     val ownLogs = state.logs.filter { it.habitId == id }
     val log = ownLogs.firstOrNull { it.date == date }
+    val goal = habit.goalOn(date)
     val eligible = !habit.isArchived && Analytics.eligible(habit, date, state.pauses) && date <= state.today
     val spent = state.freezes.any { it.month == YearMonth.from(date).toString() }
     Scaffold(topBar = {
@@ -55,10 +57,11 @@ fun HabitDetailScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
         Column(Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
             Text(habit.icon, style = MaterialTheme.typography.displayMedium)
             Text(habit.name, style = MaterialTheme.typography.headlineLarge)
-            Text("${habit.category} · Started ${habit.startDate}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("${habit.category} · Started ${habit.startDate}", style = AlmanacType.monoData, color = MaterialTheme.colorScheme.onSurfaceVariant)
             habit.description?.let { Text(it) }
             habit.afterHabitId?.let { parent -> state.habits.firstOrNull { it.id == parent }?.let { Text("After I ${it.name}, I will ${habit.name}.", color = MaterialTheme.colorScheme.primary) } }
             if (habit.isArchived) Text("Archived · History preserved", color = MaterialTheme.colorScheme.primary)
+            HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 StatCard("Current streak", Analytics.currentStreak(habit, ownLogs, state.today, state.pauses).toString(), Modifier.weight(1f))
                 StatCard("Completions", ownLogs.count { it.status == LogStatus.COMPLETED }.toString(), Modifier.weight(1f))
@@ -67,13 +70,16 @@ fun HabitDetailScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
             OutlinedButton(onClick = { showDate = true }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Outlined.DateRange, null); Spacer(Modifier.width(8.dp)); Text("$date · ${Analytics.dayNumber(habit, date)?.let { "Day $it" } ?: "Not started"}")
             }
-            Card(Modifier.fillMaxWidth()) {
+            // Almanac check-in well: sunken parchment inset instead of an elevated card.
+            Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(log?.let { if (it.isFrozen) "❄ Streak frozen" else when (it.status) { LogStatus.COMPLETED -> "✓ Completed"; LogStatus.SKIPPED -> "↪ Skipped"; LogStatus.FAILED -> "Missed"; LogStatus.IN_PROGRESS -> "In progress" } } ?: "No check-in yet", style = MaterialTheme.typography.titleLarge)
-                    if (habit.targetCount > 1) {
-                        val count = if (log?.status == LogStatus.COMPLETED) maxOf(habit.targetCount, log.progress) else log?.progress ?: 0
-                        Text("$count / ${habit.targetCount} ${habit.targetUnit}", style = MaterialTheme.typography.titleMedium)
-                        LinearProgressIndicator(progress = { (count.toFloat() / habit.targetCount).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                    if (goal.targetCount > 1) {
+                        val count = if (log?.status == LogStatus.COMPLETED) maxOf(goal.targetCount, log.progress) else log?.progress ?: 0
+                        Text("$count / ${goal.targetCount} ${goal.targetUnit}", style = AlmanacType.monoData)
+                        LinearProgressIndicator(progress = { (count.toFloat() / goal.targetCount).coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth().height(4.dp),
+                            color = MaterialTheme.colorScheme.secondary, trackColor = MaterialTheme.colorScheme.outlineVariant)
                     }
                     log?.note?.let { Text(it) }
                     Button(enabled = eligible && !busy, onClick = { showLog = true }, modifier = Modifier.fillMaxWidth()) { Text(if (log == null) "Add check-in / note" else "Edit check-in / note") }
@@ -86,12 +92,20 @@ fun HabitDetailScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
                 }
             }
             CompletionTrend(habit, ownLogs, state.today, pauses = state.pauses)
+            if (ownLogs.isNotEmpty()) {
+                HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
+                Text("Recent recordings", style = MaterialTheme.typography.titleMedium)
+                HistorySpine(ownLogs)
+            }
+            HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
             Text("Your whole routine", style = MaterialTheme.typography.titleLarge)
             Text("Color shows the percentage of all eligible habits completed each day.", style = MaterialTheme.typography.bodySmall)
             HeatmapWidget(state.habits, state.logs, state.today, pauses = state.pauses)
             Text("Skips and freezes bridge a streak without adding a completion. A missing check-in today gives you until midnight.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedButton(enabled = !busy, onClick = { vm.archiveHabit(id, !habit.isArchived) }, modifier = Modifier.fillMaxWidth()) { Text(if (habit.isArchived) "Restore habit" else "Archive habit · keep history") }
-            TextButton(enabled = !busy, onClick = { deletionStep = 1 }, modifier = Modifier.fillMaxWidth()) { Text("Delete habit permanently", color = MaterialTheme.colorScheme.error) }
+            TextButton(enabled = !busy, onClick = { deletionStep = 1 }, modifier = Modifier.fillMaxWidth()) {
+                Text("Delete habit permanently", color = almanacColors().terracotta, textDecoration = TextDecoration.Underline)
+            }
         }
     }
     if (showDate) DateSelectionDialog(date, latest = state.today, onDismiss = { showDate = false }, onSelect = { selected = it.toString(); showDate = false })
@@ -102,20 +116,27 @@ fun HabitDetailScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
         AlertDialog(onDismissRequest = { freezeDialog = false }, title = { Text("Protect $date?") }, text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("This uses the app's one freeze for ${YearMonth.from(date)}. It stays spent if you later edit or delete this check-in.")
-                OutlinedTextField(note, { if (it.length <= 4000) note = it }, label = { Text("Note · optional") })
+                OutlinedTextField(note, { if (it.length <= 4000) note = it }, label = { Text("Note · optional") }, colors = almanacFieldColors())
                 operationError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
             }
         }, confirmButton = { TextButton(enabled = !busy, onClick = { vm.freeze(id, date, note.ifBlank { null }) { freezeDialog = false } }) { Text("Use freeze") } }, dismissButton = { TextButton(enabled = !busy, onClick = { freezeDialog = false }) { Text("Cancel") } })
     }
     if (deletionStep == 1) AlertDialog(onDismissRequest = { deletionStep = 0 }, title = { Text("Delete ${habit.name}?") }, text = { Text("All its check-ins and notes will be erased. Archiving keeps your history. This cannot be undone.") }, confirmButton = { TextButton(onClick = { deletionStep = 2; deleteText = "" }) { Text("Continue", color = MaterialTheme.colorScheme.error) } }, dismissButton = { TextButton(onClick = { deletionStep = 0 }) { Text("Keep habit") } })
     if (deletionStep == 2) AlertDialog(onDismissRequest = { deletionStep = 0 }, title = { Text("Confirm permanent deletion") }, text = {
-        Column { Text("Type DELETE to erase this habit and all its history."); OutlinedTextField(deleteText, { deleteText = it }, singleLine = true, label = { Text("DELETE") }) }
+        Column { Text("Type DELETE to erase this habit and all its history."); OutlinedTextField(deleteText, { deleteText = it }, singleLine = true, label = { Text("DELETE") }, colors = almanacFieldColors()) }
     }, confirmButton = { TextButton(enabled = deleteText == "DELETE" && !busy, onClick = { vm.deleteHabit(id, onDeleted = onBack); deletionStep = 0 }) { Text("Delete forever", color = MaterialTheme.colorScheme.error) } }, dismissButton = { TextButton(onClick = { deletionStep = 0 }) { Text("Cancel") } })
 }
 
 @Composable
 private fun StatCard(label: String, value: String, modifier: Modifier) {
-    OutlinedCard(modifier) { Column(Modifier.padding(12.dp)) { Text(value, style = MaterialTheme.typography.headlineSmall); Text(label, style = MaterialTheme.typography.labelSmall) } }
+    // Almanac stat well: sunken parchment with a mono metric figure and caps label.
+    Surface(modifier, shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+        Column(Modifier.padding(12.dp)) {
+            Text(value, style = AlmanacType.monoMetric, color = MaterialTheme.colorScheme.onSurface)
+            Spacer(Modifier.height(4.dp))
+            Text(label, style = AlmanacType.labelCaps, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
 }
 
 @Composable
@@ -123,14 +144,16 @@ fun LogEditorDialog(habit: Habit, date: LocalDate, current: HabitLog?, vm: Habit
     var statusName by rememberSaveable(habit.id, date) { mutableStateOf(initialStatus.name) }
     val status = LogStatus.valueOf(statusName)
     var note by rememberSaveable(habit.id, date) { mutableStateOf(current?.note ?: "") }
-    var progress by rememberSaveable(habit.id, date) { mutableStateOf((if (current?.status == LogStatus.COMPLETED) maxOf(habit.targetCount, current.progress) else current?.progress ?: 0).toString()) }
+    val goal = habit.goalOn(date)
+    var progress by rememberSaveable(habit.id, date) { mutableStateOf((if (current?.status == LogStatus.COMPLETED) maxOf(goal.targetCount, current.progress) else current?.progress ?: 0).toString()) }
     val busy by vm.busy.collectAsState()
     val operationError by vm.operationError.collectAsState()
     LaunchedEffect(habit.id, date) { vm.clearOperationError() }
     // A finite content viewport avoids intrinsic-height feedback between a platform dialog,
     // growing text fields and the scroll container, including with large accessibility fonts.
     Dialog(onDismissRequest = { if (!busy) onDismiss() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface,
+        Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface,
+            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
             modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth().padding(20.dp)) {
             Column(Modifier.heightIn(max = 620.dp).padding(24.dp)) {
                 Text("${habit.icon} ${habit.name}", style = MaterialTheme.typography.headlineSmall, maxLines = 2)
@@ -160,10 +183,12 @@ fun LogEditorDialog(habit: Habit, date: LocalDate, current: HabitLog?, vm: Habit
                             }, style = MaterialTheme.typography.bodyMedium)
                         }
                     }
-                    if (habit.targetCount > 1 || status == LogStatus.IN_PROGRESS) OutlinedTextField(progress,
-                        { if (it.length <= 6 && it.all(Char::isDigit)) progress = it }, label = { Text("Progress · ${habit.targetCount} ${habit.targetUnit} goal") },
+                    if (goal.targetCount > 1 || status == LogStatus.IN_PROGRESS) OutlinedTextField(progress,
+                        { if (it.length <= 6 && it.all(Char::isDigit)) progress = it }, label = { Text("Progress · ${goal.targetCount} ${goal.targetUnit} goal") },
+                        colors = almanacFieldColors(),
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number), singleLine = true)
-                    OutlinedTextField(note, { if (it.length <= 4000) note = it }, label = { Text("Note · optional") }, minLines = 2, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(note, { if (it.length <= 4000) note = it }, label = { Text("Note · optional") }, minLines = 2,
+                        colors = almanacFieldColors(), modifier = Modifier.fillMaxWidth())
                     operationError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
                     if (current != null) TextButton(enabled = !busy, onClick = { vm.clearLog(habit.id, date, onSaved = onDismiss) }) { Text("Clear check-in", color = MaterialTheme.colorScheme.error) }
                 }

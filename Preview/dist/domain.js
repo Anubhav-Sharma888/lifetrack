@@ -111,20 +111,33 @@ function maximumStart(today) {
 
 /** Validates the complete, versioned native backup before returning a normalized v3 state. */
 export function validateBackup(input,today=localDate()) {
-  require(input && [1,2,3].includes(input.formatVersion),'Choose a supported LifeTrack JSON backup (version 1, 2 or 3).');
+  require(input && [1,2,3,4].includes(input.formatVersion),'Choose a supported LifeTrack JSON backup (version 1–4).');
   const version=input.formatVersion;
   record(input,version===1?['formatVersion','exportedAt','habits','logs','settings','freezes']:version===2?['formatVersion','exportedAt','habits','logs','settings','freezes','pauses']:['formatVersion','exportedAt','habits','logs','settings','freezes','pauses','activities','activityEntries'],'Backup');
   timestamp(input.exportedAt,'export');
   require(Array.isArray(input.habits)&&Array.isArray(input.logs)&&Array.isArray(input.freezes)&&(version===1||Array.isArray(input.pauses)),'Backup collections must be arrays.');
-  if (version===3) require(Array.isArray(input.activities)&&Array.isArray(input.activityEntries),'Backup collections must be arrays.');
+  if (version>=3) require(Array.isArray(input.activities)&&Array.isArray(input.activityEntries),'Backup collections must be arrays.');
   record(input.settings,version===1?SETTINGS_V1:SETTINGS_V2,'Settings');
   const settings=input.settings;
   require(settings.id===1&&['SYSTEM','LIGHT','DARK'].includes(settings.theme)&&typeof settings.dynamicColor==='boolean'&&typeof settings.backupReminder==='boolean','Invalid settings record.');
   require(settings.lastExportAt===null||integer(settings.lastExportAt),'Invalid last-export timestamp.');
-  if(version===2)require(typeof settings.hapticsEnabled==='boolean'&&typeof settings.animationsEnabled==='boolean','Invalid feedback settings.');
+  if(version>=2)require(typeof settings.hapticsEnabled==='boolean'&&typeof settings.animationsEnabled==='boolean','Invalid feedback settings.');
   const ids=new Set(),habits=new Map();
   for(const habit of input.habits) {
-    record(habit,version===1?HABIT_V1:HABIT_V2,'Habit');
+    const hasGoals = Object.hasOwn(habit, 'goalHistory');
+    record(habit,version===1?HABIT_V1:version===4&&hasGoals?[...HABIT_V2,'goalHistory']:HABIT_V2,'Habit');
+    if (hasGoals) {
+      require(Array.isArray(habit.goalHistory),'Goal history must be an array.');
+      let previous = '';
+      for (const goal of habit.goalHistory) {
+        record(goal,['effectiveFrom','targetCount','targetUnit'],'Goal revision');
+        require(isDate(goal.effectiveFrom)&&goal.effectiveFrom>='1900-01-01'&&goal.effectiveFrom<=maximumStart(today)&&goal.effectiveFrom>previous,'Goal revisions must have distinct chronological dates.');
+        require(Number.isInteger(goal.targetCount)&&goal.targetCount>=1&&goal.targetCount<=100000&&nonblank(goal.targetUnit,24),'Invalid goal revision.');
+        previous=goal.effectiveFrom;
+      }
+      const latest=habit.goalHistory.at(-1);
+      require(!latest||(latest.targetCount===habit.targetCount&&latest.targetUnit===habit.targetUnit),'The latest goal revision must match the current goal.');
+    }
     require(identifier(habit.id)&&!ids.has(habit.id),'Invalid or duplicate habit IDs.');ids.add(habit.id);
     require(nonblank(habit.name,120)&&text(habit.description,2000,true)&&nonblank(habit.icon,32),'Invalid habit name, description or icon.');
     require(typeof habit.colorHex==='string'&&/^#[0-9a-fA-F]{6}$/.test(habit.colorHex),'Choose a six-digit habit color.');
@@ -135,7 +148,7 @@ export function validateBackup(input,today=localDate()) {
     require(habit.isArchived===(habit.archivedOn!==null),'Archived habits must have an archive date.');
     require(habit.archivedOn===null||isDate(habit.archivedOn)&&habit.archivedOn>='1900-01-01'&&habit.archivedOn<=today,'Invalid archive date.');
     timestamp(habit.createdAt,'habit creation');timestamp(habit.updatedAt,'habit update');require(habit.updatedAt>=habit.createdAt,'A habit update predates its creation.');
-    if(version===2) {
+    if(version>=2) {
       require(Array.isArray(habit.scheduledDays)&&habit.scheduledDays.length>0&&habit.scheduledDays.length<=7&&new Set(habit.scheduledDays).size===habit.scheduledDays.length&&habit.scheduledDays.every(d=>Number.isInteger(d)&&d>=1&&d<=7)&&habit.scheduledDays.join(',')===[...habit.scheduledDays].sort().join(','),'Choose at least one distinct weekday in calendar order.');
       require(Number.isInteger(habit.targetCount)&&habit.targetCount>=1&&habit.targetCount<=100000,'Targets must be between 1 and 100,000.');
       require(nonblank(habit.targetUnit,24),'Choose a target unit of up to 24 characters.');
@@ -179,7 +192,7 @@ export function validateBackup(input,today=localDate()) {
     for(let index=1;index<list.length;index++)require(list[index-1].endDate!==null&&list[index-1].endDate<=list[index].startDate,'Habit pause intervals overlap.');
     if(list.at(-1)?.endDate===null){const habit=habits.get(list[0].habitId);require(habit.isArchived&&list.at(-1).startDate===plusDays(habit.archivedOn,1),'An open pause must match its archived habit.');}
   }
-  if(version===2)for(const habit of input.habits.filter(h=>h.isArchived))require(pauses.filter(p=>p.habitId===habit.id&&p.endDate===null&&p.startDate===plusDays(habit.archivedOn,1)).length===1,'Archived habits must retain their open pause.');
+  if(version>=2)for(const habit of input.habits.filter(h=>h.isArchived))require(pauses.filter(p=>p.habitId===habit.id&&p.endDate===null&&p.startDate===plusDays(habit.archivedOn,1)).length===1,'Archived habits must retain their open pause.');
   const freezeMonths=new Set();
   for(const freeze of input.freezes) {
     record(freeze,['month','usedAt'],'Freeze');
@@ -194,10 +207,11 @@ export function validateBackup(input,today=localDate()) {
     require(isDate(log.date)&&log.date>=habit.startDate&&log.date<=today&&(!habit.archivedOn||log.date<=habit.archivedOn),'A check-in is outside its habit timeline.');
     require((version===1?STATUSES.slice(0,3):STATUSES).includes(log.status)&&text(log.note,4000,true)&&typeof log.isFrozen==='boolean','Invalid check-in status, note or frozen flag.');
     timestamp(log.createdAt,'check-in creation');timestamp(log.updatedAt,'check-in update');require(log.updatedAt>=log.createdAt,'A check-in update predates its creation.');
-    if(version===2) {
-      require(integer(log.progress)&&log.progress<=habit.targetCount,'Check-in progress is outside its target.');
-      require(log.status!=='COMPLETED'||log.progress===habit.targetCount,'Completed check-ins must reach their target.');
-      require(log.status!=='IN_PROGRESS'||log.progress>=0&&log.progress<habit.targetCount,'Partial check-ins must be below the target.');
+    if(version>=2) {
+      const target = goalAt(habit,log.date).targetCount;
+      require(integer(log.progress)&&log.progress<=target,'Check-in progress is outside its target.');
+      require(log.status!=='COMPLETED'||log.progress===target,'Completed check-ins must reach their target.');
+      require(log.status!=='IN_PROGRESS'||log.progress>=0&&log.progress<target,'Partial check-ins must be below the target.');
       require(!['SKIPPED','FAILED'].includes(log.status)||log.progress===0,'Skipped or failed check-ins cannot contain progress.');
       require(!pauses.some(p=>p.habitId===habit.id&&log.date>=p.startDate&&(p.endDate===null||log.date<p.endDate)),'A check-in occurs during a pause.');
     }
@@ -206,7 +220,7 @@ export function validateBackup(input,today=localDate()) {
       require(log.status==='SKIPPED'&&freezeMonths.has(month)&&!frozenMonths.has(month),'Invalid frozen check-in or duplicate monthly freeze.');frozenMonths.add(month);
     }
   }
-  if (version===3) {
+  if (version>=3) {
     const activityIds=new Set();
     for(const activity of input.activities) {
       record(activity,ACTIVITY_V3,'Activity');
@@ -236,14 +250,15 @@ export function validateBackup(input,today=localDate()) {
     logs:input.logs.map(l=>version===1?{...copy(l),progress:l.status==='COMPLETED'?1:0}:copy(l)),
     settings:version===1?{...copy(settings),hapticsEnabled:true,animationsEnabled:true}:copy(settings),
     freezes:copy(input.freezes),pauses,
-    activities:version===3?copy(input.activities):[],
-    activityEntries:version===3?copy(input.activityEntries):[]
+    activities:version>=3?copy(input.activities):[],
+    activityEntries:version>=3?copy(input.activityEntries):[]
   };
   return normalized;
 }
 
 export function makeBackup(state,exportedAt=Date.now()) {
-  return {formatVersion:3,exportedAt,habits:state.habits,logs:state.logs,settings:state.settings,freezes:state.freezes,pauses:state.pauses || [],activities:state.activities || [],activityEntries:state.activityEntries || []};
+  const formatVersion = state.habits.some(h=>Object.hasOwn(h,"goalHistory")) ? 4 : 3;
+  return {formatVersion,exportedAt,habits:state.habits,logs:state.logs,settings:state.settings,freezes:state.freezes,pauses:state.pauses || [],activities:state.activities || [],activityEntries:state.activityEntries || []};
 }
 export function parseBackup(text,today=localDate()) {
   require(typeof text==='string'&&new TextEncoder().encode(text).byteLength<=MAX_BACKUP_BYTES,'Backups must be 10 MB or smaller.');
@@ -259,7 +274,7 @@ export function encodeBackup(state,today=localDate(),exportedAt=Date.now()) {
 export function restoreStoredState(text,today=localDate()) {
   let state;try{state=JSON.parse(text);}catch{throw new Error('Saved preview data is not valid JSON.');}
   require(state && typeof state==='object','Saved preview data is incomplete.');
-  const version=Array.isArray(state.activities)||Array.isArray(state.activityEntries)?3:Array.isArray(state.pauses)?2:1;
+  const version=Array.isArray(state.habits)&&state.habits.some(h=>h&&Object.hasOwn(h,"goalHistory"))?4:Array.isArray(state.activities)||Array.isArray(state.activityEntries)?3:Array.isArray(state.pauses)?2:1;
   const exportedAt=Date.now();
   return validateBackup({formatVersion:version,exportedAt,...state},today);
 }
@@ -270,20 +285,22 @@ export function changeLog(state,habitId,date,today,status,note=null,progress=nul
   require(STATUSES.includes(status),'Choose a valid check-in status.');
   require(text(note,4000,true),'Notes are limited to 4,000 characters.');
   const existing=state.logs.find(l=>l.habitId===habitId&&l.date===date),now=Date.now();
-  const count=status==='COMPLETED'?habit.targetCount:status==='IN_PROGRESS'?progress:0;
-  require(integer(count)&&count<=habit.targetCount&&(status!=='IN_PROGRESS'||count<habit.targetCount),'Choose progress between zero and the target.');
+  const target=goalAt(habit,date).targetCount;
+  const count=status==='COMPLETED'?target:status==='IN_PROGRESS'?progress:0;
+  require(integer(count)&&count<=target&&(status!=='IN_PROGRESS'||count<target),'Choose progress between zero and the target.');
   const log={id:existing?.id||Math.max(0,...state.logs.map(l=>l.id))+1,habitId,date,status,note:note?.trim()||null,isFrozen:frozen||(existing?.isFrozen&&status==='SKIPPED')||false,progress:count,createdAt:existing?.createdAt||now,updatedAt:Math.max(now,existing?.createdAt||0)};
   return {...state,logs:existing?state.logs.map(l=>l===existing?log:l):[...state.logs,log]};
 }
 export function changeProgress(state,habitId,date,today,delta) {
   const habit=state.habits.find(h=>h.id===habitId),log=state.logs.find(l=>l.habitId===habitId&&l.date===date);
   require(habit&&Number.isInteger(delta),'Choose a valid habit and amount.');
-  const progress=Math.max(0,Math.min(habit.targetCount,(log?.progress || 0)+delta));
+  const target=goalAt(habit,date).targetCount;
+  const progress=Math.max(0,Math.min(target,(log?.progress || 0)+delta));
   if(progress===0) {
     require(!habit.isArchived&&date<=today&&scheduled(habit,date,state.pauses || []),'Choose a scheduled day.');
     return log?.note ? changeLog(state,habitId,date,today,'IN_PROGRESS',log.note,0) : {...state,logs:state.logs.filter(l=>l!==log)};
   }
-  return changeLog(state,habitId,date,today,progress===habit.targetCount?'COMPLETED':'IN_PROGRESS',log?.note,progress);
+  return changeLog(state,habitId,date,today,progress===target?'COMPLETED':'IN_PROGRESS',log?.note,progress);
 }
 export function redeemFreeze(state,habitId,date,today,note=null) {
   const month=date.slice(0,7),existing=state.logs.find(l=>l.habitId===habitId&&l.date===date);
@@ -304,12 +321,20 @@ export function deleteHabit(state,id) {
   return {...state,habits:state.habits.filter(h=>h.id!==id).map(h=>h.afterHabitId===id?{...h,afterHabitId:null}:h),logs:state.logs.filter(l=>l.habitId!==id),pauses:(state.pauses || []).filter(p=>p.habitId!==id)};
 }
 
-/** Historic quantities retain their meaning; changing the goal requires a new habit. */
-export function validateGoalEdit(existing,changed,logs) {
-  if(existing&&logs.some(log=>log.habitId===existing.id))require(
-    changed.targetCount===existing.targetCount&&changed.targetUnit===existing.targetUnit,
-    'Existing check-ins keep their original goal. Create a new habit to change its target or unit.'
-  );
+export function goalAt(habit,date) {
+  const history=habit.goalHistory || [];
+  const revision=history.findLast(goal=>goal.effectiveFrom<=date) ?? history[0];
+  return revision ? {...habit,targetCount:revision.targetCount,targetUnit:revision.targetUnit} : habit;
+}
+
+/** Keep an existing check-in on its original goal, including one already logged today. */
+export function validateGoalEdit(existing,changed,logs,today=localDate()) {
+  if (!existing) return [];
+  const history=existing.goalHistory || [];
+  if (changed.targetCount===existing.targetCount&&changed.targetUnit===existing.targetUnit) return history;
+  const effectiveFrom=logs.some(log=>log.habitId===existing.id&&log.date===today)?plusDays(today,1):today;
+  const earlier=history.length?history:[{effectiveFrom:existing.startDate,targetCount:existing.targetCount,targetUnit:existing.targetUnit}];
+  return [...earlier.filter(goal=>goal.effectiveFrom<effectiveFrom),{effectiveFrom,targetCount:changed.targetCount,targetUnit:changed.targetUnit}];
 }
 
 /* Activities: flexible, optional quantity tracking that never blocks on a schedule.

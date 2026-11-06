@@ -38,7 +38,7 @@ class AnalyticsScreenTest {
         }
 
         compose.onNodeWithText("Analytics").assertIsDisplayed()
-        compose.onNodeWithText("No habits scheduled").assertIsDisplayed()
+        compose.onNodeWithText("No habits scheduled").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("All-time rate").performScrollTo().assertIsDisplayed()
         compose.onNodeWithContentDescription("Today: no unskipped habits due").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("You vs. you").performScrollTo().assertIsDisplayed()

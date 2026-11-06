@@ -33,4 +33,9 @@ object DatabaseMigrations {
             db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_activity_entries_activityId_date ON activity_entries(activityId, date)")
         }
     }
+    val MIGRATION_3_4 = object : Migration(3, 4) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE habits ADD COLUMN goalHistory TEXT NOT NULL DEFAULT '[]'")
+        }
+    }
 }

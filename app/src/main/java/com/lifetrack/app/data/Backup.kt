@@ -46,6 +46,11 @@ object BackupValidator {
         require(habit.scheduledDays.isNotEmpty() && habit.scheduledDays == habit.scheduledDays.distinct().sorted() && habit.scheduledDays.all { it in 1..7 }) { "Choose at least one unique scheduled weekday." }
         require(habit.targetCount in 1..100_000) { "Targets must be between 1 and 100,000." }
         require(habit.targetUnit.isNotBlank() && habit.targetUnit.length <= 24) { "Goal units must contain 1–24 characters." }
+        require(habit.goalHistory.zipWithNext().all { (first, second) -> first.effectiveFrom < second.effectiveFrom }) { "Goal history must be chronological and unique." }
+        require(habit.goalHistory.all { it.effectiveFrom in earliestDate..today.plusYears(100) && it.targetCount in 1..100_000 && it.targetUnit.isNotBlank() && it.targetUnit.length <= 24 }) { "Invalid goal revision." }
+        habit.goalHistory.lastOrNull()?.let {
+            require(it.targetCount == habit.targetCount && it.targetUnit == habit.targetUnit) { "The latest goal revision must match the current goal." }
+        }
         require(habit.reminderMinutes == null || habit.reminderMinutes in 0..1439) { "Choose a valid local reminder time." }
         require(habit.scheduleHistory.map { it.effectiveFrom } == habit.scheduleHistory.map { it.effectiveFrom }.distinct().sorted()) { "Schedule history must be chronological and unique." }
         habit.scheduleHistory.forEach { revision ->
@@ -84,7 +89,8 @@ object BackupValidator {
     }
 
     fun validate(backup: LifeTrackBackup, today: LocalDate = LocalDate.now()) {
-        require(backup.formatVersion in 1..3) { "This backup version is not supported by this app." }
+        require(backup.formatVersion in 1..4) { "This backup version is not supported by this app." }
+        require(backup.formatVersion == 4 || backup.habits.none { it.goalHistory.isNotEmpty() }) { "Goal revisions require backup version 4." }
         require(backup.exportedAt >= 0) { "Invalid export timestamp." }
         validateSettings(backup.settings)
         require(backup.habits.map { it.id }.toSet().size == backup.habits.size) { "Duplicate habit IDs in backup." }
@@ -149,11 +155,12 @@ object BackupValidator {
             require(backup.pauses.none { it.habitId == log.habitId && log.date >= it.startDate && (it.endDate == null || log.date < it.endDate) }) { "A check-in occurs during an archived pause." }
             require(log.note == null || log.note.length <= 4_000) { "Check-in notes are limited to 4,000 characters." }
             require(log.createdAt >= 0 && log.updatedAt >= log.createdAt) { "Invalid check-in timestamps." }
-            require(log.progress in 0..habit.targetCount) { "Check-in progress is outside its goal." }
+            val target = habit.goalOn(log.date).targetCount
+            require(log.progress in 0..target) { "Check-in progress is outside its goal." }
             if (backup.formatVersion >= 2) {
                 require(when (log.status) {
-                    LogStatus.COMPLETED -> log.progress == habit.targetCount
-                    LogStatus.IN_PROGRESS -> log.progress < habit.targetCount
+                    LogStatus.COMPLETED -> log.progress == target
+                    LogStatus.IN_PROGRESS -> log.progress < target
                     LogStatus.SKIPPED, LogStatus.FAILED -> log.progress == 0
                 }) { "Check-in progress does not match its status." }
             }
@@ -168,7 +175,7 @@ object BackupValidator {
     fun decode(text: String, today: LocalDate = LocalDate.now()): LifeTrackBackup {
         val document = json.parseToJsonElement(text.removePrefix("\uFEFF")).jsonObject
         val version = document["formatVersion"]?.jsonPrimitive?.intOrNull
-        require(version != null && version in 1..3) { "This backup version is not supported by this app." }
+        require(version != null && version in 1..4) { "This backup version is not supported by this app." }
         if (version >= 2) {
             require("pauses" in document) { "This version 2 backup is missing its pause history." }
             (document["habits"] as? JsonArray)?.forEach { entry ->
@@ -190,7 +197,7 @@ object BackupValidator {
                     HabitPause(index + 1L, habit.id, habit.archivedOn!!.plusDays(1))
                 }
             )
-        } else decoded.copy(formatVersion = 3)
+        } else decoded.copy(formatVersion = maxOf(3, version))
         validate(normalized, today)
         return normalized
     }

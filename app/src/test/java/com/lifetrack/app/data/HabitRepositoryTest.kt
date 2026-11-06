@@ -295,6 +295,84 @@ class HabitRepositoryTest {
         assertFalse(newHabit in expectedHabits.map { it.id })
     }
 
+    @Test
+    fun resetErasesEveryRecordAndRestoresDefaultSettings() = runBlocking {
+        val habit = createHabit("Keep me")
+        repository.setLog(habit, today, LogStatus.COMPLETED, "Keep this note")
+        repository.useFreeze(habit, today.minusDays(1), "Rest")
+        val archived = createHabit("Archived habit")
+        repository.archiveHabit(archived, true)
+        repository.saveActivity(WorkoutActivity(name = "Push-ups", unit = "pushups", target = 20.0))
+        // saveActivity echoes the entity back with id 0 for inserts; the flow carries the real Room id.
+        val activityId = repository.activities.first().single().id
+        repository.setActivityEntry(activityId, today, 15.0)
+        database.dao().insertReminderDelivery(ReminderDelivery(habit, today, 5L))
+        repository.updateSettings(AppSettings(theme = "DARK", backupReminder = true))
+
+        val resetIds = repository.resetAllData()
+        assertEquals(listOf(habit, archived), resetIds)
+        assertTrue(repository.habits.first().isEmpty())
+        assertTrue(repository.logs.first().isEmpty())
+        assertTrue(repository.freezes.first().isEmpty())
+        assertTrue(repository.pauses.first().isEmpty())
+        assertTrue(repository.activities.first().isEmpty())
+        assertTrue(repository.activityEntries.first().isEmpty())
+        assertEquals(AppSettings(), repository.settings.first())
+    }
+
+    @Test
+    fun resetRejectsStaleWidgetReminderAndUndoActions() = runBlocking {
+        val habit = createHabit("Original habit")
+        val createdAt = database.dao().habit(habit)!!.createdAt
+        val undo = repository.toggleCompletion(habit, today)
+        repository.resetAllData()
+        expectRejected { repository.completeHabit(habit, today, expectedCreatedAt = createdAt) }
+        expectRejected { repository.undoCheckIn(undo) }
+        assertFalse(repository.claimReminder(habit, today))
+    }
+
+    @Test
+    fun afterResetTheRepositoryRemainsUsableAndExportsAValidEmptyBackup() = runBlocking {
+        createHabit("Before reset")
+        repository.resetAllData()
+        val output = backupFile()
+        repository.exportTo(Uri.fromFile(output))
+        val backup = BackupValidator.decode(output.readText())
+        assertEquals(3, backup.formatVersion)
+        assertTrue(backup.habits.isEmpty())
+        assertTrue(backup.logs.isEmpty())
+        assertTrue(backup.activities.isEmpty())
+        assertTrue(backup.activityEntries.isEmpty())
+
+        val habit = repository.saveHabit(Habit(name = "After reset", startDate = today))
+        assertTrue(repository.setLog(habit, today, LogStatus.COMPLETED))
+        assertEquals(LogStatus.COMPLETED, repository.logs.first().single().status)
+        assertNotNull(repository.settings.first().lastExportAt)
+    }
+
+    @Test
+    fun exportThenResetThenImportRestoresEveryRecord() = runBlocking {
+        val parent = createHabit("Brush teeth")
+        val child = repository.saveHabit(Habit(name = "Meditate", afterHabitId = parent, startDate = today.minusDays(10)))
+        repository.setLog(parent, today, LogStatus.COMPLETED, "Done offline")
+        repository.useFreeze(child, today.minusDays(1), "Rest")
+        repository.updateSettings(AppSettings(theme = "DARK", backupReminder = true))
+        val output = backupFile()
+        repository.exportTo(Uri.fromFile(output))
+        val expectedHabits = repository.habits.first()
+        val expectedLogs = repository.logs.first()
+        val expectedFreezes = repository.freezes.first()
+        assertTrue(expectedHabits.isNotEmpty())
+
+        repository.resetAllData()
+        assertTrue(repository.habits.first().isEmpty())
+        repository.importFrom(Uri.fromFile(output))
+        assertEquals(expectedHabits, repository.habits.first())
+        assertEquals(expectedLogs, repository.logs.first())
+        assertEquals(expectedFreezes, repository.freezes.first())
+        assertEquals("DARK", repository.settings.first().theme)
+    }
+
     private suspend fun createHabit(name: String = "Drink water"): Long =
         repository.saveHabit(Habit(name = name, startDate = today.minusDays(35)))
 

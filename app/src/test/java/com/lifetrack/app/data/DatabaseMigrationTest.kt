@@ -14,7 +14,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
-/** Builds the actual exported version-1 schema, then lets Room migrate and validate version 2. */
+/** Builds the actual exported version-1 schema, then lets Room migrate and validate the current schema. */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [28])
 class DatabaseMigrationTest {
@@ -51,7 +51,7 @@ class DatabaseMigrationTest {
             old.version = 1
         }
         val migrated = Room.databaseBuilder(context, AppDatabase::class.java, name)
-            .addMigrations(DatabaseMigrations.MIGRATION_1_2, DatabaseMigrations.MIGRATION_2_3)
+            .addMigrations(DatabaseMigrations.MIGRATION_1_2, DatabaseMigrations.MIGRATION_2_3, DatabaseMigrations.MIGRATION_3_4)
             .allowMainThreadQueries().build()
         try {
             val habit = migrated.dao().allHabits().single()
@@ -62,6 +62,7 @@ class DatabaseMigrationTest {
             assertEquals("times", habit.targetUnit)
             assertNull(habit.reminderMinutes)
             assertTrue(habit.scheduleHistory.isEmpty())
+            assertTrue(habit.goalHistory.isEmpty())
             val log = migrated.dao().allLogs().single()
             assertEquals(19L, log.id)
             assertEquals("Keep this note 🌱", log.note)
@@ -77,8 +78,8 @@ class DatabaseMigrationTest {
             assertEquals(today, pause.startDate)
             assertNull(pause.endDate)
             assertEquals("2026-10", migrated.dao().allFreezes().single().month)
-            assertEquals(3, migrated.openHelper.readableDatabase.version)
-            assertTrue("Version-3 activity tables start empty after a 1→3 migration", migrated.dao().allActivities().isEmpty())
+            assertEquals(4, migrated.openHelper.readableDatabase.version)
+            assertTrue("Version-3 activity tables start empty after migration from version 1", migrated.dao().allActivities().isEmpty())
         } finally {
             migrated.close()
             context.deleteDatabase(name)

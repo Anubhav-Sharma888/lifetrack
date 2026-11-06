@@ -92,10 +92,19 @@ class HabitRepository @Inject constructor(
             val earlier = existing.scheduleHistory.ifEmpty { listOf(ScheduleRevision(existing.startDate, existing.scheduledDays)) }
             earlier.filter { it.effectiveFrom < today } + ScheduleRevision(today, days)
         } else existing?.scheduleHistory ?: habit.scheduleHistory
+        val logs = existing?.let { dao.habitLogs(it.id) }.orEmpty()
+        val unit = habit.targetUnit.trim()
+        val goals = if (existing != null && (existing.targetCount != habit.targetCount || existing.targetUnit != unit)) {
+            val effective = if (logs.any { it.date == today }) today.plusDays(1) else today
+            val earlier = existing.goalHistory.ifEmpty {
+                listOf(GoalRevision(existing.startDate, existing.targetCount, existing.targetUnit))
+            }
+            earlier.filter { it.effectiveFrom < effective } + GoalRevision(effective, habit.targetCount, unit)
+        } else existing?.goalHistory.orEmpty()
         val normalized = habit.copy(
             name = habit.name.trim(), description = habit.description?.trim()?.takeIf { it.isNotEmpty() },
             category = habit.category.trim(), colorHex = habit.colorHex.uppercase(),
-            targetUnit = habit.targetUnit.trim(), scheduledDays = days, scheduleHistory = history,
+            targetUnit = unit, scheduledDays = days, scheduleHistory = history, goalHistory = goals,
             // Archiving has its own operation so editing a form cannot change historical eligibility.
             isArchived = existing?.isArchived ?: false,
             archivedOn = existing?.archivedOn,
@@ -104,12 +113,8 @@ class HabitRepository @Inject constructor(
         )
         BackupValidator.validateHabit(normalized, today)
         if (existing != null) {
-            val history = dao.habitLogs(existing.id)
-            val first = history.minOfOrNull { it.date }
+            val first = logs.minOfOrNull { it.date }
             require(first == null || normalized.startDate <= first) { "The start date cannot move after an existing check-in. Clear those entries first." }
-            require(history.isEmpty() || normalized.targetCount == existing.targetCount && normalized.targetUnit == existing.targetUnit) {
-                "Existing check-ins keep their original goal. Create a new habit to change its target or unit."
-            }
         }
         if (normalized.afterHabitId != null) {
             val parent = all.firstOrNull { it.id == normalized.afterHabitId }
@@ -167,7 +172,7 @@ class HabitRepository @Inject constructor(
         val weekdays = habit.scheduleHistory.lastOrNull { it.effectiveFrom <= date }?.days ?: habit.scheduleHistory.firstOrNull()?.days ?: habit.scheduledDays
         require(date.dayOfWeek.value in weekdays) { "This habit is not scheduled for that weekday." }
         require(dao.habitPauses(id).none { date >= it.startDate && (it.endDate == null || date < it.endDate) }) { "This date belongs to an archived pause. Choose an active day." }
-        return habit
+        return habit.goalOn(date)
     }
 
     suspend fun setLog(habitId: Long, date: LocalDate, status: LogStatus, note: String? = null): Boolean = db.withTransaction {
@@ -206,11 +211,13 @@ class HabitRepository @Inject constructor(
     }
 
     /** Repeated taps and widget/editor races use the latest persisted amount and note. */
-    suspend fun incrementProgress(habitId: Long, date: LocalDate): Boolean = db.withTransaction {
+    suspend fun incrementProgress(habitId: Long, date: LocalDate, percent: Int? = null): Boolean = db.withTransaction {
+        require(percent == null || percent in setOf(25, 50)) { "Choose an available progress step." }
         val habit = editableHabit(habitId, date)
         val existing = dao.log(habitId, date)
         if (existing?.status == LogStatus.COMPLETED) return@withTransaction false
-        setProgress(habitId, date, ((existing?.progress ?: 0) + 1).coerceAtMost(habit.targetCount), existing?.note)
+        val step = percent?.let { (habit.targetCount * it + 99) / 100 } ?: 1
+        setProgress(habitId, date, ((existing?.progress ?: 0) + step).coerceAtMost(habit.targetCount), existing?.note)
     }
 
     /** The receipt records exactly what changed, including protected skips, progress and notes. */
@@ -304,8 +311,10 @@ class HabitRepository @Inject constructor(
     suspend fun exportTo(uri: Uri, password: CharArray? = null) = backupMutex.withLock { withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         val snapshot = db.withTransaction {
+            val habits = dao.allHabits()
             LifeTrackBackup(
-                exportedAt = now, habits = dao.allHabits(), logs = dao.allLogs(),
+                formatVersion = if (habits.any { it.goalHistory.isNotEmpty() }) 4 else 3,
+                exportedAt = now, habits = habits, logs = dao.allLogs(),
                 settings = (dao.getSettings() ?: AppSettings()).copy(lastExportAt = now),
                 freezes = dao.allFreezes(), pauses = dao.allPauses(),
                 activities = dao.allActivities(), activityEntries = dao.allActivityEntries()
@@ -368,6 +377,23 @@ class HabitRepository @Inject constructor(
             dao.insertActivities(backup.activities)
             dao.insertActivityEntries(backup.activityEntries)
             dao.saveSettings(backup.settings)
+        }
+    } }
+
+    /** Erases every record and restores default settings in one transaction; the same cleanup importFrom uses. Safe to retry after interruption. */
+    suspend fun resetAllData(): List<Long> = backupMutex.withLock { withContext(Dispatchers.IO) {
+        db.withTransaction {
+            val habitIds = dao.allHabits().map { it.id }
+            dao.deleteLogs()
+            dao.deletePauses()
+            dao.deleteReminderDeliveries()
+            dao.deleteHabits()
+            dao.deleteFreezes()
+            dao.deleteSettings()
+            dao.deleteAllActivityEntries()
+            dao.deleteAllActivities()
+            dao.saveSettings(AppSettings())
+            habitIds
         }
     } }
 
