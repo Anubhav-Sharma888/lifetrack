@@ -11,6 +11,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -92,15 +93,16 @@ fun SettingsScreen(state: LifeTrackState, vm: HabitViewModel, onImport: () -> Un
         Text("Settings", style = MaterialTheme.typography.headlineLarge)
         Text("Your data. Your device.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(4.dp))
-        OutlinedCard(Modifier.fillMaxWidth()) {
+        // Almanac privacy well: sunken parchment inset with a sage shield stamp.
+        Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Icon(Icons.Outlined.Shield, null, tint = MaterialTheme.colorScheme.primary)
+                Icon(Icons.Outlined.Shield, null, tint = MaterialTheme.colorScheme.secondary)
                 Text("Private by design", style = MaterialTheme.typography.titleLarge)
                 Text("No accounts, cloud sync, ads or tracking. Habits, notes and settings stay on this device.")
                 Text("Uninstalling LifeTrack or clearing app storage deletes all local data. Export a backup regularly.", color = MaterialTheme.colorScheme.error)
             }
         }
-        Text("Data & backups", style = MaterialTheme.typography.titleMedium)
+        Text("Data & backups", style = AlmanacType.labelCaps, color = MaterialTheme.colorScheme.onSurfaceVariant)
         SettingsAction("Export data", "Save a complete JSON backup", Icons.Outlined.FileUpload, enabled = !busy) {
             encryptedExport = false
             export.launch("lifetrack-${state.today}-${System.currentTimeMillis()}.json")
@@ -111,7 +113,7 @@ fun SettingsScreen(state: LifeTrackState, vm: HabitViewModel, onImport: () -> Un
         }
         SettingsAction("Import data", "Restore a backup · replaces current data", Icons.Outlined.FileDownload, enabled = !busy) { onImport() }
         SettingsAction("Reset LifeTrack", "Erase all data on this device", Icons.Outlined.DeleteForever, enabled = !busy) { vm.clearOperationError(); showResetConfirm = true }
-        Text(settings.lastExportAt?.let { "Last export: ${Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm"))}" } ?: "No backup exported yet", style = MaterialTheme.typography.bodySmall)
+        Text(settings.lastExportAt?.let { "Last export: ${Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm"))}" } ?: "No backup exported yet", style = AlmanacType.monoCaption, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -125,10 +127,10 @@ fun SettingsScreen(state: LifeTrackState, vm: HabitViewModel, onImport: () -> Un
         }
         permissionMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         HorizontalDivider()
-        Text("Gentle reminders", style = MaterialTheme.typography.titleMedium)
+        Text("Gentle reminders", style = AlmanacType.labelCaps, color = MaterialTheme.colorScheme.onSurfaceVariant)
         SettingsAction("Daily check-in reminder", dailyMinutes?.let { m -> "Daily at %02d:%02d · system notification".format(m / 60, m % 60) } ?: "Off · choose a time", Icons.Outlined.Notifications, enabled = !busy) { reminderDialog = true }
         HorizontalDivider()
-        Text("Appearance", style = MaterialTheme.typography.titleMedium)
+        Text("Appearance", style = AlmanacType.labelCaps, color = MaterialTheme.colorScheme.onSurfaceVariant)
         SettingsAction("Theme", settings.theme.lowercase().replaceFirstChar(Char::titlecase), Icons.Outlined.DarkMode, !busy) { themeDialog = true }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -143,11 +145,11 @@ fun SettingsScreen(state: LifeTrackState, vm: HabitViewModel, onImport: () -> Un
         val archived = state.habits.filter { it.isArchived }
         if (archived.isNotEmpty()) {
             HorizontalDivider()
-            Text("Archived habits (${archived.size})", style = MaterialTheme.typography.titleMedium)
+            Text("Archived habits (${archived.size})", style = AlmanacType.labelCaps, color = MaterialTheme.colorScheme.onSurfaceVariant)
             archived.forEach { habit -> SettingsAction("${habit.icon} ${habit.name}", "View history or restore", Icons.Outlined.Archive) { onOpen(habit.id) } }
         }
         HorizontalDivider()
-        SettingsAction("About LifeTrack", "Version 1.5.0 · Made for your own pace", Icons.Outlined.Info) { aboutDialog = true }
+        SettingsAction("About LifeTrack", "Version 1.6.0 · Made for your own pace", Icons.Outlined.Info) { aboutDialog = true }
         SettingsAction("Open-source licenses", "Runtime library license and notices", Icons.Outlined.Description) { licensesDialog = true }
         Spacer(Modifier.height(16.dp))
     }
@@ -217,7 +219,7 @@ fun SettingsScreen(state: LifeTrackState, vm: HabitViewModel, onImport: () -> Un
     }, confirmButton = { TextButton(enabled = !busy && backupPassword.length >= 10 && backupPassword == confirmPassword, onClick = {
         vm.export(Uri.parse(path), backupPassword.toCharArray()) { pendingEncryptedExport = null; backupPassword = ""; confirmPassword = "" }
     }) { Text(if (busy) "Encrypting…" else "Encrypt and export") } }, dismissButton = { TextButton(enabled = !busy, onClick = { pendingEncryptedExport = null; backupPassword = ""; confirmPassword = "" }) { Text("Cancel") } }) }
-    if (aboutDialog) AlertDialog(onDismissRequest = { aboutDialog = false }, title = { Text("LifeTrack 1.3.0") }, text = {
+    if (aboutDialog) AlertDialog(onDismissRequest = { aboutDialog = false }, title = { Text("LifeTrack 1.6.0") }, text = {
         Text("An offline habit companion. Every habit has its own Day 1.\n\nAll user records live in a local Room database. There is no Internet permission or automatic cloud backup. Choose plain JSON for readability or optional password encryption for a private portable copy.\n\nLocal habit reminders are inexact and may be deferred by Android.\n\nCharts: Vico. Reordering: Calvin Reorderable. AndroidX, Kotlin and Hilt. Runtime libraries use Apache 2.0.", Modifier.verticalScroll(rememberScrollState()))
     }, confirmButton = { TextButton(onClick = { aboutDialog = false }) { Text("Close") } })
     if (licensesDialog) {
@@ -226,7 +228,7 @@ fun SettingsScreen(state: LifeTrackState, vm: HabitViewModel, onImport: () -> Un
         }
         AlertDialog(onDismissRequest = { licensesDialog = false }, title = { Text("Open-source licenses") }, text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text("AndroidX, Kotlin, kotlinx.coroutines, kotlinx.serialization, Dagger/Hilt, Vico by Patryk & Patrick, and Reorderable by Calvin Liang are distributed under Apache License 2.0.\n\n")
+                Text("AndroidX, Kotlin, kotlinx.coroutines, kotlinx.serialization, Dagger/Hilt, Vico by Patryk & Patrick, and Reorderable by Calvin Liang are distributed under Apache License 2.0.\n\nThe bundled typefaces Newsreader, Plus Jakarta Sans and JetBrains Mono are distributed under the SIL Open Font License 1.1; their license texts ship in the app assets (OFL-*.txt).\n\n")
                 Text(license ?: "Loading license…", style = MaterialTheme.typography.bodySmall)
             }
         }, confirmButton = { TextButton(onClick = { licensesDialog = false }) { Text("Close") } })
@@ -243,10 +245,12 @@ private fun PreferenceSwitch(title: String, detail: String, checked: Boolean, en
 
 @Composable
 private fun SettingsAction(title: String, subtitle: String, icon: androidx.compose.ui.graphics.vector.ImageVector, enabled: Boolean = true, onClick: () -> Unit) {
+    // Almanac ledger slip: white row on the paper canvas with hairline separators.
     ListItem(
         headlineContent = { Text(title) }, supportingContent = { Text(subtitle) },
-        leadingContent = { Icon(icon, null) }, trailingContent = { Icon(Icons.Outlined.ChevronRight, null) },
+        leadingContent = { Icon(icon, null, tint = MaterialTheme.colorScheme.secondary) },
+        trailingContent = { Icon(Icons.Outlined.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
         modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick),
-        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background)
+        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface)
     )
 }

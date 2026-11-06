@@ -1,11 +1,11 @@
-import { renderAnalytics, heatmapHTML, currentStreak, trendHTML, periodTilesHTML, dailyCheckinsHTML, consistencyHTML, unmarkedOn } from './analytics.js?v=1.5.1';
-import { encryptBackup, decryptBackup, MAX_ENVELOPE_BYTES } from './backup-crypto.js?v=1.5.1';
+import { renderAnalytics, heatmapHTML, currentStreak, trendHTML, periodTilesHTML, dailyCheckinsHTML, consistencyHTML, unmarkedOn } from './analytics.js?v=1.6.0';
+import { encryptBackup, decryptBackup, MAX_ENVELOPE_BYTES } from './backup-crypto.js?v=1.6.0';
 import { ALL_DAYS, localDate, isDate, plusDays, dayDifference, dayNumber as relativeDay,
   scheduled, dueHabits, bestStreak as bestStreakValue, parseBackup, encodeBackup,
   makeBackup, validateBackup as validatePortableBackup, restoreStoredState, changeLog, changeProgress,
   redeemFreeze, archiveHabit as archiveValue, deleteHabit as deleteValue, foregroundFor, copy, validateGoalEdit, goalAt,
   saveActivity, deleteActivity as deleteActivityValue, setActivityEntry, clearActivityEntry,
-  activityEntriesFor, activityTotals, formatQuantity } from './domain.js?v=1.5.1';
+  activityEntriesFor, activityTotals, formatQuantity } from './domain.js?v=1.6.0';
 
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -117,6 +117,7 @@ function render() {
   theme();
   app.innerHTML=route==='analytics'?`<div class="screen">${renderAnalytics(state,today,analyticsPeriod)}</div>`:route==='settings'?settingsHTML():route==='detail'?detailHTML():todayHTML();
   const rail=$('#today-rail');if(rail)rail.innerHTML=route==='today'?todayRailHTML():'';
+  const sideMatrix=$('#side-matrix');if(sideMatrix)sideMatrix.innerHTML=heatmapHTML(state,today,true);
   app.querySelectorAll('[data-heatmap-scroll]').forEach(grid=>{grid.scrollLeft=grid.scrollWidth;});
   nav.innerHTML=['today','analytics','settings'].map(tab=>`<button data-action="navigate" data-tab="${tab}" class="${route===tab||route==='detail'&&tab==='today'?'active':''}" ${route===tab?'aria-current="page"':''}><span class="nav-icon">${icon(tab)}</span>${tab[0].toUpperCase()+tab.slice(1)}</button>`).join('');
   app.scrollTop=position;
@@ -150,7 +151,7 @@ function todayHTML() {
   const yesterday=plusDays(today,-1);
   const unmarkedYesterday=unmarkedOn(state,yesterday);
   const showNudge=isToday&&unmarkedYesterday.length&&nudgeDismissedDate!==yesterday;
-  return `<div class="screen">${recovery}<div class="today-head"><div><h2 class="today-title">${esc(nice(selectedDate,{weekday:'long',day:'numeric',month:'long'}))}</h2><p class="today-sub">${isToday?'Today · recording':'Past check-ins · edits and backfills are welcome.'}</p></div><button class="add-habit-button" data-action="add-habit">+ Habit</button></div>
+  return `<div class="screen">${recovery}<div class="today-head"><div class="today-lockup"><span class="today-num" aria-hidden="true">${selectedDate.slice(8)}</span><span class="today-rule" aria-hidden="true"></span><span class="today-stack" aria-hidden="true"><span>${esc(nice(selectedDate,{weekday:'long'}))}</span><span>${esc(nice(selectedDate,{month:'long'}))}</span></span><h2 class="today-title sr-only">${esc(nice(selectedDate,{weekday:'long',day:'numeric',month:'long'}))}</h2><p class="today-sub">${isToday?'Today · recording':'Past check-ins · edits and backfills are welcome.'}</p></div><button class="add-habit-button" data-action="add-habit">+ Habit</button></div>
     ${recordStripHTML(selectedDate,today)}
     ${dateNav()}
     ${!isToday?'<div style="margin:-6px 0 12px;text-align:center"><button class="back-today" data-action="back-today">Back to today ↗</button></div>':''}
@@ -167,7 +168,7 @@ function todayHTML() {
 }
 function emptyStateHTML(active){
   let fresh=false;
-  if(!active.length&&!state.activities.length){try{fresh=Boolean(localStorage.getItem(RESET_STORE));}catch{}}
+  if(!active.length&&!state.activities.length&&!state.logs.length){try{fresh=Boolean(localStorage.getItem(RESET_STORE));}catch{}}
   if(fresh)return `<div class="empty-state"><span>🌱</span><h3>A fresh page</h3><p>Everything was erased. Add a habit, or restore a backup to continue where you left off.</p><button class="primary-button" data-action="add-habit">Add a habit</button> <button class="secondary-button" data-action="import-data">Restore a backup</button></div>`;
   return `<div class="empty-state"><span>🌱</span><h3>${active.length?'No matching habits':'Start with something small'}</h3><p>${active.length?'Try another filter, or make room for a new intention.':'A page. A walk. A quiet minute.<br>Choose a habit and a start date that work for you.'}</p><button class="primary-button" data-action="${active.length?'clear-filters':'add-habit'}">${active.length?'Reset all filters':'Create your first habit'}</button></div>`;
 }
@@ -182,9 +183,9 @@ function activityRow(a) {
 function activitiesSectionHTML() {
   const activities = state.activities.slice().sort((a,b) => a.sortOrder - b.sortOrder);
   const count = activities.length;
-  const header = `<div class="section-heading"><h3>Activities <span class="result-count">${count}</span></h3><button class="text-button" data-action="add-activity">＋ Activity</button></div>`;
+  const header = `<div class="section-heading"><h3>Activities <span class="result-count">${count}</span></h3></div>`;
   if (!count) return `${header}<div class="empty-state slim"><span>🏋️</span><h3>Track a workout or activity</h3><p>Push-ups, runs, crunches — any activity, any day, in any combination. Quantities are yours: 32 of a 20 target is a good day.</p><button class="primary-button" data-action="add-activity">Add your first activity</button></div>`;
-  return `${header}<div class="habit-list">${activities.map(activityRow).join('')}</div>`;
+  return `${header}<div class="habit-list">${activities.map(activityRow).join('')}</div><button class="add-activity-band" data-action="add-activity">＋ Activity</button>`;
 }
 function todayRailHTML(){return `${periodTilesHTML(state,today)}${dailyCheckinsHTML(state,today)}${consistencyHTML(state,today)}`;}
 function habitCard(h) {
@@ -195,7 +196,7 @@ function habitCard(h) {
   const statusBit=status==='COMPLETED'?(selectedDate===today?'Done today':'Completed'):status==='SKIPPED'?'Skipped':status==='FAILED'?'Missed':h.targetCount>1&&isDue?`${progress} of ${h.targetCount} ${esc(h.targetUnit)}`:'';
   const restState=!isDue?(h.startDate>selectedDate?'future':'rest'):null;
   const checkLabel=restState==='future'?`${h.name} has not started yet`:restState==='rest'?`Rest day for ${h.name}${log?.isFrozen?' · streak frozen':''} — no check-in needed`:status==='COMPLETED'?`Undo completion of ${h.name}`:h.targetCount>1?`Add progress to ${h.name}`:`Complete ${h.name}`;
-  return `<article class="habit-row${h.targetCount>1?' is-numeric':''}${focusUnmarkedDate===selectedDate&&isDue&&!log?' is-nudged':''}" draggable="true" data-habit="${h.id}" style="--habit-color:${esc(h.colorHex)};--habit-foreground:${foregroundFor(h.colorHex)}"><span class="drag-handle" aria-hidden="true">⠿</span><div class="row-top"><button class="row-main" data-action="open-habit" data-id="${h.id}"><span class="row-avatar" aria-hidden="true">${esc(h.icon)}</span><span class="row-copy"><strong>${esc(h.name)}</strong><span class="row-meta">${statusBit?`${statusBit} · `:''}${esc(h.category)} · <span class="day-count">${dayLabel}</span></span>${stack?`<span class="stack-cue">↳ After ${esc(stack.name)}</span>`:''}</span></button><div class="row-actions">${h.targetCount>1&&status!=='COMPLETED'&&status!=='IN_PROGRESS'?`<span class="goal-chip" aria-hidden="true">${progress}/${h.targetCount}</span>`:''}<button class="row-menu-button" data-action="row-menu" data-id="${h.id}" aria-label="More actions for ${esc(h.name)}" aria-haspopup="dialog">${icon('dots')}</button><button class="check-button ${status==='COMPLETED'?'is-done':status==='SKIPPED'?'is-skipped':status==='FAILED'?'is-failed':status==='IN_PROGRESS'?'is-partial':restState==='rest'?'is-rest':''}" data-action="check-in" data-id="${h.id}" aria-label="${esc(checkLabel)}" title="${esc(checkLabel)}" aria-pressed="${status==='COMPLETED'}" ${!isDue?'disabled':''}>${status==='IN_PROGRESS'?`<span>${progress}/${h.targetCount}</span>`:icon(status==='COMPLETED'?'check':status==='SKIPPED'||restState==='rest'?'skip':'plus')}</button></div></div>${h.targetCount>1?`<div class="goal-line"><button data-action="decrement" data-id="${h.id}" aria-label="Remove one ${esc(h.targetUnit)} from ${esc(h.name)}" ${!isDue||progress===0?'disabled':''}>−</button><span class="goal-count" aria-live="polite">${progress} / ${h.targetCount} ${esc(h.targetUnit)}</span><button data-action="increment" data-id="${h.id}" aria-label="Add one ${esc(h.targetUnit)} to ${esc(h.name)}" ${!isDue||progress>=h.targetCount?'disabled':''}>+</button></div>`:''}</article>`;
+  return `<article class="habit-row${h.targetCount>1?' is-numeric':''}${focusUnmarkedDate===selectedDate&&isDue&&!log?' is-nudged':''}" draggable="true" data-habit="${h.id}" style="--habit-color:${esc(h.colorHex)};--habit-foreground:${foregroundFor(h.colorHex)}"><span class="drag-handle" aria-hidden="true">⠿</span><div class="row-top"><button class="row-main" data-action="open-habit" data-id="${h.id}"><span class="row-avatar" aria-hidden="true">${esc(h.icon)}</span><span class="row-copy"><strong>${esc(h.name)}</strong><span class="row-meta">${statusBit?`${statusBit} · `:''}${esc(h.category)} · <span class="day-count">${dayLabel}</span></span>${stack?`<span class="stack-cue"><span class="stack-anchor" aria-hidden="true">ANCHOR:</span>↳ After ${esc(stack.name)}</span>`:''}</span></button><div class="row-actions">${h.targetCount>1&&status!=='COMPLETED'&&status!=='IN_PROGRESS'?`<span class="goal-chip" aria-hidden="true">${progress}/${h.targetCount}</span>`:''}<button class="row-menu-button" data-action="row-menu" data-id="${h.id}" aria-label="More actions for ${esc(h.name)}" aria-haspopup="dialog">${icon('dots')}</button><button class="check-button ${status==='COMPLETED'?'is-done':status==='SKIPPED'?'is-skipped':status==='FAILED'?'is-failed':status==='IN_PROGRESS'?'is-partial':restState==='rest'?'is-rest':''}" data-action="check-in" data-id="${h.id}" aria-label="${esc(checkLabel)}" title="${esc(checkLabel)}" aria-pressed="${status==='COMPLETED'}" ${!isDue?'disabled':''}>${status==='IN_PROGRESS'?`<span>${progress}/${h.targetCount}</span>`:restState==='rest'&&!status?`<span class="rest-glyph" aria-hidden="true">⌁</span>`:icon(status==='COMPLETED'?'check':status==='FAILED'?'close':status==='SKIPPED'?'skip':'plus')}</button></div></div>${h.targetCount>1?`<div class="goal-line"><button data-action="decrement" data-id="${h.id}" aria-label="Remove one ${esc(h.targetUnit)} from ${esc(h.name)}" ${!isDue||progress===0?'disabled':''}>−</button><span class="goal-count" aria-live="polite">${progress} / ${h.targetCount} ${esc(h.targetUnit)}</span><button data-action="increment" data-id="${h.id}" aria-label="Add one ${esc(h.targetUnit)} to ${esc(h.name)}" ${!isDue||progress>=h.targetCount?'disabled':''}>+</button></div>`:''}</article>`;
 }
 function settingsRow(action,title,subtitle,symbol,last='›',extra='') {
   if(last.includes('class="toggle')){const checked=last.includes('toggle on');extra+=` role="switch" aria-checked="${checked}"`;last=last.replace(/ role="switch" aria-checked="[^"]*"/g,'').replace('<span ','<span aria-hidden="true" ');}
@@ -211,7 +212,7 @@ function settingsHTML() {
     <div class="settings-section-title">Make yourself at home</div>${settingsRow('choose-theme','Theme',settings.theme==='SYSTEM'?'Follow your device':settings.theme==='DARK'?'Dark mode':'Light mode','moon')}${settingsRow('toggle-dynamic','Wallpaper colors','Material You in the native Android app','palette',`<span class="toggle ${settings.dynamicColor?'on':''}" role="switch" aria-checked="${settings.dynamicColor}"></span>`)}
     ${archived.length?`<div class="settings-section-title">Archived habits · ${archived.length}</div>${archived.map(h=>settingsRow('open-habit',`${h.icon} ${h.name}`,'View history or restore','archive','›',`data-id="${h.id}"`)).join('')}`:''}
     <div class="settings-section-title">Comfort & accessibility</div>${settingsRow('toggle-animations','Celebration animations','Respect your pace and reduced-motion preferences.','palette',`<span class="toggle ${settings.animationsEnabled?'on':''}"></span>`)}${settingsRow('toggle-haptics','Check-in haptics','Saved for Android · the browser does not vibrate.','today',`<span class="toggle ${settings.hapticsEnabled?'on':''}"></span>`)}
-    <div class="settings-section-title">LifeTrack</div>${settingsRow('about','About LifeTrack','Version 1.1.0 · Made for your own pace','info')}
+    <div class="settings-section-title">LifeTrack</div>${settingsRow('about','About LifeTrack','Version 1.6.0 · Made for your own pace','info')}
     <div class="settings-warning">Uninstalling the native app deletes its local data. Export a backup regularly.<br><br>This browser preview has its own sample data and does not access the Android database.</div><div class="settings-footer">Made for real life. Not perfect streaks.<br>🌱</div></div>`;
 }
 function bestStreak(h) { return bestStreakValue(h,state.logs,today,state.pauses); }
@@ -237,7 +238,7 @@ function captureDraft() {
   drafts[form.dataset.draftKey]=formValues(form);
   try{localStorage.setItem(DRAFT_STORE,JSON.stringify(drafts));}catch{}
 }
-function clearDraft(key) { if(!key)return;delete drafts[key];try{localStorage.setItem(DRAFT_STORE,JSON.stringify(drafts));}catch{} }
+function clearDraft(key) { if(!key)return;if(staleAfterReset()){adoptRemoteReset();return false;}delete drafts[key];try{localStorage.setItem(DRAFT_STORE,JSON.stringify(drafts));}catch{} }
 function restoreDraft(form) {
   const values=drafts[form.dataset.draftKey];if(!values||typeof values!=='object'||Array.isArray(values))return;
   for(const field of form.elements) {
@@ -268,7 +269,7 @@ const templates=[
   {name:'Write one paragraph',icon:'✍️',category:'Creativity',description:'Let one small thought find its way to the page.',targetCount:1,targetUnit:'times'}
 ];
 function editHabit(id,templateIndex=null) {
-  const h=habitFor(id),seed=h||templates[templateIndex]||{},selected=seed.colorHex||'#43866B';
+  const h=habitFor(id),seed=h||templates[templateIndex]||{},selected=seed.colorHex||'#059669';
   const hasCheckInToday=Boolean(h&&state.logs.some(log=>log.habitId===h.id&&log.date===today));
   const draftKey=h?`habit:${h.id}:${h.createdAt}`:'habit:new';
   const weekdays=seed.scheduledDays||ALL_DAYS;
@@ -276,7 +277,7 @@ function editHabit(id,templateIndex=null) {
   if(templateIndex!==null)clearDraft(draftKey);
   showModal(`${heading(h?'Edit habit':'A new beginning','Make room for what matters.')}<form id="habit-form" data-id="${h?.id||0}" data-draft-key="${draftKey}"><label class="field">Habit name<input name="name" required maxlength="120" placeholder="e.g. Read a few pages" value="${esc(seed.name||'')}"></label><div class="field-row"><label class="field">Emoji<input name="icon" required maxlength="32" value="${esc(seed.icon||'🌱')}"></label><label class="field">Category<input name="category" required maxlength="40" list="categories" value="${esc(seed.category||'Personal')}"><datalist id="categories">${['Health','Mind','Learning','Creativity','Work','Personal'].map(x=>`<option>${x}</option>`).join('')}</datalist></label></div><label class="field">Your Day 1<input type="date" name="startDate" required min="1900-01-01" max="${Number(today.slice(0,4))+100}${today.slice(4)}" value="${seed.startDate||today}"><small>Start in the past to backfill, or choose a future beginning.</small></label>
     <fieldset class="weekday-field"><legend>Repeat on</legend><div class="weekday-options">${['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((day,index)=>`<label><input type="checkbox" name="scheduledDays" value="${index+1}" ${weekdays.includes(index+1)?'checked':''}><span>${day}</span></label>`).join('')}</div><p class="section-note">Days off do not break your chain. Schedule changes begin today; previous patterns stay in history.</p></fieldset>
-    <div class="field-row equal"><label class="field">Daily target<input type="number" name="targetCount" required min="1" max="100000" step="1" value="${seed.targetCount||1}"></label><label class="field">Unit<input name="targetUnit" required maxlength="24" value="${esc(seed.targetUnit||'times')}" placeholder="pages, glasses…"></label></div>${h?`<p class="section-note">Goal changes start ${hasCheckInToday?'tomorrow':'today'}. Earlier check-ins keep their original goal.</p>`:'<p class="section-note">A target of 1 is a simple done-or-not-done habit. Larger targets track quantities.</p>'}<label class="field">Color<input type="hidden" name="colorHex" value="${selected}"><span class="color-swatches">${['#254A43','#334E68','#6B435C','#8A492D','#77602C','#4D526D','#6E3937','#525B3C'].map(c=>`<button type="button" class="color-swatch ${c===selected?'selected':''}" style="--swatch:${c}" data-action="select-color" data-color="${c}" aria-pressed="${c===selected}" aria-label="Choose color ${c}"></button>`).join('')}</span></label>
+    <div class="field-row equal"><label class="field">Daily target<input type="number" name="targetCount" required min="1" max="100000" step="1" value="${seed.targetCount||1}"></label><label class="field">Unit<input name="targetUnit" required maxlength="24" value="${esc(seed.targetUnit||'times')}" placeholder="pages, glasses…"></label></div>${h?`<p class="section-note">Goal changes start ${hasCheckInToday?'tomorrow':'today'}. Earlier check-ins keep their original goal.</p>`:'<p class="section-note">A target of 1 is a simple done-or-not-done habit. Larger targets track quantities.</p>'}<label class="field">Color<input type="hidden" name="colorHex" value="${selected}"><span class="color-swatches">${['#D97706','#C2410C','#059669','#2563EB','#4F46E5','#9333EA','#475569','#B45309'].map(c=>`<button type="button" class="color-swatch ${c===selected?'selected':''}" style="--swatch:${c}" data-action="select-color" data-color="${c}" aria-pressed="${c===selected}" aria-label="Choose color ${c}"></button>`).join('')}</span></label>
     <details class="more-options"><summary>More options · description, reminder, stacking</summary><div><label class="field">Description · optional<textarea name="description" maxlength="2000" placeholder="A gentle intention…">${esc(seed.description||'')}</textarea></label><label class="field">Reminder time · optional<input type="time" name="reminderTime" value="${reminder}"><small>Saved for the native Android app. This browser preview does not schedule notifications.</small></label><label class="field">Habit stacking · optional<select name="afterHabitId"><option value="">No linked habit</option>${state.habits.filter(p=>p.id!==h?.id&&(!p.isArchived||p.id===h?.afterHabitId)).map(p=>`<option value="${p.id}" ${p.id===h?.afterHabitId?'selected':''}>After ${esc(p.name)}</option>`).join('')}</select><small>“After I do this, I will begin my new habit.”</small></label></div></details><p id="form-error" class="form-error" aria-live="polite"></p><button class="primary-button wide" type="submit">${h?'Save changes':'Create habit'}</button><button class="text-button wide" type="button" data-action="close-modal">Keep draft & close</button></form>`,{kind:'habit',id:h?.id||0,draftKey});
 }
 function editLog(id,defaultStatus=null) {
@@ -292,7 +293,7 @@ function setLog(id,status,note=null,frozen=false,progress=null,date=selectedDate
 }
 function celebrate() {
   if(!state.settings.animationsEnabled||matchMedia('(prefers-reduced-motion: reduce)').matches)return;
-  const colors=['#245f49','#a8823f','#77689c','#a26d8a'];
+  const colors=['#059669','#D97706','#C2410C','#475569'];
   for(let i=0;i<24;i++){const piece=document.createElement('i');piece.className='confetti';piece.style.cssText=`left:${15+Math.random()*70}%;background:${colors[i%4]};--dx:${Math.random()*160-80}px;animation-delay:${Math.random()*.2}s`;document.body.append(piece);setTimeout(()=>piece.remove(),1900);}
 }
 function checkIn(id) {
@@ -389,6 +390,7 @@ function adoptRemoteReset() {
   try{saved=localStorage.getItem(STORE);}catch{}
   try{restored=restoreStoredState(saved??JSON.stringify(emptyState()),today);}catch(error){failed=error;}
   clearVolatileState();
+  try{localStorage.removeItem(DRAFT_STORE);}catch{}
   if(failed){recoveryText=saved;storageWarning=failed.message||'Browser storage could not be opened.';render();return;}
   state=restored;revision++;render();toast('LifeTrack was reset in another tab.');
 }
@@ -402,7 +404,9 @@ function performReset() {
     resetToken=token;
     let payload;
     try{payload=JSON.stringify(emptyState());localStorage.setItem(STORE,payload);}catch(error){
-      try{localStorage.removeItem(RESET_STORE);}catch{}
+      // The marker stays in place on a failed save: removing it would let a pre-reset tab
+      // treat the world as pre-reset and write erased records back. This tab keeps the
+      // previous token, so it is stale too and adopts the surviving state on its next write.
       resetToken=previousToken;
       throw new Error('The erased state could not be saved. Nothing was deleted. Free up browser storage or close other LifeTrack tabs and try again.');
     }
@@ -476,7 +480,7 @@ document.addEventListener('click',event=>{
       case 'export-data':exportDialog();break;
       case 'import-data':$('#import-file').click();break;
       case 'confirm-import':if(pendingBackup){const restored=validatePortableBackup(makeBackup(pendingBackup),today);pendingBackup=null;recoveryText=null;storageWarning='';selectedDate=today;closeModal(true);commit(restored,'Backup restored in this browser preview.',{undo:false});}break;
-      case 'about':showModal(`${heading('LifeTrack 1.3.0','Small steps. Your own pace.')}<p class="section-note">A private habit companion built for your own timeline. Every habit has its own Day 1. Activities track workouts and movements with real quantities.<br><br>This browser adaptation uses separate local sample data. The native app uses Kotlin, Compose, Room and Hilt and provides actual Android reminders, widgets, activities and haptics.<br><br>No external requests, accounts, ads or telemetry. Backup encryption is optional; plain JSON and browser storage remain readable to anyone with access to this device.</p><button class="primary-button wide" data-action="close-modal">Keep growing 🌱</button>`);break;
+      case 'about':showModal(`${heading('LifeTrack 1.6.0','Small steps. Your own pace.')}<p class="section-note">A private habit companion built for your own timeline. Every habit has its own Day 1. Activities track workouts and movements with real quantities.<br><br>This browser adaptation uses separate local sample data. The native app uses Kotlin, Compose, Room and Hilt and provides actual Android reminders, widgets, activities and haptics.<br><br>No external requests, accounts, ads or telemetry. Backup encryption is optional; plain JSON and browser storage remain readable to anyone with access to this device.</p><button class="primary-button wide" data-action="close-modal">Keep growing 🌱</button>`);break;
       case 'reset-demo':showModal(`${heading('Start fresh?')}<p class="section-note">Reset the browser preview to its original sample habits. Current preview changes will be replaced. Your native Android data is separate.${recoveryText!==null?'<br><br>Download the preserved original records before replacing them.':''}</p><button class="primary-button wide" data-action="confirm-reset">Reset sample data</button><button class="text-button wide" data-action="close-modal">Keep exploring</button>`);break;
       case 'strip-day':selectedDate=button.dataset.date;render();app.querySelector('.day-summary')?.scrollIntoView({block:'nearest'});break;
       case 'confirm-reset':recoveryText=null;storageWarning='';selectedDate=today;closeModal(true);commit(demoData(),'A fresh little beginning.',{undo:false});navigate('today');break;
@@ -544,7 +548,7 @@ document.addEventListener('submit',async event=>{
       if(values.confirmation!=='RESET'){if(box)box.textContent='Type RESET to confirm.';return;}
       submit.disabled=true;form.setAttribute('aria-busy','true');
       try {
-        if(performReset()){dialogOpener=null;closeModal(true);navigate('today');toast('LifeTrack was reset.');requestAnimationFrame(()=>app.querySelector('[data-action="add-habit"]')?.focus({preventScroll:true}));}
+        if(performReset()){dialogOpener=null;closeModal(true);navigate('today');toast('LifeTrack was reset.');app.querySelector('[data-action="add-habit"]')?.focus({preventScroll:true});requestAnimationFrame(()=>app.querySelector('[data-action="add-habit"]')?.focus({preventScroll:true}));}
       } catch(error) {
         if(box)box.textContent=error.message;else toast(error.message||'LifeTrack could not be reset.');
         if(submit.isConnected){submit.disabled=false;form.removeAttribute('aria-busy');}

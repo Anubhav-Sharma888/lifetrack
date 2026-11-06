@@ -12,5 +12,6 @@ LifeTrack uses the following development/runtime libraries under their respectiv
 | Gradle wrapper | Apache 2.0 — [Gradle](https://github.com/gradle/gradle/tree/v8.11.1) |
 | JUnit 4 (test only) | Eclipse Public License 1.0 — [JUnit](https://github.com/junit-team/junit4) |
 | Robolectric (test only) | MIT — [Robolectric](https://github.com/robolectric/robolectric) |
+| Newsreader (variable), Plus Jakarta Sans (variable), JetBrains Mono (variable) | SIL Open Font License 1.1 — [google/fonts](https://github.com/google/fonts); bundled as `app/src/main/res/font/*.ttf` and `Preview/dist/fonts/*.ttf` with their OFL texts alongside |
 
 The Apache License 2.0 is available at [apache.org](https://www.apache.org/licenses/LICENSE-2.0). The bundled Gradle wrapper launch scripts retain their original license headers. Consult each upstream repository for its full license and notices when redistributing modified upstream code. Add the applicable license for your own application code before publishing it publicly.

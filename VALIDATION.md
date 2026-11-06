@@ -1,4 +1,34 @@
-# LifeTrack 1.1.0 validation
+# LifeTrack validation log
+
+## LifeTrack 1.6.0 validation
+
+Validated 7 November 2026. Native database schema 4 (unchanged from 1.5.0); app versionCode 7, versionName 1.6.0; applicationId com.lifetrack.app unchanged. JDK 17 (Temurin 17.0.20.1), Gradle 8.11.1, Android SDK 36, Build Tools 35.0.0.
+
+### Executed checks
+
+```text
+node --check Preview/dist/app.js
+npm test            # in Preview/
+gradle :app:testDebugUnitTest :app:assembleDebug --max-workers=2 --no-parallel --no-daemon
+apksigner verify --print-certs   # candidate vs the published v1.5.0 APK
+```
+
+- Preview: **99 tests passed**, zero failures (was 82 at v1.5.0; +17 for the Reset LifeTrack feature, its stale-tab guards and the failed-second-reset regression).
+- Native: **108 tests passed**, zero failures (was 104 at v1.5.0; +4 Reset LifeTrack repository tests).
+- Debug APK built from this tree; `apksigner verify --print-certs` shows the candidate is signed with the SAME certificate as the published v1.5.0 APK (signer SHA-256 `4448dfb6f78d17d5947a841b8c87d554c6e9471b7ae2b599802ee5361248c071`), supporting an in-place upgrade.
+- Reset fix regression covered: a failed second reset keeps the generation marker and a pre-reset tab cannot write erased records back (unit-tested; also verified live in a real browser across two tabs sharing storage events).
+- Live browser QA (Chromium via automation, isolated `?qa=review` data): Today/Settings/Analytics light + dark, desktop folio grid, reset confirmation gate (wrong/exact/trailing-space), cancel preserves data, erase → empty Today with Add a habit + Restore a backup, reload stays empty, cross-tab adoption with no resurrection, dialog scroll reachability at constrained height. User preview data was not touched (namespaced QA profile).
+- Personal Almanac redesign applied browser (styles/analytics CSS, bundled OFL variable fonts) and native (Theme + 10 UI files, visual-only; strings, semantics and behavior asserted unchanged by the suites). Fonts: Newsreader, Plus Jakarta Sans, JetBrains Mono (SIL OFL 1.1, texts bundled).
+- Known remaining: physical-device QA (in-place upgrade from installed v1.5.0 with disposable data, notification delivery/cancellation, widget refresh, TalkBack) and a real soft-keyboard session still need hardware; no device was available for this validation. The Stitch canvas was access-gated; the four exported Almanac frames + DESIGN.md were the visual references, and no visual parity is claimed for unexported canvas screens.
+
+### v1.6.0 APK
+
+- Candidate APK: `LifeTrack-1.6.0-almanac-debug.apk` (23,458,876 bytes)
+- APK SHA-256: `70581846ac00515ddaf28d200ba438b41345e4b36689157e5bcdde278661540e`
+
+---
+
+## LifeTrack 1.1.0 validation
 
 Validated 26 October 2026. Native database schema 2; app versionCode 2. JDK 17, Gradle 8.11.1, AGP 8.10.1, Kotlin 2.1.21, Android SDK 36 and Build Tools 35.0.0.
 

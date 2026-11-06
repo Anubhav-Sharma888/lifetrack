@@ -93,19 +93,19 @@ fun HabitEditorScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
                     })
                 } }
             }
-            OutlinedTextField(name, { if (it.length <= 120) name = it }, label = { Text("Habit name") }, singleLine = true,
+            OutlinedTextField(name, { if (it.length <= 120) name = it }, label = { Text("Habit name") }, singleLine = true, colors = almanacFieldColors(),
                 supportingText = { Text("${name.length}/120") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(description, { if (it.length <= 2000) description = it }, label = { Text("Description · optional") }, minLines = 2, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(description, { if (it.length <= 2000) description = it }, label = { Text("Description · optional") }, minLines = 2, colors = almanacFieldColors(), modifier = Modifier.fillMaxWidth())
             HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(icon, { if (it.length <= 32) icon = it }, label = { Text("Emoji / icon") }, singleLine = true, modifier = Modifier.weight(1f))
-                OutlinedTextField(category, { if (it.length <= 40) category = it }, label = { Text("Category") }, singleLine = true, modifier = Modifier.weight(2f))
+                OutlinedTextField(icon, { if (it.length <= 32) icon = it }, label = { Text("Emoji / icon") }, singleLine = true, colors = almanacFieldColors(), modifier = Modifier.weight(1f))
+                OutlinedTextField(category, { if (it.length <= 40) category = it }, label = { Text("Category") }, singleLine = true, colors = almanacFieldColors(), modifier = Modifier.weight(2f))
             }
             OutlinedButton(onClick = { dateDialog = true }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Outlined.DateRange, null); Spacer(Modifier.width(12.dp)); Text("Start date · $start")
             }
             Text("Day 1 stays anchored to this date. Planned rest days do not break your chain.", style = MaterialTheme.typography.bodySmall)
-            Text("Scheduled days", style = MaterialTheme.typography.titleMedium)
+            Text("Scheduled days", style = AlmanacType.labelCaps, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 (1..7).forEach { day ->
                     val full = DayOfWeek.of(day).getDisplayName(TextStyle.FULL, Locale.getDefault())
@@ -117,12 +117,13 @@ fun HabitEditorScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
             if (selectedDays.isEmpty()) Text("Choose at least one scheduled day.", color = MaterialTheme.colorScheme.error)
             Text("Weekday changes apply from today; past schedules remain in your history.", style = MaterialTheme.typography.bodySmall)
             HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
-            Text("A measurable intention", style = MaterialTheme.typography.titleMedium)
+            Text("A measurable intention", style = AlmanacType.labelCaps, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(target, { if (it.length <= 6 && it.all(Char::isDigit)) target = it }, label = { Text("Daily target") },
+                    colors = almanacFieldColors(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true,
                     isError = targetNumber == null || targetNumber !in 1..100_000, modifier = Modifier.weight(1f))
-                OutlinedTextField(unit, { if (it.length <= 24) unit = it }, label = { Text("Unit") }, placeholder = { Text("pages, glasses…") }, singleLine = true, modifier = Modifier.weight(1.5f))
+                OutlinedTextField(unit, { if (it.length <= 24) unit = it }, label = { Text("Unit") }, placeholder = { Text("pages, glasses…") }, singleLine = true, colors = almanacFieldColors(), modifier = Modifier.weight(1.5f))
             }
             Text("Use 1 time for a simple check-in, or track a count toward your goal.", style = MaterialTheme.typography.bodySmall)
             if (original != null) Text(
@@ -132,7 +133,7 @@ fun HabitEditorScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
             )
             HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
             Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                Text("Habit reminder", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                Text("Habit reminder", Modifier.weight(1f), style = AlmanacType.labelCaps, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Switch(reminder, onCheckedChange = { enabled ->
                     reminder = enabled
                     if (enabled && Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
@@ -141,26 +142,26 @@ fun HabitEditorScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
             }
             if (reminder) {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedTextField(hour, { if (it.length <= 2 && it.all(Char::isDigit)) hour = it }, label = { Text("Hour · 00–23") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, modifier = Modifier.weight(1f))
-                    OutlinedTextField(minute, { if (it.length <= 2 && it.all(Char::isDigit)) minute = it }, label = { Text("Minute · 00–59") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, modifier = Modifier.weight(1f))
+                    OutlinedTextField(hour, { if (it.length <= 2 && it.all(Char::isDigit)) hour = it }, label = { Text("Hour · 00–23") }, colors = almanacFieldColors(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, modifier = Modifier.weight(1f))
+                    OutlinedTextField(minute, { if (it.length <= 2 && it.all(Char::isDigit)) minute = it }, label = { Text("Minute · 00–59") }, colors = almanacFieldColors(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true, modifier = Modifier.weight(1f))
                 }
                 Text("A local nudge at or after this time on scheduled days. Android may delay background work; this is not an exact alarm.", style = MaterialTheme.typography.bodySmall)
                 permissionNote?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
             }
             HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
-            Text("Color", style = MaterialTheme.typography.titleMedium)
+            Text("Color", style = AlmanacType.labelCaps, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("#254A43", "#334E68", "#6B435C", "#8A492D", "#77602C", "#4D526D", "#6E3937", "#525B3C").forEach { hex ->
+                listOf("#D97706", "#C2410C", "#059669", "#2563EB", "#4F46E5", "#9333EA", "#475569", "#B45309").forEach { hex ->
                     Box(Modifier.size(48.dp), contentAlignment = androidx.compose.ui.Alignment.Center) {
                         Surface(color = Color(android.graphics.Color.parseColor(hex)), shape = CircleShape,
-                            border = if (hex.equals(color, true)) BorderStroke(3.dp, MaterialTheme.colorScheme.onSurface) else null,
+                            border = if (hex.equals(color, true)) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
                             modifier = Modifier.size(44.dp).clickable(onClickLabel = "Use color $hex") { color = hex }) {}
                     }
                 }
             }
-            OutlinedTextField(color, { if (it.length <= 7) color = it }, label = { Text("Hex color") }, isError = !Regex("#[0-9a-fA-F]{6}").matches(color), singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(color, { if (it.length <= 7) color = it }, label = { Text("Hex color") }, isError = !Regex("#[0-9a-fA-F]{6}").matches(color), singleLine = true, colors = almanacFieldColors(), modifier = Modifier.fillMaxWidth())
             HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
-            Text("Habit stacking", style = MaterialTheme.typography.titleMedium)
+            Text("Habit stacking", style = AlmanacType.labelCaps, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Box {
                 OutlinedButton(onClick = { stackMenu = true }, modifier = Modifier.fillMaxWidth()) {
                     Text(afterId?.let { parent -> state.habits.firstOrNull { it.id == parent }?.let { "After ${it.name}, I will…" } } ?: "Link to an existing habit · optional")

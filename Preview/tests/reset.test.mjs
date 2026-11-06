@@ -175,7 +175,10 @@ for (const writer of ['save', 'savePrefs', 'captureDraft']) {
     if (writer === 'captureDraft') h.setModal(staleModal);
     const before = storage.log.length, revision = h.revision;
     assert.equal(h[writer](), false);
-    assert.equal(storage.log.length, before, `${writer} must not write after a remote reset`);
+    // Adoption may only clear the stored drafts; it must never set records.
+    const addedOps = storage.log.slice(before).map(([kind, key]) => [kind, key]);
+    assert.deepEqual(addedOps.filter(([kind]) => kind === 'set'), [], `${writer} must not write after a remote reset`);
+    assert.deepEqual(addedOps, [['remove', DRAFT_STORE]], 'adoption clears stored drafts only');
     assert.equal(h.resetToken, token);
     assert.equal(h.staleAfterReset(), false);
     assert.deepEqual(h.state.habits, []);
@@ -216,7 +219,7 @@ test('a reset re-entered while one is already in flight is a no-op', () => {
   assert.equal(storage.log.filter(([kind, key]) => kind === 'set' && key === STORE).length, 1);
 });
 
-test('a failing erased-state write rolls the token back and deletes nothing', () => {
+test('a failing erased-state write keeps the generation marker and deletes nothing', () => {
   const payload = oldStatePayload();
   const storage = recordingStorage({[STORE]: payload, [RESET_STORE]: 'r-1-prev'});
   const h = buildHarness({storage, state: restoreStoredState(payload, TODAY)});
@@ -226,13 +229,42 @@ test('a failing erased-state write rolls the token back and deletes nothing', ()
     return rawSetItem.call(storage, key, value);
   };
   assert.throws(() => h.performReset(), /Nothing was deleted/);
-  assert.equal(storage.getItem(RESET_STORE), null);
+  // The marker was replaced, never removed: no tab may see the world as pre-reset after a failed erase.
+  assert.match(storage.getItem(RESET_STORE), /^r-/);
   assert.equal(h.resetToken, 'r-1-prev');
   assert.equal(storage.getItem(STORE), payload);
-  // The rolled-back token leaves the tab stale; its next write adopts the surviving records instead of overwriting them.
+  // The stale resetting tab adopts the surviving records instead of overwriting them.
   assert.equal(h.save(), false);
   assert.equal(h.state.habits.length, 1);
   assert.notEqual(h.save(), false);
+});
+
+test('a failed second reset preserves the marker and a pre-reset tab cannot write erased data back', async () => {
+  const storage = recordingStorage({[STORE]: oldStatePayload(), [DRAFT_STORE]: '{}', [PREFS_STORE]: '{}'});
+  // A tab booted before any reset: its marker is null and its memory still holds the old records.
+  const preResetTab = buildHarness({storage, state: restoreStoredState(oldStatePayload(), TODAY)});
+  const main = buildHarness({storage, state: restoreStoredState(oldStatePayload(), TODAY),
+    values: {confirmation: 'RESET'}, lastUndo: {state: {}, revision: 3}});
+  await main.submitReset(); // first reset succeeds
+  const firstToken = storage.getItem(RESET_STORE);
+  assert.match(firstToken, /^r-/);
+  assert.deepEqual(JSON.parse(storage.getItem(STORE)).habits, []);
+  const rawSetItem = storage.setItem;
+  storage.setItem = function (key, value) {
+    if (key === STORE) throw new Error('QuotaExceededError');
+    return rawSetItem.call(storage, key, value);
+  };
+  await main.submitReset(); // second reset fails to save
+  assert.match(main.errorBox.textContent, /Nothing was deleted/);
+  // The first reset's marker must survive the failed second reset.
+  assert.match(storage.getItem(RESET_STORE), /^r-/);
+  assert.deepEqual(JSON.parse(storage.getItem(STORE)).habits, []);
+  // The pre-reset tab stays stale: it writes nothing and adopts the erased state.
+  const before = storage.log.length;
+  assert.equal(preResetTab.save(), false);
+  assert.deepEqual(preResetTab.state.habits, []);
+  assert.deepEqual(storage.log.slice(before).map(([kind]) => kind).filter(kind => kind === 'set'), []);
+  assert.deepEqual(JSON.parse(storage.getItem(STORE)).habits, []);
 });
 
 test('a failed erase leaves the dialog open with the error and every record intact', async () => {
@@ -253,7 +285,8 @@ test('a failed erase leaves the dialog open with the error and every record inta
   assert.equal(h.submitButton.disabled, false);
   assert.equal(h.state, seed);
   assert.equal(storage.getItem(STORE), payload);
-  assert.equal(storage.getItem(RESET_STORE), null);
+  // Even a failed first reset leaves its marker: adoption, not removal, keeps every tab consistent.
+  assert.match(storage.getItem(RESET_STORE), /^r-/);
 });
 
 test('closing the export dialog returns to the reset confirmation only for the reset-export context', () => {
@@ -308,8 +341,8 @@ test('the erase button enables exactly when the confirmation input equals RESET'
 
 test('the post-reset Today renders the fresh-page variant with restore actions', () => {
   const emptyStateHTMLCode = section('function emptyStateHTML(', 'function activityRow(');
-  const render = (storage, state, active) => new Function('localStorage', 'RESET_STORE', 'state', 'active',
-    `${emptyStateHTMLCode}\nreturn emptyStateHTML(active);`)(storage, RESET_STORE, state, active);
+  const render = (storage, partialState, active) => { const state = {logs: [], ...partialState}; return new Function('localStorage', 'RESET_STORE', 'state', 'active',
+    `${emptyStateHTMLCode}\nreturn emptyStateHTML(active);`)(storage, RESET_STORE, state, active); };
   const storage = recordingStorage({[RESET_STORE]: 'r-1-abc'});
   const fresh = render(storage, {activities: []}, []);
   assert.match(fresh, /A fresh page/);
@@ -321,5 +354,6 @@ test('the post-reset Today renders the fresh-page variant with restore actions',
   assert.match(generic, /Create your first habit/);
   assert.doesNotMatch(generic, /A fresh page/);
   assert.doesNotMatch(render(storage, {activities: [{id: 1}]}, []), /A fresh page/);
+  assert.doesNotMatch(render(storage, {activities: [], logs: [{id: 1}]}, []), /A fresh page/);
   assert.match(render(storage, {activities: []}, [{id: 1}]), /No matching habits/);
 });

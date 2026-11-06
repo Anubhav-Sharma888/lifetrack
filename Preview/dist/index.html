@@ -3,20 +3,20 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
-  <meta name="theme-color" content="#245f49">
+  <meta name="theme-color" content="#FFF8F2">
   <meta name="description" content="Interactive local browser preview of the LifeTrack Android app.">
   <title>LifeTrack · App preview</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='13' fill='%231b1710'/%3E%3Cpath d='M8 38h10v-8h10v-8h8' fill='none' stroke='%23f1e8d4' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='m31 12 5 5 8-10' fill='none' stroke='%23ff7a33' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="/styles.css?v=1.5.1">
-  <link rel="stylesheet" href="/analytics.css?v=1.5.1">
-  <script type="module" src="/app.js?v=1.5.1"></script>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='13' fill='%231C1A17'/%3E%3Cpath d='M8 38h10v-8h10v-8h8' fill='none' stroke='%23F9F6F0' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='m31 12 5 5 8-10' fill='none' stroke='%23059669' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/styles.css?v=1.6.0">
+  <link rel="stylesheet" href="/analytics.css?v=1.6.0">
+  <script type="module" src="/app.js?v=1.6.0"></script>
 </head>
 <body>
   <a class="skip-link" href="#app-view">Skip to content</a>
   <div class="app-shell">
     <aside class="side-col">
       <header class="side-head">
-        <a class="brand" href="/" aria-label="LifeTrack preview home"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 48 48"><rect width="48" height="48" rx="13" fill="#245f49"/><path d="M8 38h10v-8h10v-8h8" fill="none" stroke="#a4d7b5" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="m31 12 5 5 8-10" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg></span><strong>LifeTrack.</strong></a>
+        <a class="brand" href="/" aria-label="LifeTrack preview home"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 48 48"><rect width="48" height="48" rx="13" fill="#1C1A17"/><path d="M8 38h10v-8h10v-8h8" fill="none" stroke="#F9F6F0" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="m31 12 5 5 8-10" fill="none" stroke="#059669" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg></span><strong>LifeTrack.</strong></a>
         <p class="side-tag">Small steps. Your own pace.</p>
         <div class="head-tools">
           <span class="local-badge"><i></i> Running locally</span>
@@ -24,6 +24,7 @@
         </div>
       </header>
       <nav id="bottom-nav" class="app-nav" aria-label="Main navigation"></nav>
+      <div id="side-matrix" class="side-matrix"></div>
       <div class="side-foot">
         <span class="side-shield" aria-hidden="true">⌑</span>
         <strong>Private by design</strong>

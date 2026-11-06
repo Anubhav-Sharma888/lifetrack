@@ -56,7 +56,7 @@ fun AnalyticsScreen(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate,
             MetricCard("All-time rate", if (allTime.opportunities == 0L) "—" else "${allTime.percent}%", Modifier.weight(1f))
         }
         AnalyticsPanel {
-            Text("A little, often", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text("A little, often", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(18.dp))
             val periods = listOf(
                 "Today" to Analytics.rate(habits, logs, today, today, pauses),
@@ -81,7 +81,7 @@ fun AnalyticsScreen(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate,
         AnalyticsPanel { CategoryDonut(habits, logs, today, pauses) }
         AnalyticsPanel { WeeklyBars(habits, logs, today, pauses) }
         if (activities.isNotEmpty()) AnalyticsPanel {
-            Text("Activities · last 28 days", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text("Activities · last 28 days", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(12.dp))
             val window = today.minusDays(27)
             activities.sortedBy { it.sortOrder }.forEach { activity ->
@@ -103,23 +103,23 @@ fun AnalyticsScreen(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate,
                         Text(datedText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Text(if (total == total.toLong().toDouble()) total.toLong().toString() else total.toString(),
-                        fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                        style = AlmanacType.monoData, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
                 }
             }
             Text("Actual workout quantities by day. A day total can include multiple sets.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         AnalyticsPanel {
-            Text("Streak leaderboard", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text("Streak leaderboard", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(12.dp))
             if (leaderboard.isEmpty()) Text("Your next check-in can start a new streak.", style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             leaderboard.forEachIndexed { index, (habit, streak) ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("${index + 1}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("${index + 1}", style = AlmanacType.monoData, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(habit.icon)
                     Text(habit.name, Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text("$streak ${if (streak == 1) "day" else "days"}", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                    Text("$streak ${if (streak == 1) "day" else "days"}", style = AlmanacType.monoData, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
                 }
             }
             Spacer(Modifier.height(8.dp))
@@ -144,22 +144,22 @@ private fun MetricCard(label: String, value: String, modifier: Modifier) {
     AnalyticsPanel(modifier) {
         Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(6.dp))
-        Text(value, style = MaterialTheme.typography.headlineMedium.copy(fontFeatureSettings = "tnum"), fontWeight = FontWeight.Bold)
+        Text(value, style = AlmanacType.monoMetric, color = MaterialTheme.colorScheme.onSurface)
     }
 }
 
 @Composable
 private fun ProgressRing(label: String, rate: Analytics.Rate) {
-    val primary = MaterialTheme.colorScheme.primary
-    val track = MaterialTheme.colorScheme.surfaceContainerHighest
+    val sage = MaterialTheme.colorScheme.secondary
+    val track = MaterialTheme.colorScheme.outlineVariant
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Box(Modifier.size(if (LocalDensity.current.fontScale > 1.4f) 104.dp else 74.dp).semantics { contentDescription = if (rate.opportunities == 0L) "$label: no unskipped habits due" else "$label: ${rate.percent} percent, ${rate.completed} of ${rate.opportunities} completed" }, contentAlignment = Alignment.Center) {
             Canvas(Modifier.fillMaxSize().padding(5.dp)) {
                 val stroke = 7.dp.toPx()
                 drawArc(track, -90f, 360f, false, style = Stroke(stroke, cap = StrokeCap.Round))
-                if (rate.fraction > 0f) drawArc(primary, -90f, 360f * rate.fraction, false, style = Stroke(stroke, cap = StrokeCap.Round))
+                if (rate.fraction > 0f) drawArc(sage, -90f, 360f * rate.fraction, false, style = Stroke(stroke, cap = StrokeCap.Round))
             }
-            Text(if (rate.opportunities == 0L) "—" else "${rate.percent}%", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(if (rate.opportunities == 0L) "—" else "${rate.percent}%", style = MaterialTheme.typography.titleMedium.copy(fontFamily = AlmanacFonts.mono, fontFeatureSettings = "tnum"), fontWeight = FontWeight.Bold)
         }
         Text(label, style = MaterialTheme.typography.labelMedium)
         Text(if (rate.opportunities == 0L) (if (rate.skipped > 0L) "All skipped" else "None due") else "${rate.completed}/${rate.opportunities}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -177,7 +177,7 @@ private fun ComparisonCard(habits: List<Habit>, logs: List<HabitLog>, today: Loc
     val thisMonth = Analytics.rate(habits, logs, today.withDayOfMonth(1), today, pauses)
     val previousMonth = Analytics.rate(habits, logs, lastMonth, lastMonthEnd, pauses)
     AnalyticsPanel {
-        Text("You vs. you", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text("You vs. you", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(4.dp))
         Text("Same elapsed days in each period.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(14.dp))
@@ -197,15 +197,15 @@ private fun ComparisonRow(label: String, current: Analytics.Rate, previous: Anal
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Column(horizontalAlignment = Alignment.End) {
-            Text(if (current.opportunities == 0L) "—" else "${current.percent}%", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(if (current.opportunities == 0L) "—" else "${current.percent}%", style = MaterialTheme.typography.titleMedium.copy(fontFamily = AlmanacFonts.mono, fontFeatureSettings = "tnum"), fontWeight = FontWeight.Bold)
             if (previous.opportunities > 0L && current.opportunities > 0L) Text(
                 when { difference > 0 -> "+$difference pp"; difference < 0 -> "−${abs(difference)} pp"; else -> "Steady" },
-                style = MaterialTheme.typography.labelSmall, color = if (difference >= 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                style = MaterialTheme.typography.labelSmall, color = if (difference >= 0) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
 
-private val categoryPalette = listOf(Color(0xFF477A60), Color(0xFF729DB2), Color(0xFFB482A8), Color(0xFFD5A55F), Color(0xFF8A83B5), Color(0xFF78A991))
+private val categoryPalette = listOf(Color(0xFF454039), Color(0xFF686258), Color(0xFF8C8479), Color(0xFFA39E95), Color(0xFFBDB5A8), Color(0xFFD8D0C3))
 
 @Composable
 private fun CategoryDonut(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate, pauses: List<HabitPause>) {
@@ -215,8 +215,8 @@ private fun CategoryDonut(habits: List<Habit>, logs: List<HabitLog>, today: Loca
             .groupingBy { byId.getValue(it.habitId).category }.eachCount().toList().sortedByDescending { it.second }
     }
     val total = categories.sumOf { it.second }
-    val track = MaterialTheme.colorScheme.surfaceContainerHighest
-    Text("Where your energy goes", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+    val track = MaterialTheme.colorScheme.outlineVariant
+    Text("Where your energy goes", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
     Text("Completions by category · last 28 days", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     Spacer(Modifier.height(18.dp))
     BoxWithConstraints(Modifier.fillMaxWidth()) {
@@ -249,7 +249,7 @@ private fun CategoryDonutGraphic(categories: List<Pair<String, Int>>, total: Int
             }
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(total.toString(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text(total.toString(), style = MaterialTheme.typography.headlineSmall.copy(fontFamily = AlmanacFonts.mono, fontFeatureSettings = "tnum"), fontWeight = FontWeight.Bold)
             Text("check-ins", style = MaterialTheme.typography.labelSmall)
         }
     }
@@ -275,8 +275,8 @@ private fun WeeklyBars(habits: List<Habit>, logs: List<HabitLog>, today: LocalDa
     val weeks = remember(habits, logs, today, pauses) { Analytics.weeklyVolumes(habits, logs, today, pauses) }
     var selected by remember(today) { mutableIntStateOf(7) }
     val maximum = (weeks.maxOfOrNull { it.second } ?: 0).coerceAtLeast(1)
-    val primary = MaterialTheme.colorScheme.primary
-    Text("Showing up, week by week", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+    val sage = MaterialTheme.colorScheme.secondary
+    Text("Showing up, week by week", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
     Text("Last 8 weeks · this week is in progress", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     Spacer(Modifier.height(12.dp))
     Text("Week of ${weeks[selected].first.format(DateTimeFormatter.ofPattern("d MMM", Locale.getDefault()))}: ${weeks[selected].second} completions",
@@ -288,7 +288,7 @@ private fun WeeklyBars(habits: List<Habit>, logs: List<HabitLog>, today: LocalDa
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 Box(Modifier.fillMaxWidth().height(110.dp), contentAlignment = Alignment.BottomCenter) {
                     Box(Modifier.fillMaxWidth(.72f).height(maxOf(4f, 110f * count / maximum).dp)
-                        .background(primary.copy(alpha = if (selected == index) 1f else .38f), RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp)))
+                        .background(sage.copy(alpha = if (selected == index) 1f else .38f), RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp)))
                 }
                 Text(date.dayOfMonth.toString(), style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
             }

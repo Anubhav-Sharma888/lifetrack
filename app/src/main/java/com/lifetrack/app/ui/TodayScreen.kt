@@ -1,5 +1,7 @@
 package com.lifetrack.app.ui
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,7 +21,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lifetrack.app.data.*
 import com.lifetrack.app.domain.Analytics
@@ -90,12 +91,19 @@ fun TodayScreen(state: LifeTrackState, vm: HabitViewModel, onAdd: () -> Unit, on
                     }
                     IconButton(enabled = date < state.today, onClick = { selected = date.plusDays(1).toString() }) { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, "Next day") }
                 }
-                // Flight Recorder: oversized date headline in tabular numerals over a thin measurement rule.
-                Text(
-                    date.format(DateTimeFormatter.ofPattern("EEEE d MMMM")),
-                    style = MaterialTheme.typography.displayLarge.copy(fontWeight = FontWeight.Black, fontFeatureSettings = "tnum"),
-                    modifier = Modifier.padding(top = 2.dp, bottom = 10.dp)
-                )
+                // Almanac: oversized Newsreader date with a vertical-rule day/month seal lockup.
+                Row(Modifier.padding(top = 2.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        date.format(DateTimeFormatter.ofPattern("EEEE d MMMM")),
+                        style = MaterialTheme.typography.displayLarge.copy(fontFeatureSettings = "tnum"),
+                        modifier = Modifier.weight(1f)
+                    )
+                    Box(Modifier.padding(start = 12.dp).width(1.dp).height(44.dp).background(MaterialTheme.colorScheme.outlineVariant))
+                    Column(Modifier.padding(start = 10.dp), horizontalAlignment = Alignment.End) {
+                        Text(date.dayOfMonth.toString().padStart(2, '0'), style = AlmanacType.monoData, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(date.format(DateTimeFormatter.ofPattern("MMM yyyy")).uppercase(), style = AlmanacType.labelCaps, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
                 HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
                 // Flight Recorder: seven-day recording strip over the measurement rule.
                 RecordingStrip(selected = date, today = state.today,
@@ -103,12 +111,23 @@ fun TodayScreen(state: LifeTrackState, vm: HabitViewModel, onAdd: () -> Unit, on
                     onSelect = { selected = it.toString(); focusUnmarked = false })
                 HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
                 if (date != state.today) TextButton(onClick = { selected = null; focusUnmarked = false }) { Text("Back to today") }
-                Text("$completed of ${due.size} scheduled habits completed", style = MaterialTheme.typography.labelLarge)
-                Spacer(Modifier.height(8.dp))
-                LinearProgressIndicator(progress = { if (due.isEmpty()) 0f else completed.toFloat() / due.size }, modifier = Modifier.fillMaxWidth())
+                // Almanac register summary: sunken parchment well, mono metric, 4dp sage progress line.
+                Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceVariant,
+                    border = BorderStroke(1.dp, almanacColors().rule), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("$completed of ${due.size} scheduled habits completed", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("$completed/${due.size}", style = AlmanacType.monoMetric, color = MaterialTheme.colorScheme.onSurface)
+                        LinearProgressIndicator(
+                            progress = { if (due.isEmpty()) 0f else completed.toFloat() / due.size },
+                            modifier = Modifier.fillMaxWidth().height(4.dp),
+                            color = MaterialTheme.colorScheme.secondary, trackColor = MaterialTheme.colorScheme.outlineVariant
+                        )
+                    }
+                }
                 if (showNudge) {
                     Spacer(Modifier.height(12.dp))
-                    Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.fillMaxWidth()) {
+                    Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.tertiaryContainer,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = .35f)), modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("${if (unmarkedYesterday.size == 1) "One habit was" else "${unmarkedYesterday.size} habits were"} left unmarked on ${state.today.minusDays(1).format(DateTimeFormatter.ofPattern("EEE, d MMM"))}", style = MaterialTheme.typography.titleSmall)
                             Text(unmarkedYesterday.take(3).joinToString(" · ") { it.name }, style = MaterialTheme.typography.bodySmall, maxLines = 2)
@@ -122,6 +141,7 @@ fun TodayScreen(state: LifeTrackState, vm: HabitViewModel, onAdd: () -> Unit, on
                 if (showFilters) {
                     Spacer(Modifier.height(12.dp))
                     OutlinedTextField(query, { query = it }, label = { Text("Search habits") }, singleLine = true,
+                        colors = almanacFieldColors(),
                         leadingIcon = { Icon(Icons.Outlined.Search, null) },
                         trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Outlined.Close, "Clear search") } }, modifier = Modifier.fillMaxWidth())
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -166,7 +186,8 @@ fun TodayScreen(state: LifeTrackState, vm: HabitViewModel, onAdd: () -> Unit, on
                 ReorderableItem(reorder, key = habit.id) { _ ->
                     SpineItem(nodeColor = when (log?.status) {
                         LogStatus.COMPLETED -> MaterialTheme.colorScheme.secondary
-                        LogStatus.FAILED -> MaterialTheme.colorScheme.error
+                        LogStatus.SKIPPED -> MaterialTheme.colorScheme.tertiary
+                        LogStatus.FAILED -> almanacColors().terracotta
                         else -> MaterialTheme.colorScheme.onSurfaceVariant
                     }) {
                     HabitCard(habit = habit,

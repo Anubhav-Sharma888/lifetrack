@@ -66,7 +66,7 @@ fun CompletionTrend(habit: Habit, logs: List<HabitLog>, today: LocalDate, modifi
                 modifier = Modifier.padding(vertical = 24.dp), style = MaterialTheme.typography.bodyMedium)
         } else {
             val line = LineCartesianLayer.rememberLine(
-                fill = LineCartesianLayer.LineFill.single(fill(MaterialTheme.colorScheme.primary))
+                fill = LineCartesianLayer.LineFill.single(fill(MaterialTheme.colorScheme.secondary))
             )
             CartesianChartHost(
                 chart = rememberCartesianChart(

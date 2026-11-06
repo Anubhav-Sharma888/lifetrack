@@ -23,21 +23,26 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lifetrack.app.data.Habit
 import com.lifetrack.app.data.LogStatus
+import com.lifetrack.app.ui.AlmanacType
+import com.lifetrack.app.ui.almanacColors
 
 fun habitColor(hex: String): Color = runCatching { Color(android.graphics.Color.parseColor(hex)) }
     .getOrDefault(Color(0xFF477A60))
@@ -57,34 +62,48 @@ fun CheckInButton(
 ) {
     val haptic = LocalHapticFeedback.current
     val preferences = LocalUiPreferences.current
+    val almanac = almanacColors()
+    // Status seals: done = sage fill, skipped = amber wash with ochre dash,
+    // missed = terracotta wash with cross, partial = sunken fill with sage ring,
+    // unmarked = white seal with hairline ring, rest = dashed hairline seal.
+    val sage = MaterialTheme.colorScheme.secondary
+    val hairline = MaterialTheme.colorScheme.outlineVariant
     val target = when (status) {
-        LogStatus.COMPLETED -> accent
-        LogStatus.SKIPPED -> MaterialTheme.colorScheme.secondaryContainer
-        LogStatus.FAILED -> MaterialTheme.colorScheme.errorContainer
-        LogStatus.IN_PROGRESS -> accent.copy(alpha = .12f)
+        LogStatus.COMPLETED -> sage
+        LogStatus.SKIPPED -> MaterialTheme.colorScheme.tertiaryContainer
+        LogStatus.FAILED -> almanac.terracottaWash
+        LogStatus.IN_PROGRESS -> MaterialTheme.colorScheme.surfaceVariant
         null -> MaterialTheme.colorScheme.surface
     }
     val background by animateColorAsState(target, animationSpec = if (preferences.animationsEnabled) tween(220) else snap(), label = "checkFill")
     val scale by animateFloatAsState(if (preferences.animationsEnabled && status == LogStatus.COMPLETED) 1.05f else 1f,
         animationSpec = if (preferences.animationsEnabled) tween(180) else snap(), label = "checkScale")
     val foreground = if (!enabled) MaterialTheme.colorScheme.onSurfaceVariant else when (status) {
-        LogStatus.COMPLETED -> {
-            val ink = Color(0xFF1B1710)
-            val paper = Color(0xFFFCF9F0)
-            val luminance = accent.luminance() + .05f
-            val inkContrast = luminance / (ink.luminance() + .05f)
-            val paperContrast = (paper.luminance() + .05f) / luminance
-            if (inkContrast >= paperContrast) ink else paper
-        }
-        LogStatus.FAILED -> MaterialTheme.colorScheme.onErrorContainer
-        LogStatus.SKIPPED -> MaterialTheme.colorScheme.onSecondaryContainer
+        LogStatus.COMPLETED -> MaterialTheme.colorScheme.onSecondary
+        LogStatus.FAILED -> almanac.terracotta
+        LogStatus.SKIPPED -> MaterialTheme.colorScheme.tertiary
         LogStatus.IN_PROGRESS -> MaterialTheme.colorScheme.onSurface
         null -> MaterialTheme.colorScheme.onSurfaceVariant
     }
+    val borderColor = when (status) {
+        LogStatus.IN_PROGRESS -> sage
+        null -> hairline
+        else -> Color.Transparent
+    }
+    val borderWidth = if (status == LogStatus.IN_PROGRESS || status == null) 2.dp else 0.dp
     Box(
         modifier.size(58.dp).scale(scale).clip(CircleShape)
-            .background(if (enabled) background else MaterialTheme.colorScheme.surfaceContainerHighest)
-            .border(1.dp, if (status == null) MaterialTheme.colorScheme.outlineVariant else Color.Transparent, CircleShape)
+            .background(if (enabled) background else MaterialTheme.colorScheme.surface)
+            .then(
+                if (!enabled) Modifier.drawBehind {
+                    val stroke = 1.dp.toPx()
+                    drawCircle(
+                        color = hairline,
+                        radius = (size.minDimension - stroke) / 2f,
+                        style = Stroke(width = stroke, pathEffect = PathEffect.dashPathEffect(floatArrayOf(5.dp.toPx(), 4.dp.toPx())))
+                    )
+                } else Modifier.border(borderWidth, borderColor, CircleShape)
+            )
             .semantics {
                 contentDescription = label
                 stateDescription = when (status) {
@@ -106,7 +125,7 @@ fun CheckInButton(
     ) {
         if (status == LogStatus.IN_PROGRESS && progressFraction != null) {
             CircularProgressIndicator(progress = { progressFraction.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxSize().padding(3.dp),
-                color = accent, strokeWidth = 2.dp, trackColor = accent.copy(alpha = .15f))
+                color = sage, strokeWidth = 2.dp, trackColor = sage.copy(alpha = .15f))
         }
         when (status) {
             LogStatus.COMPLETED -> Icon(Icons.Rounded.Check, "Completed", tint = foreground, modifier = Modifier.size(28.dp))
@@ -135,16 +154,16 @@ fun HabitCard(
     nudged: Boolean = false
 ) {
     val accent = habitColor(habit.colorHex)
-    OutlinedCard(onClick = onOpen, modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp),
+    OutlinedCard(onClick = onOpen, modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp),
         colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(if (nudged) 2.dp else 1.dp,
-            if (nudged) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = .65f))) {
+            if (nudged) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.outlineVariant)) {
         BoxWithConstraints {
             val compact = maxWidth < 360.dp
-            Row(Modifier.padding(if (compact) 12.dp else 16.dp), verticalAlignment = Alignment.CenterVertically,
+            Row(Modifier.padding(if (compact) PaddingValues(12.dp) else PaddingValues(horizontal = 14.dp, vertical = 12.dp)), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp)) {
                 if (dragHandle != null) dragHandle()
-                if (!compact) Box(Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(accent.copy(alpha = .12f)), contentAlignment = Alignment.Center) {
+                if (!compact) Box(Modifier.size(44.dp).clip(RoundedCornerShape(8.dp)).background(accent.copy(alpha = .12f)), contentAlignment = Alignment.Center) {
                     Text(habit.icon, fontSize = 24.sp)
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -155,9 +174,12 @@ fun HabitCard(
                     }
                     Text("$dayLabel · ${habit.category}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (habit.targetCount > 1) Text("$progress / ${habit.targetCount} ${habit.targetUnit}",
-                        style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (!stackLabel.isNullOrBlank()) Text("After $stackLabel", style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        style = AlmanacType.monoData, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (!stackLabel.isNullOrBlank()) Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Text("ANCHOR:", style = AlmanacType.monoCaption, color = MaterialTheme.colorScheme.tertiary)
+                        Text("After $stackLabel", style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
                     else if (!habit.description.isNullOrBlank()) Text(habit.description.orEmpty(), style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }

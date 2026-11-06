@@ -1,5 +1,6 @@
 package com.lifetrack.app.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -59,7 +61,7 @@ fun RecordingStrip(selected: LocalDate, today: LocalDate, completedDates: Set<Lo
             val hasLogs = day in completedDates
             val dayLabel = day.format(DateTimeFormatter.ofPattern("EEEE, d MMMM", Locale.getDefault()))
             Column(
-                modifier = Modifier.widthIn(min = 52.dp).clip(RoundedCornerShape(8.dp))
+                modifier = Modifier.widthIn(min = 52.dp).clip(RoundedCornerShape(4.dp))
                     .clickable(enabled = day <= today, onClick = { onSelect(day) })
                     .semantics {
                         contentDescription = "$dayLabel · " + when {
@@ -73,12 +75,12 @@ fun RecordingStrip(selected: LocalDate, today: LocalDate, completedDates: Set<Lo
                     .padding(vertical = 6.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Box(Modifier.fillMaxWidth(0.6f).height(3.dp).clip(RoundedCornerShape(2.dp))
+                Box(Modifier.fillMaxWidth(0.6f).height(2.dp).clip(RoundedCornerShape(2.dp))
                     .background(if (isSelected) MaterialTheme.colorScheme.secondary else Color.Transparent))
                 Spacer(Modifier.height(4.dp))
                 Text(day.format(DateTimeFormatter.ofPattern("EEE", Locale.getDefault())),
                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("${day.dayOfMonth}", style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
+                Text("${day.dayOfMonth}", style = AlmanacType.monoData,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                     color = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(4.dp))
@@ -117,8 +119,8 @@ fun ExerciseTrace(activity: WorkoutActivity, entries: List<ActivityEntry>, modif
         Row(Modifier.fillMaxWidth().height(34.dp).padding(bottom = 3.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
             ordered.forEach { entry ->
                 Box(Modifier.weight(1f).height((30 * (entry.quantity / max).coerceIn(0.06, 1.0)).dp)
-                    .clip(RoundedCornerShape(3.dp))
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.55f))
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.55f))
                     .semantics { contentDescription = entry.date.toString() + ": " + formatQuantityLabel(entry.quantity) + " " + activity.unit })
             }
         }
@@ -135,12 +137,14 @@ fun HistorySpine(logs: List<HabitLog>, modifier: Modifier = Modifier) {
         logs.sortedByDescending { it.date }.take(10).forEach { log ->
             SpineItem(nodeColor = when (log.status) {
                 LogStatus.COMPLETED -> MaterialTheme.colorScheme.secondary
-                LogStatus.FAILED -> MaterialTheme.colorScheme.error
+                LogStatus.SKIPPED -> MaterialTheme.colorScheme.tertiary
+                LogStatus.FAILED -> almanacColors().terracotta
                 else -> MaterialTheme.colorScheme.onSurfaceVariant
             }) {
                 Column {
-                    Text(recorderLabel(log.status, log.progress, log.isFrozen) + " · " + log.date,
+                    Text(recorderLabel(log.status, log.progress, log.isFrozen),
                         style = MaterialTheme.typography.bodyMedium)
+                    Text(log.date.toString(), style = AlmanacType.monoCaption, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     log.note?.let { Text(it, style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                 }
@@ -182,12 +186,14 @@ fun ActivitySection(state: LifeTrackState, vm: HabitViewModel, date: LocalDate, 
                         .sortedByDescending { it.date }.take(14)
                     SpineItem(nodeColor = if (entry != null) MaterialTheme.colorScheme.secondary
                         else MaterialTheme.colorScheme.onSurfaceVariant) {
-                        Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface,
-                            tonalElevation = 1.dp, modifier = Modifier.fillMaxWidth()) {
+                        Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surface,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(12.dp)) {
                                 Row(Modifier.padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    Text(activity.icon, fontSize = 22.sp)
+                                    Box(Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
+                                        Text(activity.icon, fontSize = 20.sp)
+                                    }
                                     Column(Modifier.weight(1f)) {
                                         Text(activity.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
                                             maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -197,9 +203,9 @@ fun ActivitySection(state: LifeTrackState, vm: HabitViewModel, date: LocalDate, 
                                             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1) }
                                     }
                                     entry?.let {
-                                        Surface(shape = RoundedCornerShape(999.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+                                        Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
                                             Text("${formatQuantityLabel(it.quantity)} ${activity.unit}", modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                                style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                                                style = AlmanacType.monoData, fontWeight = FontWeight.SemiBold)
                                         }
                                     }
                                     IconButton(enabled = !busy, onClick = { historyActivityId = activity.id }) {
@@ -254,13 +260,13 @@ fun ActivityEditorDialog(id: Long, state: LifeTrackState, vm: HabitViewModel, on
     LaunchedEffect(id) { vm.clearOperationError() }
     AlertDialog(onDismissRequest = { if (!busy) onDismiss() }, title = { Text(if (existing == null) "New activity" else "Edit activity") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedTextField(name, { if (it.length <= 80) name = it }, label = { Text("Activity name") }, singleLine = true)
+            OutlinedTextField(name, { if (it.length <= 80) name = it }, label = { Text("Activity name") }, singleLine = true, colors = almanacFieldColors())
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(icon, { if (it.length <= 32) icon = it }, label = { Text("Emoji") }, singleLine = true, modifier = Modifier.weight(1f))
-                OutlinedTextField(unit, { if (it.length <= 24) unit = it }, label = { Text("Unit · pushups, miles…") }, singleLine = true, modifier = Modifier.weight(2f))
+                OutlinedTextField(icon, { if (it.length <= 32) icon = it }, label = { Text("Emoji") }, singleLine = true, colors = almanacFieldColors(), modifier = Modifier.weight(1f))
+                OutlinedTextField(unit, { if (it.length <= 24) unit = it }, label = { Text("Unit · pushups, miles…") }, singleLine = true, colors = almanacFieldColors(), modifier = Modifier.weight(2f))
             }
             OutlinedTextField(target, { if (it.length <= 7 && it.all { c -> c.isDigit() || c == '.' }) target = it },
-                label = { Text("Daily target · optional") }, singleLine = true,
+                label = { Text("Daily target · optional") }, singleLine = true, colors = almanacFieldColors(),
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal))
             Text("Actual quantities are recorded as-is: logging 32 against a 20 target is a good day, never an overshoot.", style = MaterialTheme.typography.bodySmall)
             operationError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -289,11 +295,11 @@ fun ActivityLogDialog(activityId: Long, date: LocalDate, state: LifeTrackState, 
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(date.format(java.time.format.DateTimeFormatter.ofPattern("EEEE, d MMMM")), style = MaterialTheme.typography.labelLarge)
             OutlinedTextField(quantity, { if (it.length <= 9 && (it.isEmpty() || it.all { c -> c.isDigit() || c == '.' })) quantity = it },
-                label = { Text("Quantity · ${activity.unit}") }, singleLine = true,
+                label = { Text("Quantity · ${activity.unit}") }, singleLine = true, colors = almanacFieldColors(),
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal))
             Text(if (activity.target != null) "Target ${formatQuantityLabel(activity.target)} — actuals are recorded exactly as performed, even beyond it."
                 else "No target — log the real number. Same-day logs replace the previous value.", style = MaterialTheme.typography.bodySmall)
-            OutlinedTextField(note, { if (it.length <= 1000) note = it }, label = { Text("Note · optional") }, singleLine = true)
+            OutlinedTextField(note, { if (it.length <= 1000) note = it }, label = { Text("Note · optional") }, singleLine = true, colors = almanacFieldColors())
             operationError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         }
     }, confirmButton = { TextButton(enabled = !busy && quantity.toDoubleOrNull()?.let { it > 0 } == true, onClick = {
@@ -328,11 +334,22 @@ fun ActivityHistoryDialog(activity: WorkoutActivity, state: LifeTrackState, vm: 
             if (history.isEmpty()) Text("No entries yet — log the first session from Today.", style = MaterialTheme.typography.bodySmall)
             else Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 history.forEach { entry ->
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        // Date seal: two-line month / day stamp.
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(entry.date.format(DateTimeFormatter.ofPattern("MMM", Locale.getDefault())),
+                                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(entry.date.format(DateTimeFormatter.ofPattern("d", Locale.getDefault())),
+                                style = AlmanacType.monoData, color = MaterialTheme.colorScheme.onSurface)
+                        }
                         Column(Modifier.weight(1f)) {
-                            Text("${formatQuantityLabel(entry.quantity)} ${activity.unit} · ${entry.date}", style = MaterialTheme.typography.bodyMedium)
-                            entry.note?.let { Text(it, style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1) }
+                            Text("${formatQuantityLabel(entry.quantity)} ${activity.unit}", style = AlmanacType.monoData, color = MaterialTheme.colorScheme.onSurface)
+                            entry.note?.let { note ->
+                                Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(top = 4.dp)) {
+                                    Text(note, style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                                }
+                            }
                         }
                         IconButton(onClick = { onLogFor(entry.date) }) {
                             Icon(Icons.Outlined.Edit, "Edit ${activity.name} entry for ${entry.date}")
@@ -350,6 +367,12 @@ fun ActivityHistoryDialog(activity: WorkoutActivity, state: LifeTrackState, vm: 
 
 @Composable
 private fun Stat(value: String, label: String, modifier: Modifier) {
-    OutlinedCard(modifier) { Column(Modifier.padding(10.dp)) {
-        Text(value, style = MaterialTheme.typography.titleMedium); Text(label, style = MaterialTheme.typography.labelSmall) } }
+    // Almanac stat well: sunken parchment with mono figures and caps labels.
+    Surface(modifier, shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+        Column(Modifier.padding(10.dp)) {
+            Text(value, style = AlmanacType.monoMetric, color = MaterialTheme.colorScheme.onSurface)
+            Spacer(Modifier.height(4.dp))
+            Text(label, style = AlmanacType.labelCaps, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
 }
