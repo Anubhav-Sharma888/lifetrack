@@ -380,6 +380,23 @@ class HabitRepository @Inject constructor(
         }
     } }
 
+    /** Erases every record and restores default settings in one transaction; the same cleanup importFrom uses. Safe to retry after interruption. */
+    suspend fun resetAllData(): List<Long> = backupMutex.withLock { withContext(Dispatchers.IO) {
+        db.withTransaction {
+            val habitIds = dao.allHabits().map { it.id }
+            dao.deleteLogs()
+            dao.deletePauses()
+            dao.deleteReminderDeliveries()
+            dao.deleteHabits()
+            dao.deleteFreezes()
+            dao.deleteSettings()
+            dao.deleteAllActivityEntries()
+            dao.deleteAllActivities()
+            dao.saveSettings(AppSettings())
+            habitIds
+        }
+    } }
+
     companion object {
         const val MAX_BACKUP_BYTES = 10 * 1_024 * 1_024
         const val MAX_ENCRYPTED_BACKUP_BYTES = 15 * 1_024 * 1_024

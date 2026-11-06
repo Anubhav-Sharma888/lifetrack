@@ -1,6 +1,7 @@
 package com.lifetrack.app.reminder
 
 import android.Manifest
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -64,12 +65,7 @@ class HabitReminderWorker(context: Context, parameters: WorkerParameters) : Coro
                     .setContentIntent(open).setAutoCancel(true).setOnlyAlertOnce(true)
                     .setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setPublicVersion(publicVersion)
                     .addAction(android.R.drawable.checkbox_on_background, "Complete", complete).build()
-                // Keep the revocable permission check adjacent to the platform call as well as
-                // the earlier policy check, so both runtime races and static lint are covered.
-                if (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(applicationContext,
-                        Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
-                    NotificationManagerCompat.from(applicationContext).notify("habit-${habit.id}", 1, notification)
-                } else {
+                if (!HabitReminderNotifications.notify(applicationContext, habit.id, notification)) {
                     repository.releaseReminderClaim(habit.id, date, habit.createdAt)
                 }
                 } catch (error: Exception) {
@@ -95,13 +91,37 @@ class CompleteReminderReceiver : BroadcastReceiver() {
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
                 backgroundRepository(context).completeHabit(id, LocalDate.ofEpochDay(epochDay), expectedCreatedAt = created)
-                NotificationManagerCompat.from(context).cancel("habit-$id", 1)
+                HabitReminderNotifications.cancel(context, id)
                 refreshWidgets(context)
             } catch (cancel: CancellationException) { throw cancel }
             catch (_: Exception) { /* The app remains the recovery path when a habit changes. */ }
             finally { pending.finish() }
         }
     }
+}
+
+/** One canonical tag per habit notification, so a reset or restore cancels exactly the stale posts. */
+object HabitReminderNotifications {
+    /** Returns false when the platform would silently drop the post, so its claim can be released. */
+    fun notify(context: Context, habitId: Long, notification: Notification): Boolean {
+        // Keep the revocable permission check adjacent to the platform call as well as
+        // the earlier policy check, so both runtime races and static lint are covered.
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context,
+                Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return false
+        NotificationManagerCompat.from(context).notify(tag(habitId), NOTIFICATION_ID, notification)
+        return true
+    }
+
+    fun cancel(context: Context, habitId: Long) {
+        NotificationManagerCompat.from(context).cancel(tag(habitId), NOTIFICATION_ID)
+    }
+
+    fun cancelAll(context: Context, habitIds: List<Long>) {
+        habitIds.forEach { cancel(context, it) }
+    }
+
+    private fun tag(habitId: Long) = "habit-$habitId"
+    private const val NOTIFICATION_ID = 1
 }
 
 object HabitReminderScheduler {
@@ -111,6 +131,11 @@ object HabitReminderScheduler {
         work.enqueueUniquePeriodicWork(WORK, ExistingPeriodicWorkPolicy.KEEP,
             PeriodicWorkRequestBuilder<HabitReminderWorker>(15, TimeUnit.MINUTES)
                 .setInitialDelay(1, TimeUnit.MINUTES).build())
+    }
+
+    /** Posted notifications are cancelled by tag after a reset so no orphan reminder survives. */
+    fun cancelNotifications(context: Context, habitIds: List<Long>) {
+        HabitReminderNotifications.cancelAll(context, habitIds)
     }
 }
 

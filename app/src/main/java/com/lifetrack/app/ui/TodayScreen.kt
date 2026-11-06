@@ -30,8 +30,9 @@ import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
 @Composable
-fun TodayScreen(state: LifeTrackState, vm: HabitViewModel, onAdd: () -> Unit, onOpen: (Long) -> Unit) {
+fun TodayScreen(state: LifeTrackState, vm: HabitViewModel, onAdd: () -> Unit, onOpen: (Long) -> Unit, onRestoreBackup: () -> Unit = {}) {
     val busy by vm.busy.collectAsState()
+    val wasReset by vm.wasReset.collectAsState()
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
     val minimum = LocalDate.of(1900, 1, 1)
     val date = selected?.let(LocalDate::parse)?.coerceIn(minimum, state.today) ?: state.today
@@ -135,10 +136,18 @@ fun TodayScreen(state: LifeTrackState, vm: HabitViewModel, onAdd: () -> Unit, on
         }
         if (active.isEmpty()) {
             item(key = "empty-habits") { Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("🌱", style = MaterialTheme.typography.displayLarge)
-                Spacer(Modifier.height(16.dp)); Text("Start with something small", style = MaterialTheme.typography.headlineSmall)
-                Text("A page. A walk. A quiet minute. Pick a suggestion or create your own habit. Choose the days and pace that work for you.", Modifier.padding(vertical = 16.dp))
-                Button(onClick = onAdd) { Text("Create your first habit") }
+                if (wasReset) {
+                    Text("🌱", style = MaterialTheme.typography.displayLarge)
+                    Spacer(Modifier.height(16.dp)); Text("Ready for a fresh start", style = MaterialTheme.typography.headlineSmall)
+                    Text("Everything was erased. Add a habit, or restore a backup to continue where you left off.", Modifier.padding(vertical = 16.dp))
+                    Button(onClick = onAdd, modifier = Modifier.heightIn(min = 48.dp)) { Text("Add a habit") }
+                    Spacer(Modifier.height(8.dp)); OutlinedButton(onClick = onRestoreBackup, modifier = Modifier.heightIn(min = 48.dp)) { Text("Restore a backup") }
+                } else {
+                    Text("🌱", style = MaterialTheme.typography.displayLarge)
+                    Spacer(Modifier.height(16.dp)); Text("Start with something small", style = MaterialTheme.typography.headlineSmall)
+                    Text("A page. A walk. A quiet minute. Pick a suggestion or create your own habit. Choose the days and pace that work for you.", Modifier.padding(vertical = 16.dp))
+                    Button(onClick = onAdd) { Text("Create your first habit") }
+                }
             }
             }
         } else if (habits.isEmpty()) {

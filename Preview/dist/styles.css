@@ -206,9 +206,9 @@ body.dark .primary-button:hover{filter:none;background:var(--orange)}
 .text-button.danger{color:var(--red)}
 
 /* ---------- Dialogs ---------- */
-dialog{border:1px solid var(--line);padding:0;background:var(--surface);color:var(--ink);border-radius:var(--r-24);width:min(420px,calc(100vw - 24px));max-height:85vh;box-shadow:0 24px 80px #0c1f1855}
+dialog{border:1px solid var(--line);padding:0;background:var(--surface);color:var(--ink);border-radius:var(--r-24);width:min(420px,calc(100vw - 24px));max-height:85vh;max-height:min(85vh,85dvh);box-shadow:0 24px 80px #0c1f1855}
 dialog::backdrop{background:#0c1f1666;backdrop-filter:blur(3px)}
-.modal-body{padding:24px;max-height:80vh;overflow:auto}
+.modal-body{padding:24px;max-height:80vh;max-height:min(80vh,80dvh);overflow:auto}
 .modal-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:16px}
 .modal-heading h2{margin:0;font-size:20px;line-height:26px;letter-spacing:-.3px;font-weight:600}
 .modal-heading p{font-size:13px;color:var(--muted);margin:6px 0 0;line-height:1.6}

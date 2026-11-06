@@ -26,6 +26,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -45,7 +46,7 @@ private class CreateBackupDocument : ActivityResultContracts.CreateDocument("app
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
-fun SettingsScreen(state: LifeTrackState, vm: HabitViewModel, onOpen: (Long) -> Unit) {
+fun SettingsScreen(state: LifeTrackState, vm: HabitViewModel, onImport: () -> Unit = {}, onOpen: (Long) -> Unit) {
     val context = LocalContext.current
     val settings = state.settings
     val latestSettings by rememberUpdatedState(settings)
@@ -56,12 +57,14 @@ fun SettingsScreen(state: LifeTrackState, vm: HabitViewModel, onOpen: (Long) -> 
     var licensesDialog by remember { mutableStateOf(false) }
     var reminderDialog by remember { mutableStateOf(false) }
     var pendingReminderMinutes by remember { mutableStateOf<Int?>(null) }
-    var pendingImport by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingEncryptedExport by rememberSaveable { mutableStateOf<String?>(null) }
     var encryptedExport by rememberSaveable { mutableStateOf(false) }
+    var showResetConfirm by rememberSaveable { mutableStateOf(false) }
     // A password is deliberately never put into saved instance state or preferences.
     var backupPassword by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
+    // The typed reset confirmation stays out of saved instance state too, like the backup password.
+    var resetConfirmation by remember { mutableStateOf("") }
     var permissionMessage by remember { mutableStateOf<String?>(null) }
     val export = rememberLauncherForActivityResult(CreateBackupDocument()) { uri ->
         if (uri != null) {
@@ -69,7 +72,6 @@ fun SettingsScreen(state: LifeTrackState, vm: HabitViewModel, onOpen: (Long) -> 
             else vm.export(uri)
         }
     }
-    val import = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> vm.clearOperationError(); backupPassword = ""; pendingImport = uri?.toString() }
     val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) vm.updateSettings(latestSettings.copy(backupReminder = true))
         else permissionMessage = "Notifications are off. You can enable them in Android settings and turn reminders on here."
@@ -80,6 +82,10 @@ fun SettingsScreen(state: LifeTrackState, vm: HabitViewModel, onOpen: (Long) -> 
         if (granted && minutes != null) vm.setDailyReminder(minutes)
         else permissionMessage = "Notifications are off. You can enable them in Android settings and turn reminders on here."
         reminderDialog = false
+    }
+    // The reset dialog closes only once the erase is actually saved; a failure leaves it open with the error.
+    LaunchedEffect(Unit) {
+        vm.events.collect { if (it is UiEvent.DataReset) { showResetConfirm = false; resetConfirmation = "" } }
     }
     val dailyMinutes by vm.dailyReminderMinutes.collectAsState()
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -103,9 +109,8 @@ fun SettingsScreen(state: LifeTrackState, vm: HabitViewModel, onOpen: (Long) -> 
             encryptedExport = true
             export.launch("lifetrack-encrypted-${state.today}-${System.currentTimeMillis()}.json")
         }
-        SettingsAction("Import data", "Restore a backup · replaces current data", Icons.Outlined.FileDownload, enabled = !busy) {
-            import.launch(arrayOf("application/json", "text/json", "text/plain", "application/octet-stream"))
-        }
+        SettingsAction("Import data", "Restore a backup · replaces current data", Icons.Outlined.FileDownload, enabled = !busy) { onImport() }
+        SettingsAction("Reset LifeTrack", "Erase all data on this device", Icons.Outlined.DeleteForever, enabled = !busy) { vm.clearOperationError(); showResetConfirm = true }
         Text(settings.lastExportAt?.let { "Last export: ${Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("d MMM yyyy, HH:mm"))}" } ?: "No backup exported yet", style = MaterialTheme.typography.bodySmall)
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -179,17 +184,28 @@ fun SettingsScreen(state: LifeTrackState, vm: HabitViewModel, onOpen: (Long) -> 
             }
         })
     }
-    pendingImport?.let { path -> AlertDialog(onDismissRequest = { if (!busy) { pendingImport = null; backupPassword = "" } }, title = { Text("Replace all LifeTrack data?") }, text = {
+    if (showResetConfirm) AlertDialog(onDismissRequest = { if (!busy) { vm.clearOperationError(); showResetConfirm = false } }, title = { Text("Reset LifeTrack") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Restoring replaces current habits, history, pauses, freezes and settings. Export your current data first if you want to keep it. Invalid files or a wrong password leave existing data intact.")
-            OutlinedTextField(backupPassword, { if (it.length <= 1024) backupPassword = it }, label = { Text("Password · encrypted backups only") },
-                visualTransformation = PasswordVisualTransformation(), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Password), singleLine = true)
-            Text("Leave the password empty for a plain JSON backup. A failed restore stays open so you can retry.", style = MaterialTheme.typography.bodySmall)
-            operationError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
+            Text("This permanently erases all LifeTrack data on this device: active and archived habits, check-ins and their notes, dated goals, workouts and logged activities, the daily reminder, and app preferences. Previously exported backup files remain available. Export a backup first if you want a copy, then type RESET to confirm.")
+            OutlinedTextField(resetConfirmation, { if (it.length <= 16) resetConfirmation = it }, label = { Text("Type RESET to confirm") },
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Text,
+                    capitalization = KeyboardCapitalization.Characters, autoCorrectEnabled = false), singleLine = true)
+            operationError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive }) }
         }
-    }, confirmButton = { TextButton(enabled = !busy, onClick = {
-        vm.import(Uri.parse(path), backupPassword.takeIf { it.isNotEmpty() }?.toCharArray()) { pendingImport = null; backupPassword = "" }
-    }) { Text(if (busy) "Restoring…" else "Replace and restore") } }, dismissButton = { TextButton(enabled = !busy, onClick = { pendingImport = null; backupPassword = "" }) { Text("Cancel") } }) }
+    }, confirmButton = {
+        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            TextButton(enabled = !busy, modifier = Modifier.heightIn(min = 48.dp), onClick = {
+                encryptedExport = false
+                export.launch("lifetrack-${state.today}-${System.currentTimeMillis()}.json")
+            }) { Text("Export a backup first") }
+            TextButton(enabled = !busy, modifier = Modifier.heightIn(min = 48.dp), onClick = {
+                encryptedExport = true
+                export.launch("lifetrack-encrypted-${state.today}-${System.currentTimeMillis()}.json")
+            }) { Text("Export an encrypted backup") }
+            TextButton(enabled = !busy && resetConfirmation == "RESET", modifier = Modifier.heightIn(min = 48.dp),
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error), onClick = { vm.resetAllData() }) { Text("Erase all local data") }
+        }
+    }, dismissButton = { TextButton(enabled = !busy, modifier = Modifier.heightIn(min = 48.dp), onClick = { vm.clearOperationError(); showResetConfirm = false; resetConfirmation = "" }) { Text("Cancel") } })
     pendingEncryptedExport?.let { path -> AlertDialog(onDismissRequest = { if (!busy) { pendingEncryptedExport = null; backupPassword = ""; confirmPassword = "" } }, title = { Text("Protect this backup") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Choose a strong password of at least 10 characters. It is not saved anywhere in LifeTrack. A forgotten password cannot be recovered.")

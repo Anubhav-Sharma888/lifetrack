@@ -1,11 +1,11 @@
-import { renderAnalytics, heatmapHTML, currentStreak, trendHTML, periodTilesHTML, dailyCheckinsHTML, consistencyHTML, unmarkedOn } from './analytics.js?v=1.5.0';
-import { encryptBackup, decryptBackup, MAX_ENVELOPE_BYTES } from './backup-crypto.js?v=1.5.0';
+import { renderAnalytics, heatmapHTML, currentStreak, trendHTML, periodTilesHTML, dailyCheckinsHTML, consistencyHTML, unmarkedOn } from './analytics.js?v=1.5.1';
+import { encryptBackup, decryptBackup, MAX_ENVELOPE_BYTES } from './backup-crypto.js?v=1.5.1';
 import { ALL_DAYS, localDate, isDate, plusDays, dayDifference, dayNumber as relativeDay,
   scheduled, dueHabits, bestStreak as bestStreakValue, parseBackup, encodeBackup,
   makeBackup, validateBackup as validatePortableBackup, restoreStoredState, changeLog, changeProgress,
   redeemFreeze, archiveHabit as archiveValue, deleteHabit as deleteValue, foregroundFor, copy, validateGoalEdit, goalAt,
   saveActivity, deleteActivity as deleteActivityValue, setActivityEntry, clearActivityEntry,
-  activityEntriesFor, activityTotals, formatQuantity } from './domain.js?v=1.5.0';
+  activityEntriesFor, activityTotals, formatQuantity } from './domain.js?v=1.5.1';
 
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -95,11 +95,14 @@ let route='today', selectedDate=today, selectedId=null, dragging=null, holdTimer
 const PREFS_STORE=STORE+'.prefs';
 let prefs={reminderMinutes:null,lastNudgeDate:null};
 try{const rawPrefs=JSON.parse(localStorage.getItem(PREFS_STORE)||'null');if(rawPrefs&&typeof rawPrefs==='object'&&!Array.isArray(rawPrefs)){if(rawPrefs.reminderMinutes===null||(Number.isInteger(rawPrefs.reminderMinutes)&&rawPrefs.reminderMinutes>=0&&rawPrefs.reminderMinutes<1440))prefs.reminderMinutes=rawPrefs.reminderMinutes;if(typeof rawPrefs.lastNudgeDate==='string')prefs.lastNudgeDate=rawPrefs.lastNudgeDate;}}catch{}
-function savePrefs(){try{localStorage.setItem(PREFS_STORE,JSON.stringify(prefs));}catch{}}
+const RESET_STORE=STORE+'.reset';
+let resetToken=null;try{resetToken=localStorage.getItem(RESET_STORE);}catch{}
+function staleAfterReset(){let stored=null;try{stored=localStorage.getItem(RESET_STORE);}catch{}return stored!==resetToken;}
+function savePrefs(){if(staleAfterReset()){adoptRemoteReset();return false;}try{localStorage.setItem(PREFS_STORE,JSON.stringify(prefs));}catch{}}
 const app=$('#app-view'), modal=$('#modal');
-function save() { if(recoveryText!==null)return;try { localStorage.setItem(STORE,JSON.stringify(state));storageWarning=''; } catch { storageWarning='Browser storage is unavailable. Changes remain in this session.';toast(storageWarning); } }
+function save() { if(recoveryText!==null)return;if(staleAfterReset()){adoptRemoteReset();return false;}try { localStorage.setItem(STORE,JSON.stringify(state));storageWarning=''; } catch { storageWarning='Browser storage is unavailable. Changes remain in this session.';toast(storageWarning); } }
 function toast(text,undo=false) { const box=$('#toast');box.innerHTML=`<span>${esc(text)}</span>${undo?'<button data-action="undo">Undo</button>':''}`;box.classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>box.classList.remove('visible'),undo?8000:4200); }
-function commit(next,message,{undo=true}={}) { const previous=state;state=next;revision++;lastUndo=undo?{state:previous,revision}:null;save();render();toast(message,Boolean(lastUndo)); }
+function commit(next,message,{undo=true}={}) { const previous=state;state=next;revision++;lastUndo=undo?{state:previous,revision}:null;const persisted=save();render();if(persisted!==false)toast(message,Boolean(lastUndo)); }
 function navigate(tab,id=null) { route=tab;selectedId=id;render();app.scrollTop=0; }
 function logFor(id,date=selectedDate) { return state.logs.find(l=>l.habitId===id&&l.date===date); }
 function habitFor(id) { return state.habits.find(h=>h.id===Number(id)); }
@@ -162,7 +165,12 @@ function todayHTML() {
     ${activitiesSectionHTML()}
     <button class="secondary-button wide" data-action="templates">✧ Start with a simple idea</button><div class="gentle-note"><span>✧</span>Progress isn’t always a straight line.<br>A little today is still a little more than yesterday.</div></div>`;
 }
-function emptyStateHTML(active){return `<div class="empty-state"><span>🌱</span><h3>${active.length?'No matching habits':'Start with something small'}</h3><p>${active.length?'Try another filter, or make room for a new intention.':'A page. A walk. A quiet minute.<br>Choose a habit and a start date that work for you.'}</p><button class="primary-button" data-action="${active.length?'clear-filters':'add-habit'}">${active.length?'Reset all filters':'Create your first habit'}</button></div>`;}
+function emptyStateHTML(active){
+  let fresh=false;
+  if(!active.length&&!state.activities.length){try{fresh=Boolean(localStorage.getItem(RESET_STORE));}catch{}}
+  if(fresh)return `<div class="empty-state"><span>🌱</span><h3>A fresh page</h3><p>Everything was erased. Add a habit, or restore a backup to continue where you left off.</p><button class="primary-button" data-action="add-habit">Add a habit</button> <button class="secondary-button" data-action="import-data">Restore a backup</button></div>`;
+  return `<div class="empty-state"><span>🌱</span><h3>${active.length?'No matching habits':'Start with something small'}</h3><p>${active.length?'Try another filter, or make room for a new intention.':'A page. A walk. A quiet minute.<br>Choose a habit and a start date that work for you.'}</p><button class="primary-button" data-action="${active.length?'clear-filters':'add-habit'}">${active.length?'Reset all filters':'Create your first habit'}</button></div>`;
+}
 function activityRow(a) {
   const entry = state.activityEntries.find(e => e.activityId === a.id && e.date === selectedDate);
   const week = activityTotals(state, a.id, plus(selectedDate,-6), selectedDate);
@@ -196,7 +204,7 @@ function settingsRow(action,title,subtitle,symbol,last='›',extra='') {
 function settingsHTML() {
   const settings=state.settings, archived=state.habits.filter(h=>h.isArchived);
   return `<div class="screen"><div class="today-head"><div><h2 class="today-title">Settings.</h2><p class="today-sub">Your data. Your device.</p></div></div><div class="privacy-panel"><div class="privacy-icon">${icon('shield','width="19" height="19"')}</div><h3>Private by design</h3><p>No accounts, cloud sync, ads, or tracking.<br>Your habits belong to you. Always.</p></div>
-    <div class="settings-section-title">Data & backups</div>${settingsRow('export-data','Export data','Save your habits, history, notes, and settings','export')}${settingsRow('import-data','Import data','Restore a LifeTrack JSON backup','import')}${settingsRow('toggle-reminder','Monthly backup reminder','A gentle nudge to keep your progress safe.','bell',`<span class="toggle ${settings.backupReminder?'on':''}" role="switch" aria-checked="${settings.backupReminder}"></span>`)}
+    <div class="settings-section-title">Data & backups</div>${settingsRow('export-data','Export data','Save your habits, history, notes, and settings','export')}${settingsRow('import-data','Import data','Restore a LifeTrack JSON backup','import')}${settingsRow('reset-lifetrack','Reset LifeTrack','Erase all data in this browser profile','trash')}${settingsRow('toggle-reminder','Monthly backup reminder','A gentle nudge to keep your progress safe.','bell',`<span class="toggle ${settings.backupReminder?'on':''}" role="switch" aria-checked="${settings.backupReminder}"></span>`)}
     <p class="section-note">${settings.lastExportAt?`Last export · ${nice(iso(new Date(settings.lastExportAt)),{day:'numeric',month:'short',year:'numeric'})}`:'No backup exported yet.'}</p>
     <div class="settings-section-title">Gentle reminders</div>${settingsRow('set-reminder','Daily check-in reminder',prefs.reminderMinutes==null?'Off · tap to choose a time':`Daily at ${String(Math.floor(prefs.reminderMinutes/60)).padStart(2,'0')}:${String(prefs.reminderMinutes%60).padStart(2,'0')} · in-app nudge`,'bell')}
     <p class="section-note">In this preview the nudge appears in-app once per day after your time, when habits are still open. The native Android app turns this into a real notification.</p>
@@ -225,6 +233,7 @@ function formValues(form) {
 function captureDraft() {
   if(!modal.open)return;
   const form=modal.querySelector('form[data-draft-key]');if(!form)return;
+  if(staleAfterReset()){adoptRemoteReset();return false;}
   drafts[form.dataset.draftKey]=formValues(form);
   try{localStorage.setItem(DRAFT_STORE,JSON.stringify(drafts));}catch{}
 }
@@ -249,7 +258,7 @@ function showModal(html,context=null) {
   const form=modal.querySelector('form[data-draft-key]');if(form)restoreDraft(form);
   if(!modal.open)modal.showModal();
 }
-function closeModal(saved=false) { if(!saved)captureDraft();dialogContext=null;modal.close(); }
+function closeModal(saved=false) { if(!saved)captureDraft();modal.close(); }
 function heading(title,subtitle='') { return `<div class="modal-heading"><div><h2 id="modal-title">${esc(title)}</h2>${subtitle?`<p>${esc(subtitle)}</p>`:''}</div><button class="icon-button" data-action="close-modal" aria-label="Close dialog">×</button></div>`; }
 const templates=[
   {name:'Read a few pages',icon:'📖',category:'Learning',description:'One page is a perfectly good beginning.',targetCount:10,targetUnit:'pages'},
@@ -362,7 +371,51 @@ function activityHistoryDialog(id) {
   const rows = history.length ? history.map(e => `<div class="reorder-list" style="border:0"><div style="border:0"><span>${esc(formatQuantity(e.quantity))} ${esc(a.unit)} · ${nice(e.date)}${e.note?` — ${esc(e.note)}`:''}</span><button class="icon-button" data-action="log-activity" data-id="${id}" data-date="${e.date}" aria-label="Edit ${esc(a.name)} entry for ${nice(e.date)}">✎</button></div></div>`).join('') : '<p class="section-note">No entries yet — log the first session from Today.</p>';
   showModal(`${heading(`${a.icon} ${a.name}`,'History · last entry first')}<p class="section-note">${a.target!=null?`Target ${formatQuantity(a.target)} ${esc(a.unit)} per day · actuals may sit above or below it.`:'Free-form — no target.'}</p><div class="detail-stats"><div><strong>${formatQuantity(totals.total)}</strong><span>LAST 28 DAYS</span></div><div><strong>${totals.days}</strong><span>DAYS LOGGED</span></div><div><strong>${formatQuantity(totals.best)}</strong><span>BEST DAY</span></div></div><div style="max-height:280px;overflow:auto">${rows}</div><button class="primary-button wide" data-action="log-activity" data-id="${id}">Log for ${esc(nice(selectedDate))}</button><button class="text-button wide" data-action="close-modal">Close</button>`);
 }
-function exportDialog() {  showModal(`${heading('Keep your progress safe','Choose how to protect your backup.')}<form id="backup-export-form"><label class="checkbox-field"><input name="encrypted" type="checkbox" checked> Protect with a password</label><p class="section-note">Encrypted backups use AES-256-GCM. Keep your password somewhere safe; it cannot be recovered by LifeTrack. Passwords are never saved.</p><label class="field">Password<input name="password" type="password" required minlength="10" maxlength="1024" autocomplete="new-password"></label><label class="field">Confirm password<input name="confirmation" type="password" required minlength="10" maxlength="1024" autocomplete="new-password"></label><p class="section-note">Turn password protection off to export readable JSON.</p><p id="form-error" class="form-error" aria-live="polite"></p><button class="primary-button wide" type="submit">Prepare backup</button></form>`);
+function exportDialog(context=null) {  showModal(`${heading('Keep your progress safe','Choose how to protect your backup.')}<form id="backup-export-form"><label class="checkbox-field"><input name="encrypted" type="checkbox" checked> Protect with a password</label><p class="section-note">Encrypted backups use AES-256-GCM. Keep your password somewhere safe; it cannot be recovered by LifeTrack. Passwords are never saved.</p><label class="field">Password<input name="password" type="password" required minlength="10" maxlength="1024" autocomplete="new-password"></label><label class="field">Confirm password<input name="confirmation" type="password" required minlength="10" maxlength="1024" autocomplete="new-password"></label><p class="section-note">Turn password protection off to export readable JSON.</p><p id="form-error" class="form-error" aria-live="polite"></p><button class="primary-button wide" type="submit">Prepare backup</button></form>`,context);
+}
+function emptyState() {
+  return {formatVersion:3,exportedAt:Date.now(),habits:[],logs:[],freezes:[],pauses:[],activities:[],activityEntries:[],settings:{id:1,theme:'LIGHT',dynamicColor:false,backupReminder:false,lastExportAt:null,hapticsEnabled:true,animationsEnabled:true}};
+}
+function clearVolatileState() {
+  drafts={};prefs={reminderMinutes:null,lastNudgeDate:null};filters={query:'',category:'',status:'all'};filterPanelOpen=false;searchOpen=false;
+  lastUndo=null;pendingBackup=null;pendingEncryptedText=null;pendingFilename='';nudgeDismissedDate=null;focusUnmarkedDate=null;selectedDate=today;recoveryText=null;storageWarning='';
+}
+function adoptRemoteReset() {
+  let stored=null;try{stored=localStorage.getItem(RESET_STORE);}catch{}
+  if(stored===resetToken)return;
+  resetToken=stored;
+  if(modal.open)modal.close();
+  let saved=null,restored=null,failed=null;
+  try{saved=localStorage.getItem(STORE);}catch{}
+  try{restored=restoreStoredState(saved??JSON.stringify(emptyState()),today);}catch(error){failed=error;}
+  clearVolatileState();
+  if(failed){recoveryText=saved;storageWarning=failed.message||'Browser storage could not be opened.';render();return;}
+  state=restored;revision++;render();toast('LifeTrack was reset in another tab.');
+}
+let resetInFlight=false;
+function performReset() {
+  if(resetInFlight)return false;
+  resetInFlight=true;
+  try {
+    const token=`r-${Date.now()}-${Math.random().toString(36).slice(2,10)}`,previousToken=resetToken;
+    try{localStorage.setItem(RESET_STORE,token);}catch{throw new Error('Browser storage is unavailable. Nothing was deleted. Free up browser storage or close other LifeTrack tabs and try again.');}
+    resetToken=token;
+    let payload;
+    try{payload=JSON.stringify(emptyState());localStorage.setItem(STORE,payload);}catch(error){
+      try{localStorage.removeItem(RESET_STORE);}catch{}
+      resetToken=previousToken;
+      throw new Error('The erased state could not be saved. Nothing was deleted. Free up browser storage or close other LifeTrack tabs and try again.');
+    }
+    try{localStorage.removeItem(DRAFT_STORE);}catch{}
+    try{localStorage.removeItem(PREFS_STORE);}catch{}
+    clearVolatileState();
+    try{state=restoreStoredState(payload,today);}catch{state=emptyState();}
+    revision++;
+    return true;
+  } finally { resetInFlight=false; }
+}
+function showResetConfirmation() {
+  showModal(`${heading('Reset LifeTrack')}<p class="section-note">This permanently erases all LifeTrack data in this browser profile: active and archived habits, check-ins and their notes, dated goals, workouts and logged activities, the daily reminder, and app preferences. Previously exported backup files are not touched and remain available. Type RESET below to confirm.</p><button class="secondary-button wide" data-action="reset-export-first">Export a backup first</button><form id="reset-form" novalidate><label class="field">Type RESET to confirm<input name="confirmation" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="RESET"></label><p id="form-error" class="form-error" aria-live="assertive"></p><button class="danger-button wide" type="submit" id="reset-erase" disabled>Erase all local data</button><button class="text-button wide" type="button" data-action="close-modal">Cancel</button></form>`);
 }
 function confirmImport(restored,filename) {
   pendingBackup=restored;
@@ -427,6 +480,8 @@ document.addEventListener('click',event=>{
       case 'reset-demo':showModal(`${heading('Start fresh?')}<p class="section-note">Reset the browser preview to its original sample habits. Current preview changes will be replaced. Your native Android data is separate.${recoveryText!==null?'<br><br>Download the preserved original records before replacing them.':''}</p><button class="primary-button wide" data-action="confirm-reset">Reset sample data</button><button class="text-button wide" data-action="close-modal">Keep exploring</button>`);break;
       case 'strip-day':selectedDate=button.dataset.date;render();app.querySelector('.day-summary')?.scrollIntoView({block:'nearest'});break;
       case 'confirm-reset':recoveryText=null;storageWarning='';selectedDate=today;closeModal(true);commit(demoData(),'A fresh little beginning.',{undo:false});navigate('today');break;
+      case 'reset-lifetrack':showResetConfirmation();break;
+      case 'reset-export-first':exportDialog({kind:'reset-export'});break;
       case 'add-activity':activityEditor(null);break;
       case 'edit-activity':activityEditor(id);break;
       case 'open-activity':activityHistoryDialog(id);break;
@@ -484,6 +539,16 @@ document.addEventListener('submit',async event=>{
       prefs.reminderMinutes=minutes;prefs.lastNudgeDate=null;savePrefs();closeModal(true);render();toast(`Daily reminder set for ${time}.`);
     } else if(form.id==='delete-form'&&values.confirmation==='DELETE') {
       closeModal(true);commit(deleteValue(state,Number(form.dataset.id)),'Habit and history deleted.',{undo:false});navigate('today');
+    } else if(form.id==='reset-form') {
+      const box=$('#form-error');
+      if(values.confirmation!=='RESET'){if(box)box.textContent='Type RESET to confirm.';return;}
+      submit.disabled=true;form.setAttribute('aria-busy','true');
+      try {
+        if(performReset()){dialogOpener=null;closeModal(true);navigate('today');toast('LifeTrack was reset.');requestAnimationFrame(()=>app.querySelector('[data-action="add-habit"]')?.focus({preventScroll:true}));}
+      } catch(error) {
+        if(box)box.textContent=error.message;else toast(error.message||'LifeTrack could not be reset.');
+        if(submit.isConnected){submit.disabled=false;form.removeAttribute('aria-busy');}
+      }
     } else if(form.id==='backup-export-form') {
       submit.disabled=true;form.setAttribute('aria-busy','true');
       const now=Date.now(),sourceRevision=revision,next={...state,settings:{...state.settings,lastExportAt:now}},plain=encodeBackup(next,today,now),encrypted=form.elements.encrypted.checked;
@@ -502,6 +567,7 @@ document.addEventListener('submit',async event=>{
 
 document.addEventListener('input',event=>{
   if(event.target.id==='habit-search'&&!event.isComposing){filters.query=event.target.value;render();}
+  if(event.target.name==='confirmation'&&event.target.closest('#reset-form')){const erase=$('#reset-erase');if(erase)erase.disabled=event.target.value!=='RESET';}
   if(event.target.closest('form[data-draft-key]'))captureDraft();
 });
 document.addEventListener('change',event=>{
@@ -512,6 +578,7 @@ document.addEventListener('change',event=>{
   if(target.id==='period-select'){analyticsPeriod=target.value;render();}
   if(target.closest('form[data-draft-key]'))captureDraft();
   if(target.name==='encrypted'){const form=target.form;for(const name of ['password','confirmation']){form.elements[name].required=target.checked;form.elements[name].disabled=!target.checked;}}
+  if(target.name==='confirmation'&&target.closest('#reset-form')){const erase=$('#reset-erase');if(erase)erase.disabled=target.value!=='RESET';}
   if(target.hasAttribute('data-heatmap-date')){const date=target.value;if(date&&date<=today){const panel=target.closest('.an-panel'),cell=panel?.querySelector(`[data-date="${date}"]`);if(cell){cell.click();cell.scrollIntoView({block:'nearest',inline:'nearest'});}}}
 });
 document.addEventListener('keydown',event=>{
@@ -542,8 +609,8 @@ document.addEventListener('drop',event=>{const card=event.target.closest('.habit
 document.addEventListener('dragend',()=>{dragging=null;document.querySelectorAll('.is-dragging').forEach(c=>c.classList.remove('is-dragging'));});
 modal.addEventListener('click',event=>{if(event.target===modal){const r=modal.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)closeModal();}});
 
-modal.addEventListener('cancel',()=>{captureDraft();dialogContext=null;dialogOpener=null;});
-modal.addEventListener('close',()=>{dialogContext=null;if(dialogOpener&&document.contains(dialogOpener)&&!dialogOpener.disabled)dialogOpener.focus({preventScroll:true});dialogOpener=null;});
+modal.addEventListener('cancel',()=>{captureDraft();dialogOpener=null;});
+modal.addEventListener('close',()=>{const context=dialogContext;dialogContext=null;if(dialogOpener&&document.contains(dialogOpener)&&!dialogOpener.disabled)dialogOpener.focus({preventScroll:true});dialogOpener=null;if(context?.kind==='reset-export')showResetConfirmation();});
 window.addEventListener('beforeunload',captureDraft);
 function checkDailyNudge() {
   if(prefs.reminderMinutes==null||recoveryText!==null)return;
@@ -567,8 +634,11 @@ window.addEventListener('pageshow',refreshClock);
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refreshClock();});
 setInterval(refreshClock,30000);
 window.addEventListener('storage',event=>{
-  if(event.key!==STORE||!event.newValue)return;
-  try{state=restoreStoredState(event.newValue,today);recoveryText=null;storageWarning='';lastUndo=null;revision++;render();toast('Preview data updated in another tab. Your open draft is kept.');}
+  if(event.key!==STORE&&event.key!==RESET_STORE)return;
+  if(event.key===STORE&&!event.newValue)return;
+  if(staleAfterReset()){adoptRemoteReset();return;}
+  if(event.key===RESET_STORE)return;
+  try{const next=restoreStoredState(event.newValue,today);if(JSON.stringify(next)===JSON.stringify(state))return;state=next;recoveryText=null;storageWarning='';lastUndo=null;revision++;render();toast('Preview data updated in another tab. Your open draft is kept.');}
   catch(error){recoveryText=event.newValue;storageWarning=error.message;render();}
 });
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',theme);

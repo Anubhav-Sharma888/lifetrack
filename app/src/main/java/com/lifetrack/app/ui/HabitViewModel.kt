@@ -14,8 +14,10 @@ import com.lifetrack.app.data.HabitPause
 import com.lifetrack.app.data.WorkoutActivity
 import com.lifetrack.app.data.ActivityEntry
 import com.lifetrack.app.data.CheckInUndo
+import com.lifetrack.app.reminder.BackupReminderScheduler
 import com.lifetrack.app.reminder.DailyCheckInReminderScheduler
 import com.lifetrack.app.reminder.DailyReminderStore
+import com.lifetrack.app.reminder.HabitReminderScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
@@ -55,6 +57,7 @@ sealed interface UiEvent {
     data class Message(val text: String) : UiEvent
     data class CheckedIn(val habitId: Long, val day: Long) : UiEvent
     data class Undoable(val text: String, val token: Long) : UiEvent
+    data object DataReset : UiEvent
 }
 
 @HiltViewModel
@@ -72,6 +75,9 @@ class HabitViewModel @Inject constructor(
     private val _operationError = MutableStateFlow<String?>(null)
     val operationError = _operationError.asStateFlow()
     val events = _events.asSharedFlow()
+    /** Stays true after a reset until real data exists again, so Today can show the fresh-start empty state. */
+    private val _wasReset = MutableStateFlow(false)
+    val wasReset: StateFlow<Boolean> = _wasReset.asStateFlow()
     private val reload = MutableStateFlow(0)
     private val undoHistory = linkedMapOf<Long, CheckInUndo>()
     private var undoSequence = 0L
@@ -123,6 +129,7 @@ class HabitViewModel @Inject constructor(
 
     fun saveHabit(habit: Habit, onSaved: (Long) -> Unit = {}) = perform {
         val id = repository.saveHabit(habit)
+        if (habit.id == 0L) _wasReset.value = false
         _events.emit(UiEvent.Message("Habit saved"))
         onSaved(id)
     }
@@ -244,8 +251,28 @@ class HabitViewModel @Inject constructor(
         try {
             repository.importFrom(uri, password)
             undoHistory.clear()
+            _wasReset.value = false
             _events.emit(UiEvent.Message("Backup restored successfully"))
             onSaved()
         } finally { password?.fill('\u0000') }
+    }
+
+    /** Room flows re-emit when the transaction commits, so LifeTrackApplication refreshes the widgets without an explicit call. */
+    fun resetAllData() = perform {
+        val habitIds = repository.resetAllData()
+        // The erase is committed at this point, so DataReset fires first and post-commit
+        // cleanup trouble must not report the erase itself as failed.
+        _events.emit(UiEvent.DataReset)
+        val cleanupFailed = try {
+            dailyReminderStore.set(null)
+            DailyCheckInReminderScheduler.sync(appContext, null)
+            BackupReminderScheduler.sync(appContext, false)
+            HabitReminderScheduler.cancelNotifications(appContext, habitIds)
+            false
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { true }
+        undoHistory.clear()
+        _events.emit(UiEvent.Message(if (cleanupFailed) "Your data was erased, but reminder cleanup failed. Restart the app to finish it." else "LifeTrack was reset"))
+        _wasReset.value = true
     }
 }
