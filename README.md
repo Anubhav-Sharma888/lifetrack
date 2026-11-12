@@ -1,4 +1,4 @@
-# LifeTrack 1.1.0
+# LifeTrack 1.7.0
 
 A complete native Android habit tracker using Kotlin, Jetpack Compose Material 3, Room, MVVM, a repository and Hilt. All user records and settings are local. There is no account, Internet permission, analytics SDK, advertising SDK, server or automatic app-data cloud backup.
 
@@ -12,7 +12,7 @@ Open this directory directly in Android Studio. The supplied screenshots were vi
 4. The APK is `app/build/outputs/apk/debug/app-debug.apk`. Install through Android Studio or `adb install -r app/build/outputs/apk/debug/app-debug.apk`. Updating an existing installation requires the same package and signing certificate. Read [UPGRADE.md](UPGRADE.md); do not uninstall or clear storage to work around incompatible signatures.
 5. For publishing, use Android Studio **Build → Generate Signed App Bundle / APK** and your own release signing key. Release builds enable R8 and resource shrinking. Keep signing keys/passwords out of distributed source. Future updates need the same release key. Changing `applicationId` creates a separate app with separate data. Provide store artwork/privacy policy and review current store requirements.
 
-This release uses `versionCode = 2`, `versionName = "1.1.0"` and Room database version 2. See [AGP compatibility](https://developer.android.com/build/releases/agp-8-10-0-release-notes) and the [Kotlin Compose compiler guide](https://kotlinlang.org/docs/compose-compiler-migration-guide.html).
+This release uses Android version code 8 and Room database schema 4. Activities has its own ledger, and Settings links to Schedules & Reminders. The implementation notes below describe the original architecture.
 
 ## Step 1 — Project setup
 

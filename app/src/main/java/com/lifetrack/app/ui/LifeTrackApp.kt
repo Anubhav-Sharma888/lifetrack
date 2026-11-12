@@ -91,10 +91,11 @@ fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, vm: HabitView
             Scaffold(
                 snackbarHost = { SnackbarHost(snackbar) },
                 bottomBar = {
-                    if (route in listOf("today", "analytics", "settings")) {
+                    if (route in listOf("today", "activities", "analytics", "settings")) {
                         NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                             listOf(
                                 Triple("today", "Today", Icons.Outlined.CheckCircle),
+                                Triple("activities", "Activities", Icons.Outlined.DirectionsRun),
                                 Triple("analytics", "Analytics", Icons.Outlined.Insights),
                                 Triple("settings", "Settings", Icons.Outlined.Settings)
                             ).forEach { (destination, label, icon) ->
@@ -123,9 +124,13 @@ fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, vm: HabitView
                         CircularProgressIndicator()
                     }
                 } else NavHost(nav, "today", Modifier.padding(padding).consumeWindowInsets(padding)) {
-                    composable("today") { TodayScreen(state, vm, onAdd = { nav.navigate("edit/0") }, onOpen = { nav.navigate("habit/$it") }, onRestoreBackup = launchImport) }
+                    composable("today") { TodayScreen(state, vm, onAdd = { nav.navigate("edit/0") }, onOpen = { nav.navigate("habit/$it") }, onRestoreBackup = launchImport,
+                        onSchedules = { nav.navigate("schedules") }) }
+                    composable("activities") { ActivitiesScreen(state, vm) }
                     composable("analytics") { AnalyticsScreen(state.habits, state.logs, state.today, state.pauses, state.activities, state.activityEntries) }
-                    composable("settings") { SettingsScreen(state, vm, onOpen = { nav.navigate("habit/$it") }, onImport = launchImport) }
+                    composable("settings") { SettingsScreen(state, vm, onOpen = { nav.navigate("habit/$it") }, onImport = launchImport,
+                        onSchedules = { nav.navigate("schedules") }) }
+                    composable("schedules") { SchedulesScreen(state, vm, onBack = { nav.popBackStack() }, onEdit = { nav.navigate("edit/$it") }) }
                     composable("habit/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) {
                         val id = it.arguments!!.getLong("id")
                         HabitDetailScreen(id, state, vm, onBack = { nav.popBackStack() }, onEdit = { nav.navigate("edit/$id") })

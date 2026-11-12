@@ -1,11 +1,11 @@
-import { renderAnalytics, heatmapHTML, currentStreak, trendHTML, periodTilesHTML, dailyCheckinsHTML, consistencyHTML, unmarkedOn } from './analytics.js?v=1.6.0';
-import { encryptBackup, decryptBackup, MAX_ENVELOPE_BYTES } from './backup-crypto.js?v=1.6.0';
+import { renderAnalytics, heatmapHTML, currentStreak, trendHTML, periodTilesHTML, dailyCheckinsHTML, consistencyHTML, unmarkedOn } from './analytics.js?v=1.7.0';
+import { encryptBackup, decryptBackup, MAX_ENVELOPE_BYTES } from './backup-crypto.js?v=1.7.0';
 import { ALL_DAYS, localDate, isDate, plusDays, dayDifference, dayNumber as relativeDay,
   scheduled, dueHabits, bestStreak as bestStreakValue, parseBackup, encodeBackup,
   makeBackup, validateBackup as validatePortableBackup, restoreStoredState, changeLog, changeProgress,
   redeemFreeze, archiveHabit as archiveValue, deleteHabit as deleteValue, foregroundFor, copy, validateGoalEdit, goalAt,
   saveActivity, deleteActivity as deleteActivityValue, setActivityEntry, clearActivityEntry,
-  activityEntriesFor, activityTotals, formatQuantity } from './domain.js?v=1.6.0';
+  activityEntriesFor, activityTotals, formatQuantity } from './domain.js?v=1.7.0';
 
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -17,7 +17,12 @@ const nice = (date, options={weekday:'short',day:'numeric',month:'short'}) => ne
 const urlParams=new URLSearchParams(location.search);
 const qaNamespace=urlParams.get('qa');
 const STORE = qaNamespace===null?'lifetrack.browser-preview.v1':`lifetrack.browser-preview.qa.${qaNamespace.replace(/[^a-zA-Z0-9_-]/g,'').slice(0,40)||'review'}`;
+const VERSION = '1.7.0';
 const icons = {
+  book:'<path d="M12 6c-3-2-6-2-10 0v13c4-2 7-2 10 0 3-2 6-2 10 0V6c-4-2-7-2-10 0zm0 0v13"/>',
+  lock:'<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  activities:'<path d="M3 10v4m3-7v10m12-10v10m3-7v4M6 12h12"/>',
   today:'<circle cx="12" cy="12" r="8.5"/><path d="m8 12 3 3 6-7"/>',
   analytics:'<path d="M4 19V5M4 19h16M8 15v-4m5 4V7m5 8v-6"/>',
   settings:'<path d="m9 4 1-2h4l1 2 2 1 2 0 2 4-1 2v2l1 2-2 4h-2l-2 1-1 2h-4l-1-2-2-1H5l-2-4 1-2v-2L3 9l2-4h2z"/><circle cx="12" cy="12" r="3"/>',
@@ -115,18 +120,22 @@ function render() {
   const focusAction=inApp&&active.dataset?.action?`${active.dataset.action}|${active.dataset.id??''}`:null;
   const focusTab=inApp&&active.dataset?.tab?active.dataset.tab:null;
   theme();
-  app.innerHTML=route==='analytics'?`<div class="screen">${renderAnalytics(state,today,analyticsPeriod)}</div>`:route==='settings'?settingsHTML():route==='detail'?detailHTML():todayHTML();
+  app.innerHTML=route==='analytics'?`<div class="screen">${renderAnalytics(state,today,analyticsPeriod)}</div>`:route==='settings'?settingsHTML():route==='schedules'?schedulesHTML():route==='activities'?activitiesHTML():route==='detail'?detailHTML():todayHTML();
   const rail=$('#today-rail');if(rail)rail.innerHTML=route==='today'?todayRailHTML():'';
   const sideMatrix=$('#side-matrix');if(sideMatrix)sideMatrix.innerHTML=heatmapHTML(state,today,true);
   app.querySelectorAll('[data-heatmap-scroll]').forEach(grid=>{grid.scrollLeft=grid.scrollWidth;});
-  nav.innerHTML=['today','analytics','settings'].map(tab=>`<button data-action="navigate" data-tab="${tab}" class="${route===tab||route==='detail'&&tab==='today'?'active':''}" ${route===tab?'aria-current="page"':''}><span class="nav-icon">${icon(tab)}</span>${tab[0].toUpperCase()+tab.slice(1)}</button>`).join('');
+  const activeTab = route==='detail'?'today':route==='schedules'?'settings':route;
+  nav.innerHTML=['today','activities','analytics','settings'].map(tab=>`<button data-action="navigate" data-tab="${tab}" class="${activeTab===tab?'active':''}" ${activeTab===tab?'aria-current="page"':''}><span class="nav-icon">${icon(tab)}</span>${tab[0].toUpperCase()+tab.slice(1)}</button>`).join('');
   app.scrollTop=position;
+  const freshStrip=app.querySelector(".fresh-date .record-strip");
+  const selectedDay=freshStrip?.querySelector("[aria-pressed=true]");
+  if(selectedDay)freshStrip.scrollLeft=Math.max(0,selectedDay.offsetLeft+selectedDay.offsetWidth-freshStrip.clientWidth);
   if(focused){const input=document.getElementById(focused);if(input){input.focus({preventScroll:true});if(selection!==null&&typeof input.setSelectionRange==='function')try{input.setSelectionRange(selection,selection);}catch{}}}
   else if(focusTab){nav.querySelector(`[data-tab="${focusTab}"]`)?.focus({preventScroll:true});}
   else if(focusAction){const [action,id]=focusAction.split('|');const matches=[...app.querySelectorAll(`[data-action="${action}"]`)];const target=matches.find(el=>(el.dataset.id??'')===id)||matches.find(el=>!(el.dataset.id??'')&&!id);if(target)target.focus({preventScroll:true});}
 }
-function dateNav() {
-  return `<div class="day-nav"><button class="icon-button" data-action="previous-day" aria-label="Previous day" ${selectedDate==='1900-01-01'?'disabled':''}>${icon('back','width="18" height="18"')}</button><label class="day-nav-label">${selectedDate===today?'Today, ':''}${nice(selectedDate)}<span class="caret">▾</span><input aria-label="Choose check-in date" type="date" min="1900-01-01" max="${today}" value="${selectedDate}" id="checkin-date"></label><button class="icon-button" data-action="next-day" aria-label="Next day" style="transform:scaleX(-1)" ${selectedDate===today?'disabled':''}>${icon('back','width="18" height="18"')}</button></div>`;
+function dateNav(label='Choose check-in date') {
+  return `<div class="day-nav"><button class="icon-button" data-action="previous-day" aria-label="Previous day" ${selectedDate==='1900-01-01'?'disabled':''}>${icon('back','width="18" height="18"')}</button><label class="day-nav-label">${selectedDate===today?'Today, ':''}${nice(selectedDate)}<span class="caret">▾</span><input aria-label="${esc(label)}" type="date" min="1900-01-01" max="${today}" value="${selectedDate}" id="checkin-date"></label><button class="icon-button" data-action="next-day" aria-label="Next day" style="transform:scaleX(-1)" ${selectedDate===today?'disabled':''}>${icon('back','width="18" height="18"')}</button></div>`;
 }
 const STATUS_FILTERS=[['all','All habits'],['due','Due today'],['open','Still to do'],['done','Completed'],['upcoming','Upcoming']];
 function recordStripHTML(selected,today) {
@@ -147,6 +156,7 @@ function todayHTML() {
   const activeFilterKeys=[filters.query?['query',`“${filters.query}”`]:null,filters.category?['category',filters.category]:null,filters.status!=='all'?['status',STATUS_FILTERS.find(([v])=>v===filters.status)?.[1]]:null].filter(Boolean);
   const filtersActive=Boolean(filters.query||filters.category||filters.status!=='all');
   const recovery=recoveryText!==null?`<div class="recovery-banner" role="alert"><strong>Your saved records are preserved.</strong><p>${esc(storageWarning)} The sample screen below is temporary. Download the original data before resetting or importing.</p><button class="secondary-button" data-action="recover-storage">Download original data</button><button class="text-button" data-action="reset-demo">Choose a fresh start</button></div>`:storageWarning?`<p role="alert" class="form-error">${esc(storageWarning)}</p>`:'';
+  if(isFreshPage())return freshTodayHTML(recovery);
   const isToday=selectedDate===today;
   const yesterday=plusDays(today,-1);
   const unmarkedYesterday=unmarkedOn(state,yesterday);
@@ -166,10 +176,43 @@ function todayHTML() {
     ${activitiesSectionHTML()}
     <button class="secondary-button wide" data-action="templates">✧ Start with a simple idea</button><div class="gentle-note"><span>✧</span>Progress isn’t always a straight line.<br>A little today is still a little more than yesterday.</div></div>`;
 }
+function isFreshPage() {
+  if(state.habits.length||state.activities.length||state.logs.length||state.activityEntries.length)return false;
+  try{return Boolean(localStorage.getItem(RESET_STORE));}catch{return false;}
+}
+function freshTodayHTML(recovery) {
+  return `<div class="screen fresh-today">${recovery}
+    <section class="fresh-date" aria-label="Check-in date">
+      <div class="today-lockup"><span class="today-num" aria-hidden="true">${selectedDate.slice(8)}</span><span class="today-stack" aria-hidden="true"><span>${esc(nice(selectedDate,{weekday:'long'}))}</span><span>${esc(nice(selectedDate,{month:'long'}))}</span></span><h2 class="sr-only">${esc(nice(selectedDate,{weekday:'long',day:'numeric',month:'long'}))}</h2></div>
+      ${recordStripHTML(selectedDate,today)}
+      ${dateNav()}
+      ${selectedDate!==today?'<button class="back-today" data-action="back-today">Back to today</button>':''}
+    </section>
+    ${emptyStateHTML([])}
+    <section class="fresh-followup">
+      <div class="setting-icon">${icon('sliders')}</div>
+      <div><h3>Schedules &amp; Reminders</h3><p>Manage your daily check-in reminder and habit schedules here or from Settings.</p><button class="text-button" data-action="open-schedules">Configure preferences →</button></div>
+    </section>
+    <section class="fresh-templates" aria-labelledby="fresh-templates-title">
+      <h3 id="fresh-templates-title" class="settings-section-title">Habit ideas</h3>
+      <div class="template-list">${[0,2].map(index=>{
+        const template=templates[index];
+        return `<button data-action="use-template" data-index="${index}"><span aria-hidden="true">${template.icon}</span><div><strong>${esc(template.name)}</strong><small>${esc(template.description)}</small></div>${icon('plus')}</button>`;
+      }).join('')}</div>
+      <button class="text-button" data-action="templates">More habit ideas</button>
+    </section>
+    <button class="secondary-button wide" data-action="add-activity">Add an activity</button>
+  </div>`;
+}
 function emptyStateHTML(active){
-  let fresh=false;
-  if(!active.length&&!state.activities.length&&!state.logs.length){try{fresh=Boolean(localStorage.getItem(RESET_STORE));}catch{}}
-  if(fresh)return `<div class="empty-state"><span>🌱</span><h3>A fresh page</h3><p>Everything was erased. Add a habit, or restore a backup to continue where you left off.</p><button class="primary-button" data-action="add-habit">Add a habit</button> <button class="secondary-button" data-action="import-data">Restore a backup</button></div>`;
+  if(isFreshPage())return `<section class="empty-state fresh-page">
+    <div class="fresh-emblem" aria-hidden="true">${icon('book')}</div>
+    <h3>A fresh page</h3>
+    <p>Everything was erased. Add a habit, or restore a backup to continue where you left off.</p>
+    <dl class="fresh-counts"><div><dd>00</dd><dt>Active habits</dt></div><div><dd>00</dd><dt>Check-ins</dt></div><div><dd>00</dd><dt>Activity logs</dt></div></dl>
+    <button class="primary-button wide" data-action="add-habit">${icon('plus')} Add a habit</button>
+    <button class="secondary-button wide" data-action="import-data">${icon('import')} Restore a backup</button>
+  </section>`;
   return `<div class="empty-state"><span>🌱</span><h3>${active.length?'No matching habits':'Start with something small'}</h3><p>${active.length?'Try another filter, or make room for a new intention.':'A page. A walk. A quiet minute.<br>Choose a habit and a start date that work for you.'}</p><button class="primary-button" data-action="${active.length?'clear-filters':'add-habit'}">${active.length?'Reset all filters':'Create your first habit'}</button></div>`;
 }
 function activityRow(a) {
@@ -187,6 +230,33 @@ function activitiesSectionHTML() {
   if (!count) return `${header}<div class="empty-state slim"><span>🏋️</span><h3>Track a workout or activity</h3><p>Push-ups, runs, crunches — any activity, any day, in any combination. Quantities are yours: 32 of a 20 target is a good day.</p><button class="primary-button" data-action="add-activity">Add your first activity</button></div>`;
   return `${header}<div class="habit-list">${activities.map(activityRow).join('')}</div><button class="add-activity-band" data-action="add-activity">＋ Activity</button>`;
 }
+function activitiesHTML() {
+  const activityById=new Map(state.activities.map(activity=>[activity.id,activity]));
+  const entries=state.activityEntries.slice().sort((a,b)=>b.date.localeCompare(a.date)||b.updatedAt-a.updatedAt);
+  const recentEntries=entries.slice(0,20);
+  return `<div class="screen activities-screen">
+    <div class="settings-intro">
+      <h1 class="today-title" id="activities-title" tabindex="-1">Activity ledger</h1>
+      <p class="today-sub">Track workouts and movement in your own units.</p>
+    </div>
+    <div class="activity-date">${dateNav("Choose activity date")}${selectedDate!==today?'<button class="back-today" data-action="back-today">Back to today</button>':''}</div>
+    ${activitiesSectionHTML()}
+    ${entries.length?`<section aria-labelledby="activity-history-title">
+      <h2 class="settings-section-title" id="activity-history-title">Recent activity</h2>
+      <div class="settings-group">
+        ${recentEntries.map(entry=>{
+          const activity=activityById.get(entry.activityId);
+          return `<button class="setting-row ledger-entry" data-action="log-activity" data-id="${activity.id}" data-date="${entry.date}">
+            <span class="setting-icon" aria-hidden="true">${esc(activity.icon)}</span>
+            <span class="setting-copy"><strong>${esc(activity.name)}</strong><small>${nice(entry.date,{day:'numeric',month:'short',year:'numeric'})}</small>${entry.note?`<small>${esc(entry.note)}</small>`:''}</span>
+            <span class="ledger-quantity">${esc(formatQuantity(entry.quantity))} ${esc(activity.unit)}</span>
+          </button>`;
+        }).join('')}
+      </div>
+      ${entries.length>recentEntries.length?`<p class="section-note">Showing the latest ${recentEntries.length} entries. Open an activity to view its full history.</p>`:''}
+    </section>`:''}
+  </div>`;
+}
 function todayRailHTML(){return `${periodTilesHTML(state,today)}${dailyCheckinsHTML(state,today)}${consistencyHTML(state,today)}`;}
 function habitCard(h) {
   h=goalAt(h,selectedDate);
@@ -198,22 +268,113 @@ function habitCard(h) {
   const checkLabel=restState==='future'?`${h.name} has not started yet`:restState==='rest'?`Rest day for ${h.name}${log?.isFrozen?' · streak frozen':''} — no check-in needed`:status==='COMPLETED'?`Undo completion of ${h.name}`:h.targetCount>1?`Add progress to ${h.name}`:`Complete ${h.name}`;
   return `<article class="habit-row${h.targetCount>1?' is-numeric':''}${focusUnmarkedDate===selectedDate&&isDue&&!log?' is-nudged':''}" draggable="true" data-habit="${h.id}" style="--habit-color:${esc(h.colorHex)};--habit-foreground:${foregroundFor(h.colorHex)}"><span class="drag-handle" aria-hidden="true">⠿</span><div class="row-top"><button class="row-main" data-action="open-habit" data-id="${h.id}"><span class="row-avatar" aria-hidden="true">${esc(h.icon)}</span><span class="row-copy"><strong>${esc(h.name)}</strong><span class="row-meta">${statusBit?`${statusBit} · `:''}${esc(h.category)} · <span class="day-count">${dayLabel}</span></span>${stack?`<span class="stack-cue"><span class="stack-anchor" aria-hidden="true">ANCHOR:</span>↳ After ${esc(stack.name)}</span>`:''}</span></button><div class="row-actions">${h.targetCount>1&&status!=='COMPLETED'&&status!=='IN_PROGRESS'?`<span class="goal-chip" aria-hidden="true">${progress}/${h.targetCount}</span>`:''}<button class="row-menu-button" data-action="row-menu" data-id="${h.id}" aria-label="More actions for ${esc(h.name)}" aria-haspopup="dialog">${icon('dots')}</button><button class="check-button ${status==='COMPLETED'?'is-done':status==='SKIPPED'?'is-skipped':status==='FAILED'?'is-failed':status==='IN_PROGRESS'?'is-partial':restState==='rest'?'is-rest':''}" data-action="check-in" data-id="${h.id}" aria-label="${esc(checkLabel)}" title="${esc(checkLabel)}" aria-pressed="${status==='COMPLETED'}" ${!isDue?'disabled':''}>${status==='IN_PROGRESS'?`<span>${progress}/${h.targetCount}</span>`:restState==='rest'&&!status?`<span class="rest-glyph" aria-hidden="true">⌁</span>`:icon(status==='COMPLETED'?'check':status==='FAILED'?'close':status==='SKIPPED'?'skip':'plus')}</button></div></div>${h.targetCount>1?`<div class="goal-line"><button data-action="decrement" data-id="${h.id}" aria-label="Remove one ${esc(h.targetUnit)} from ${esc(h.name)}" ${!isDue||progress===0?'disabled':''}>−</button><span class="goal-count" aria-live="polite">${progress} / ${h.targetCount} ${esc(h.targetUnit)}</span><button data-action="increment" data-id="${h.id}" aria-label="Add one ${esc(h.targetUnit)} to ${esc(h.name)}" ${!isDue||progress>=h.targetCount?'disabled':''}>+</button></div>`:''}</article>`;
 }
+function toggleMark(enabled) {
+  return `<span class="toggle${enabled?' on':''}" aria-hidden="true"></span>`;
+}
+function switchRole(enabled) {
+  return `role="switch" aria-checked="${enabled}"`;
+}
+function timeValue(minutes) {
+  return minutes==null?'':`${String(Math.floor(minutes/60)).padStart(2,'0')}:${String(minutes%60).padStart(2,'0')}`;
+}
 function settingsRow(action,title,subtitle,symbol,last='›',extra='') {
-  if(last.includes('class="toggle')){const checked=last.includes('toggle on');extra+=` role="switch" aria-checked="${checked}"`;last=last.replace(/ role="switch" aria-checked="[^"]*"/g,'').replace('<span ','<span aria-hidden="true" ');}
-  return `<button class="setting-row" data-action="${action}" ${extra}><span class="setting-icon">${icon(symbol)}</span><span class="setting-copy"><strong>${esc(title)}</strong><small>${esc(subtitle)}</small></span>${last}</button>`;
+  return `<button class="setting-row" data-action="${action}" ${extra}><span class="setting-icon">${icon(symbol)}</span><span class="setting-copy"><strong>${esc(title)}</strong><small>${esc(subtitle)}</small></span><span class="setting-trailing">${last}</span></button>`;
 }
 function settingsHTML() {
   const settings=state.settings, archived=state.habits.filter(h=>h.isArchived);
-  return `<div class="screen"><div class="today-head"><div><h2 class="today-title">Settings.</h2><p class="today-sub">Your data. Your device.</p></div></div><div class="privacy-panel"><div class="privacy-icon">${icon('shield','width="19" height="19"')}</div><h3>Private by design</h3><p>No accounts, cloud sync, ads, or tracking.<br>Your habits belong to you. Always.</p></div>
-    <div class="settings-section-title">Data & backups</div>${settingsRow('export-data','Export data','Save your habits, history, notes, and settings','export')}${settingsRow('import-data','Import data','Restore a LifeTrack JSON backup','import')}${settingsRow('reset-lifetrack','Reset LifeTrack','Erase all data in this browser profile','trash')}${settingsRow('toggle-reminder','Monthly backup reminder','A gentle nudge to keep your progress safe.','bell',`<span class="toggle ${settings.backupReminder?'on':''}" role="switch" aria-checked="${settings.backupReminder}"></span>`)}
-    <p class="section-note">${settings.lastExportAt?`Last export · ${nice(iso(new Date(settings.lastExportAt)),{day:'numeric',month:'short',year:'numeric'})}`:'No backup exported yet.'}</p>
-    <div class="settings-section-title">Gentle reminders</div>${settingsRow('set-reminder','Daily check-in reminder',prefs.reminderMinutes==null?'Off · tap to choose a time':`Daily at ${String(Math.floor(prefs.reminderMinutes/60)).padStart(2,'0')}:${String(prefs.reminderMinutes%60).padStart(2,'0')} · in-app nudge`,'bell')}
-    <p class="section-note">In this preview the nudge appears in-app once per day after your time, when habits are still open. The native Android app turns this into a real notification.</p>
-    <div class="settings-section-title">Make yourself at home</div>${settingsRow('choose-theme','Theme',settings.theme==='SYSTEM'?'Follow your device':settings.theme==='DARK'?'Dark mode':'Light mode','moon')}${settingsRow('toggle-dynamic','Wallpaper colors','Material You in the native Android app','palette',`<span class="toggle ${settings.dynamicColor?'on':''}" role="switch" aria-checked="${settings.dynamicColor}"></span>`)}
-    ${archived.length?`<div class="settings-section-title">Archived habits · ${archived.length}</div>${archived.map(h=>settingsRow('open-habit',`${h.icon} ${h.name}`,'View history or restore','archive','›',`data-id="${h.id}"`)).join('')}`:''}
-    <div class="settings-section-title">Comfort & accessibility</div>${settingsRow('toggle-animations','Celebration animations','Respect your pace and reduced-motion preferences.','palette',`<span class="toggle ${settings.animationsEnabled?'on':''}"></span>`)}${settingsRow('toggle-haptics','Check-in haptics','Saved for Android · the browser does not vibrate.','today',`<span class="toggle ${settings.hapticsEnabled?'on':''}"></span>`)}
-    <div class="settings-section-title">LifeTrack</div>${settingsRow('about','About LifeTrack','Version 1.6.0 · Made for your own pace','info')}
-    <div class="settings-warning">Uninstalling the native app deletes its local data. Export a backup regularly.<br><br>This browser preview has its own sample data and does not access the Android database.</div><div class="settings-footer">Made for real life. Not perfect streaks.<br>🌱</div></div>`;
+  const checkIns=state.logs.length, activityLogs=state.activityEntries.length;
+  const lastExport=settings.lastExportAt
+    ? `Last export · ${nice(iso(new Date(settings.lastExportAt)),{day:'numeric',month:'short',year:'numeric'})}`
+    : 'No backup exported yet';
+  return `<div class="screen almanac-settings">
+    <div class="settings-intro">
+      <span class="settings-version">v${VERSION}</span>
+      <h1 class="today-title" id="settings-title" tabindex="-1">Settings &amp; Preferences</h1>
+      <p class="today-sub">Personal configuration and local data</p>
+    </div>
+    <div class="privacy-panel">
+      <span class="setting-icon">${icon('shield')}</span>
+      <div><h2>Private by design</h2><p>Your data stays in this browser. No accounts or cloud sync.</p></div>
+    </div>
+    <section aria-labelledby="settings-cadence">
+      <h2 class="settings-section-title" id="settings-cadence">Schedules &amp; notifications</h2>
+      <div class="settings-group">
+        ${settingsRow('open-schedules','Schedules & Reminders','Manage habit cadence and reminder times','bell',`<span class="setting-count">${state.habits.length-archived.length} active</span><span aria-hidden="true">›</span>`)}
+      </div>
+    </section>
+    <section aria-labelledby="settings-display">
+      <h2 class="settings-section-title" id="settings-display">Display &amp; accessibility</h2>
+      <div class="settings-group">
+        ${settingsRow('choose-theme','Theme',settings.theme==='SYSTEM'?'Follow your device':settings.theme==='DARK'?'Dark mode':'Light mode','moon')}
+        ${settingsRow('toggle-dynamic','Wallpaper colors','Material You in the native Android app','palette',toggleMark(settings.dynamicColor),switchRole(settings.dynamicColor))}
+        ${settingsRow('toggle-animations','Celebration animations','Animate completed habits','palette',toggleMark(settings.animationsEnabled),switchRole(settings.animationsEnabled))}
+        ${settingsRow('toggle-haptics','Check-in haptics','Vibration on the native Android app','today',toggleMark(settings.hapticsEnabled),switchRole(settings.hapticsEnabled))}
+      </div>
+    </section>
+    <section aria-labelledby="settings-data">
+      <h2 class="settings-section-title" id="settings-data">Data &amp; backups</h2>
+      <div class="ledger-footprint">
+        <div><strong>Local ledger</strong><span class="ledger-total">${(checkIns+activityLogs).toLocaleString()} <small>entries</small></span></div>
+        <p>${checkIns.toLocaleString()} check-ins · ${activityLogs.toLocaleString()} activity logs</p>
+        <p>${esc(lastExport)}</p>
+      </div>
+      <div class="settings-group">
+        ${settingsRow('export-plain','Export data','Save a readable JSON backup','export',icon('export'))}
+        ${settingsRow('export-encrypted','Export encrypted backup','Protect your backup with a password','lock',icon('lock'))}
+        ${settingsRow('import-data','Import data','Restore a plain or encrypted LifeTrack backup','import',icon('import'))}
+        ${settingsRow('toggle-reminder','Monthly backup reminder','Save the reminder preference for the native Android app','bell',toggleMark(settings.backupReminder),switchRole(settings.backupReminder))}
+        ${settingsRow('reset-lifetrack','Reset LifeTrack','Erase all local data and start fresh','trash','<span class="reset-tag">Irreversible</span><span aria-hidden="true">›</span>')}
+      </div>
+    </section>
+    <section aria-labelledby="settings-archives">
+      <h2 class="settings-section-title" id="settings-archives">Archived records</h2>
+      ${archived.length?`<div class="settings-group">${archived.map(h=>settingsRow('open-habit',`${h.icon} ${h.name}`,'View history or restore','archive','›',`data-id="${h.id}"`)).join('')}</div>`:'<p class="settings-placeholder">No archived habits.</p>'}
+    </section>
+    <section aria-labelledby="settings-about">
+      <h2 class="settings-section-title" id="settings-about">LifeTrack</h2>
+      <div class="settings-group">${settingsRow('about','About LifeTrack',`Version ${VERSION}`,'info')}</div>
+    </section>
+    <p class="settings-warning">Uninstalling the native app deletes its local data. Export a backup regularly. This browser preview stores its data separately.</p>
+  </div>`;
+}
+function scheduleCard(habit) {
+  const weekdays=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+  const time=timeValue(habit.reminderMinutes);
+  const cadence=weekdays.filter((_,index)=>habit.scheduledDays.includes(index+1)).join(', ');
+  return `<article class="schedule-card">
+    <div class="schedule-card-head">
+      <span class="schedule-avatar" aria-hidden="true" style="--habit-color:${esc(habit.colorHex)}">${esc(habit.icon)}</span>
+      <div><h3>${esc(habit.name)}</h3><p>${esc(habit.category)}</p></div>
+      <button class="secondary-button" data-action="edit-schedule" data-id="${habit.id}" aria-label="Edit schedule for ${esc(habit.name)}">Edit</button>
+    </div>
+    <div class="schedule-card-details">
+      <span class="schedule-time">${icon('clock')}${time?`Reminder at ${time}`:'Reminder off'}</span>
+      <span class="schedule-days" role="img" aria-label="Repeats on ${cadence}">${weekdays.map((day,index)=>`<span aria-hidden="true" class="${habit.scheduledDays.includes(index+1)?'scheduled':''}">${day[0]}</span>`).join('')}</span>
+    </div>
+  </article>`;
+}
+function schedulesHTML() {
+  const habits=state.habits.filter(h=>!h.isArchived).sort((a,b)=>(a.reminderMinutes??Infinity)-(b.reminderMinutes??Infinity)||a.sortOrder-b.sortOrder);
+  const reminder=timeValue(prefs.reminderMinutes);
+  return `<div class="screen almanac-settings schedules-screen">
+    <button class="secondary-button settings-back" data-action="back-to-settings">${icon('back')} Back to Settings</button>
+    <div class="settings-intro">
+      <h1 class="today-title" id="schedules-title" tabindex="-1">Schedules &amp; Reminders</h1>
+      <p class="today-sub">Choose when your habits repeat and when to check in.</p>
+    </div>
+    <section aria-labelledby="schedule-global">
+      <h2 class="settings-section-title" id="schedule-global">Daily reminder</h2>
+      <div class="settings-group">
+        ${settingsRow('set-reminder','Daily check-in reminder',reminder?'In-app nudge after your chosen time':'Off · choose a time','bell',reminder?`<span class="setting-count">${reminder}</span><span aria-hidden="true">›</span>`:'›')}
+      </div>
+      <p class="section-note">The preview nudges you once a day after this time while the page is visible and habits remain open.</p>
+    </section>
+    <section aria-labelledby="schedule-habits">
+      <h2 class="settings-section-title schedule-section-title" id="schedule-habits">Habit schedules <span class="setting-count">${habits.length} active</span></h2>
+      <p class="section-note">Repeat days apply here. Individual habit reminders are saved for Android notifications.</p>
+      ${habits.length?`<div class="schedule-list">${habits.map(scheduleCard).join('')}</div>`:'<div class="settings-placeholder">No habits to schedule yet. <button class="text-button" data-action="add-habit">Add a habit</button></div>'}
+    </section>
+  </div>`;
 }
 function bestStreak(h) { return bestStreakValue(h,state.logs,today,state.pauses); }
 function detailHTML() {
@@ -268,17 +429,18 @@ const templates=[
   {name:'A quiet moment',icon:'🧘',category:'Mind',description:'Pause, breathe, begin again.',targetCount:5,targetUnit:'minutes'},
   {name:'Write one paragraph',icon:'✍️',category:'Creativity',description:'Let one small thought find its way to the page.',targetCount:1,targetUnit:'times'}
 ];
-function editHabit(id,templateIndex=null) {
+function editHabit(id,templateIndex=null,editSchedule=false) {
   const h=habitFor(id),seed=h||templates[templateIndex]||{},selected=seed.colorHex||'#059669';
   const hasCheckInToday=Boolean(h&&state.logs.some(log=>log.habitId===h.id&&log.date===today));
   const draftKey=h?`habit:${h.id}:${h.createdAt}`:'habit:new';
   const weekdays=seed.scheduledDays||ALL_DAYS;
-  const reminder=seed.reminderMinutes==null?'':`${String(Math.floor(seed.reminderMinutes/60)).padStart(2,'0')}:${String(seed.reminderMinutes%60).padStart(2,'0')}`;
+  const reminder=timeValue(seed.reminderMinutes);
   if(templateIndex!==null)clearDraft(draftKey);
   showModal(`${heading(h?'Edit habit':'A new beginning','Make room for what matters.')}<form id="habit-form" data-id="${h?.id||0}" data-draft-key="${draftKey}"><label class="field">Habit name<input name="name" required maxlength="120" placeholder="e.g. Read a few pages" value="${esc(seed.name||'')}"></label><div class="field-row"><label class="field">Emoji<input name="icon" required maxlength="32" value="${esc(seed.icon||'🌱')}"></label><label class="field">Category<input name="category" required maxlength="40" list="categories" value="${esc(seed.category||'Personal')}"><datalist id="categories">${['Health','Mind','Learning','Creativity','Work','Personal'].map(x=>`<option>${x}</option>`).join('')}</datalist></label></div><label class="field">Your Day 1<input type="date" name="startDate" required min="1900-01-01" max="${Number(today.slice(0,4))+100}${today.slice(4)}" value="${seed.startDate||today}"><small>Start in the past to backfill, or choose a future beginning.</small></label>
     <fieldset class="weekday-field"><legend>Repeat on</legend><div class="weekday-options">${['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((day,index)=>`<label><input type="checkbox" name="scheduledDays" value="${index+1}" ${weekdays.includes(index+1)?'checked':''}><span>${day}</span></label>`).join('')}</div><p class="section-note">Days off do not break your chain. Schedule changes begin today; previous patterns stay in history.</p></fieldset>
     <div class="field-row equal"><label class="field">Daily target<input type="number" name="targetCount" required min="1" max="100000" step="1" value="${seed.targetCount||1}"></label><label class="field">Unit<input name="targetUnit" required maxlength="24" value="${esc(seed.targetUnit||'times')}" placeholder="pages, glasses…"></label></div>${h?`<p class="section-note">Goal changes start ${hasCheckInToday?'tomorrow':'today'}. Earlier check-ins keep their original goal.</p>`:'<p class="section-note">A target of 1 is a simple done-or-not-done habit. Larger targets track quantities.</p>'}<label class="field">Color<input type="hidden" name="colorHex" value="${selected}"><span class="color-swatches">${['#D97706','#C2410C','#059669','#2563EB','#4F46E5','#9333EA','#475569','#B45309'].map(c=>`<button type="button" class="color-swatch ${c===selected?'selected':''}" style="--swatch:${c}" data-action="select-color" data-color="${c}" aria-pressed="${c===selected}" aria-label="Choose color ${c}"></button>`).join('')}</span></label>
-    <details class="more-options"><summary>More options · description, reminder, stacking</summary><div><label class="field">Description · optional<textarea name="description" maxlength="2000" placeholder="A gentle intention…">${esc(seed.description||'')}</textarea></label><label class="field">Reminder time · optional<input type="time" name="reminderTime" value="${reminder}"><small>Saved for the native Android app. This browser preview does not schedule notifications.</small></label><label class="field">Habit stacking · optional<select name="afterHabitId"><option value="">No linked habit</option>${state.habits.filter(p=>p.id!==h?.id&&(!p.isArchived||p.id===h?.afterHabitId)).map(p=>`<option value="${p.id}" ${p.id===h?.afterHabitId?'selected':''}>After ${esc(p.name)}</option>`).join('')}</select><small>“After I do this, I will begin my new habit.”</small></label></div></details><p id="form-error" class="form-error" aria-live="polite"></p><button class="primary-button wide" type="submit">${h?'Save changes':'Create habit'}</button><button class="text-button wide" type="button" data-action="close-modal">Keep draft & close</button></form>`,{kind:'habit',id:h?.id||0,draftKey});
+    <details class="more-options" ${editSchedule?"open":""}><summary>More options · description, reminder, stacking</summary><div><label class="field">Description · optional<textarea name="description" maxlength="2000" placeholder="A gentle intention…">${esc(seed.description||'')}</textarea></label><label class="field">Reminder time · optional<input type="time" name="reminderTime" value="${reminder}"><small>Saved for the native Android app. This browser preview does not schedule notifications.</small></label><label class="field">Habit stacking · optional<select name="afterHabitId"><option value="">No linked habit</option>${state.habits.filter(p=>p.id!==h?.id&&(!p.isArchived||p.id===h?.afterHabitId)).map(p=>`<option value="${p.id}" ${p.id===h?.afterHabitId?'selected':''}>After ${esc(p.name)}</option>`).join('')}</select><small>“After I do this, I will begin my new habit.”</small></label></div></details><p id="form-error" class="form-error" aria-live="polite"></p><button class="primary-button wide" type="submit">${h?'Save changes':'Create habit'}</button><button class="text-button wide" type="button" data-action="close-modal">Keep draft & close</button></form>`,{kind:'habit',id:h?.id||0,draftKey});
+  if(editSchedule)modal.querySelector('.weekday-field input:checked')?.focus();
 }
 function editLog(id,defaultStatus=null) {
   const original=habitFor(id),log=logFor(id),date=selectedDate;if(!original||original.isArchived||!scheduled(original,date,state.pauses))return;
@@ -372,7 +534,19 @@ function activityHistoryDialog(id) {
   const rows = history.length ? history.map(e => `<div class="reorder-list" style="border:0"><div style="border:0"><span>${esc(formatQuantity(e.quantity))} ${esc(a.unit)} · ${nice(e.date)}${e.note?` — ${esc(e.note)}`:''}</span><button class="icon-button" data-action="log-activity" data-id="${id}" data-date="${e.date}" aria-label="Edit ${esc(a.name)} entry for ${nice(e.date)}">✎</button></div></div>`).join('') : '<p class="section-note">No entries yet — log the first session from Today.</p>';
   showModal(`${heading(`${a.icon} ${a.name}`,'History · last entry first')}<p class="section-note">${a.target!=null?`Target ${formatQuantity(a.target)} ${esc(a.unit)} per day · actuals may sit above or below it.`:'Free-form — no target.'}</p><div class="detail-stats"><div><strong>${formatQuantity(totals.total)}</strong><span>LAST 28 DAYS</span></div><div><strong>${totals.days}</strong><span>DAYS LOGGED</span></div><div><strong>${formatQuantity(totals.best)}</strong><span>BEST DAY</span></div></div><div style="max-height:280px;overflow:auto">${rows}</div><button class="primary-button wide" data-action="log-activity" data-id="${id}">Log for ${esc(nice(selectedDate))}</button><button class="text-button wide" data-action="close-modal">Close</button>`);
 }
-function exportDialog(context=null) {  showModal(`${heading('Keep your progress safe','Choose how to protect your backup.')}<form id="backup-export-form"><label class="checkbox-field"><input name="encrypted" type="checkbox" checked> Protect with a password</label><p class="section-note">Encrypted backups use AES-256-GCM. Keep your password somewhere safe; it cannot be recovered by LifeTrack. Passwords are never saved.</p><label class="field">Password<input name="password" type="password" required minlength="10" maxlength="1024" autocomplete="new-password"></label><label class="field">Confirm password<input name="confirmation" type="password" required minlength="10" maxlength="1024" autocomplete="new-password"></label><p class="section-note">Turn password protection off to export readable JSON.</p><p id="form-error" class="form-error" aria-live="polite"></p><button class="primary-button wide" type="submit">Prepare backup</button></form>`,context);
+function exportDialog(context=null,mode='choose') {
+  const encrypted=mode!=='plain';
+  const chooseMode=mode==='choose';
+  const title=chooseMode?'Export a backup first':encrypted?'Export encrypted backup':'Export data';
+  const passwords=`<label class="field">Password<input name="password" type="password" required minlength="10" maxlength="1024" autocomplete="new-password"></label><label class="field">Confirm password<input name="confirmation" type="password" required minlength="10" maxlength="1024" autocomplete="new-password"></label>`;
+  showModal(`${heading(title)}<form id="backup-export-form">
+    ${chooseMode?'<label class="checkbox-field"><input name="encrypted" type="checkbox" checked> Protect with a password</label>':`<input name="encrypted" type="checkbox" hidden ${encrypted?'checked':''}>`}
+    ${encrypted?'<p class="section-note">Encrypted backups use AES-256-GCM. Keep your password somewhere safe. LifeTrack cannot recover it.</p>':''}
+    ${encrypted?passwords:''}
+    ${chooseMode?'<p class="section-note">Turn password protection off to export readable JSON.</p>':encrypted?'':'<p class="section-note">Anyone who can access the JSON file can read the habits, check-ins, notes, activity history, and settings it contains.</p>'}
+    <p id="form-error" class="form-error" aria-live="polite"></p>
+    <button class="primary-button wide" type="submit">Prepare backup</button>
+  </form>`,context);
 }
 function emptyState() {
   return {formatVersion:3,exportedAt:Date.now(),habits:[],logs:[],freezes:[],pauses:[],activities:[],activityEntries:[],settings:{id:1,theme:'LIGHT',dynamicColor:false,backupReminder:false,lastExportAt:null,hapticsEnabled:true,animationsEnabled:true}};
@@ -419,7 +593,34 @@ function performReset() {
   } finally { resetInFlight=false; }
 }
 function showResetConfirmation() {
-  showModal(`${heading('Reset LifeTrack')}<p class="section-note">This permanently erases all LifeTrack data in this browser profile: active and archived habits, check-ins and their notes, dated goals, workouts and logged activities, the daily reminder, and app preferences. Previously exported backup files are not touched and remain available. Type RESET below to confirm.</p><button class="secondary-button wide" data-action="reset-export-first">Export a backup first</button><form id="reset-form" novalidate><label class="field">Type RESET to confirm<input name="confirmation" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="RESET"></label><p id="form-error" class="form-error" aria-live="assertive"></p><button class="danger-button wide" type="submit" id="reset-erase" disabled>Erase all local data</button><button class="text-button wide" type="button" data-action="close-modal">Cancel</button></form>`);
+  showModal(`<div class="reset-confirmation">
+    <section class="reset-card">
+      <div class="reset-heading">
+        <span class="setting-icon">${icon('trash')}</span>
+        <div><span class="reset-tag">Irreversible action</span><h2 id="modal-title">Reset LifeTrack?</h2></div>
+        <button class="icon-button" data-action="close-modal" aria-label="Close dialog">×</button>
+      </div>
+      <div class="reset-explanation">
+        <p>${icon('trash')}<span>Reset permanently erases your active and archived habits, check-ins and notes, dated goals, workouts and activity logs, reminders, and preferences in this browser.</span></p>
+        <p>${icon('shield')}<span>Backup files you already exported remain available.</span></p>
+      </div>
+    </section>
+    <section class="reset-card reset-backup">
+      <h3>${icon('archive')} Save a backup first</h3>
+      <p>Export a plain JSON file or protect your backup with a password.</p>
+      <button class="secondary-button wide" data-action="reset-export-first">${icon('export')} Export a backup first</button>
+    </section>
+    <form id="reset-form" novalidate>
+      <div class="reset-card">
+        <label class="field"><span>Type <strong>RESET</strong> in capital letters to enable erasure.</span>
+          <input name="confirmation" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="RESET">
+        </label>
+        <p id="form-error" class="form-error" aria-live="assertive"></p>
+      </div>
+      <button class="danger-button wide" type="submit" id="reset-erase" disabled>${icon('trash')} Erase all local data</button>
+      <button class="secondary-button wide" type="button" data-action="close-modal">Cancel</button>
+    </form>
+  </div>`);
 }
 function confirmImport(restored,filename) {
   pendingBackup=restored;
@@ -432,6 +633,9 @@ document.addEventListener('click',event=>{
   try {
     switch(action) {
       case 'navigate':navigate(button.dataset.tab);break;
+      case 'open-schedules':navigate('schedules');app.querySelector('#schedules-title')?.focus({preventScroll:true});break;
+      case 'back-to-settings':navigate('settings');app.querySelector('[data-action="open-schedules"]')?.focus({preventScroll:true});break;
+      case 'edit-schedule':editHabit(id,null,true);break;
       case 'open-habit':closeModal(true);navigate('detail',id);break;
       case 'add-habit':editHabit(null);break;
       case 'edit-habit':closeModal(true);editHabit(id);break;
@@ -472,15 +676,16 @@ document.addEventListener('click',event=>{
       case 'choose-theme':showModal(`${heading('Make yourself at home')}<div class="status-choice" role="group" aria-label="Theme">${['LIGHT','DARK','SYSTEM'].map(t=>`<button class="${state.settings.theme===t?'selected':''}" data-action="set-theme" data-theme="${t}" aria-pressed="${state.settings.theme===t}">${t==='SYSTEM'?'System':t==='LIGHT'?'☀ Light':'☾ Dark'}</button>`).join('')}</div><p class="section-note">Your preference is saved only in this browser preview.</p>`);break;
       case 'set-theme':closeModal(true);commit({...state,settings:{...state.settings,theme:button.dataset.theme}},'Theme updated.',{undo:false});break;
       case 'toggle-reminder':commit({...state,settings:{...state.settings,backupReminder:!state.settings.backupReminder}},'Saved for Android. This browser does not schedule notifications.',{undo:false});break;
-      case 'set-reminder':showModal(`${heading('Daily check-in reminder','A gentle nudge at your time.')}<form id="reminder-form"><label class="field">Remind me at<input type="time" name="reminderTime" value="${prefs.reminderMinutes==null?'':`${String(Math.floor(prefs.reminderMinutes/60)).padStart(2,'0')}:${String(prefs.reminderMinutes%60).padStart(2,'0')}`}" required><small>In this preview the nudge appears in-app once per day after this time while habits are still open. The native app delivers a real notification.</small></label><p id="form-error" class="form-error" aria-live="polite"></p><button class="primary-button wide" type="submit">Save reminder time</button>${prefs.reminderMinutes!=null?'<button class="text-button wide" type="button" data-action="clear-reminder">Turn off</button>':''}<button class="text-button wide" type="button" data-action="close-modal">Cancel</button></form>`);break;
-      case 'clear-reminder':prefs.reminderMinutes=null;prefs.lastNudgeDate=null;savePrefs();closeModal(true);render();toast('Daily reminder turned off.');break;
+      case 'set-reminder':showModal(`${heading('Daily check-in reminder','A gentle nudge at your time.')}<form id="reminder-form"><label class="field">Remind me at<input type="time" name="reminderTime" value="${timeValue(prefs.reminderMinutes)}" required><small>In this preview the nudge appears in-app once per day after this time while habits are still open. The native app delivers a real notification.</small></label><p id="form-error" class="form-error" aria-live="polite"></p><button class="primary-button wide" type="submit">Save reminder time</button>${prefs.reminderMinutes!=null?'<button class="text-button wide" type="button" data-action="clear-reminder">Turn off</button>':''}<button class="text-button wide" type="button" data-action="close-modal">Cancel</button></form>`);break;
+      case 'clear-reminder':prefs.reminderMinutes=null;prefs.lastNudgeDate=null;if(savePrefs()===false)break;closeModal(true);render();toast('Daily reminder turned off.');break;
       case 'toggle-dynamic':commit({...state,settings:{...state.settings,dynamicColor:!state.settings.dynamicColor}},'Saved for Android. Wallpaper colors require Material You.',{undo:false});break;
       case 'toggle-haptics':commit({...state,settings:{...state.settings,hapticsEnabled:!state.settings.hapticsEnabled}},'Saved for Android. This browser preview does not vibrate.',{undo:false});break;
       case 'toggle-animations':commit({...state,settings:{...state.settings,animationsEnabled:!state.settings.animationsEnabled}},'Animation preference updated.',{undo:false});break;
-      case 'export-data':exportDialog();break;
+      case 'export-plain':exportDialog(null,'plain');break;
+      case 'export-encrypted':exportDialog(null,'encrypted');break;
       case 'import-data':$('#import-file').click();break;
       case 'confirm-import':if(pendingBackup){const restored=validatePortableBackup(makeBackup(pendingBackup),today);pendingBackup=null;recoveryText=null;storageWarning='';selectedDate=today;closeModal(true);commit(restored,'Backup restored in this browser preview.',{undo:false});}break;
-      case 'about':showModal(`${heading('LifeTrack 1.6.0','Small steps. Your own pace.')}<p class="section-note">A private habit companion built for your own timeline. Every habit has its own Day 1. Activities track workouts and movements with real quantities.<br><br>This browser adaptation uses separate local sample data. The native app uses Kotlin, Compose, Room and Hilt and provides actual Android reminders, widgets, activities and haptics.<br><br>No external requests, accounts, ads or telemetry. Backup encryption is optional; plain JSON and browser storage remain readable to anyone with access to this device.</p><button class="primary-button wide" data-action="close-modal">Keep growing 🌱</button>`);break;
+      case 'about':showModal(`${heading("LifeTrack "+VERSION,'Small steps. Your own pace.')}<p class="section-note">A private habit companion built for your own timeline. Every habit has its own Day 1. Activities track workouts and movements with real quantities.<br><br>This browser adaptation uses separate local sample data. The native app uses Kotlin, Compose, Room and Hilt and provides actual Android reminders, widgets, activities and haptics.<br><br>No external requests, accounts, ads or telemetry. Backup encryption is optional; plain JSON and browser storage remain readable to anyone with access to this device.</p><button class="primary-button wide" data-action="close-modal">Keep growing 🌱</button>`);break;
       case 'reset-demo':showModal(`${heading('Start fresh?')}<p class="section-note">Reset the browser preview to its original sample habits. Current preview changes will be replaced. Your native Android data is separate.${recoveryText!==null?'<br><br>Download the preserved original records before replacing them.':''}</p><button class="primary-button wide" data-action="confirm-reset">Reset sample data</button><button class="text-button wide" data-action="close-modal">Keep exploring</button>`);break;
       case 'strip-day':selectedDate=button.dataset.date;render();app.querySelector('.day-summary')?.scrollIntoView({block:'nearest'});break;
       case 'confirm-reset':recoveryText=null;storageWarning='';selectedDate=today;closeModal(true);commit(demoData(),'A fresh little beginning.',{undo:false});navigate('today');break;
@@ -540,7 +745,7 @@ document.addEventListener('submit',async event=>{
       if(!time)throw Error('Choose a time for the reminder.');
       const minutes=Number(time.slice(0,2))*60+Number(time.slice(3));
       if(!Number.isInteger(minutes)||minutes<0||minutes>1439)throw Error('Choose a valid time.');
-      prefs.reminderMinutes=minutes;prefs.lastNudgeDate=null;savePrefs();closeModal(true);render();toast(`Daily reminder set for ${time}.`);
+      prefs.reminderMinutes=minutes;prefs.lastNudgeDate=null;if(savePrefs()===false)return;closeModal(true);render();toast(`Daily reminder set for ${time}.`);
     } else if(form.id==='delete-form'&&values.confirmation==='DELETE') {
       closeModal(true);commit(deleteValue(state,Number(form.dataset.id)),'Habit and history deleted.',{undo:false});navigate('today');
     } else if(form.id==='reset-form') {
@@ -559,7 +764,7 @@ document.addEventListener('submit',async event=>{
       if(encrypted&&values.password!==values.confirmation)throw Error('The passwords do not match.');
       const data=encrypted?await encryptBackup(plain,values.password):plain;
       if(!form.isConnected||!modal.open)return;
-      form.reset();download(data,`lifetrack-preview-${today}${encrypted?'.enc':''}.json`);if(revision===sourceRevision){state=next;revision++;lastUndo=null;save();}closeModal(true);render();toast('Backup prepared for download. Keep the file and password safe.');
+      form.reset();download(data,`lifetrack-preview-${today}${encrypted?'.enc':''}.json`);if(revision===sourceRevision){state=next;revision++;lastUndo=null;save();}closeModal(true);render();toast(encrypted?'Backup prepared for download. Keep the file and password safe.':'Backup prepared for download. Keep the file safe.');
     } else if(form.id==='backup-import-form') {
       submit.disabled=true;form.setAttribute('aria-busy','true');
       const plain=await decryptBackup(pendingEncryptedText,values.password);if(!form.isConnected||!modal.open)return;form.reset();const restored=parseBackup(plain,today);pendingEncryptedText=null;confirmImport(restored,pendingFilename);
@@ -624,7 +829,7 @@ function checkDailyNudge() {
   if(prefs.lastNudgeDate===today)return;
   const open=unmarkedOn(state,today);
   if(!open.length)return;
-  prefs.lastNudgeDate=today;savePrefs();
+  prefs.lastNudgeDate=today;if(savePrefs()===false)return;
   if(route!=='today')navigate('today');
   toast(`Time to check in · ${open.length} habit${open.length===1?'':'s'} still open`);
 }

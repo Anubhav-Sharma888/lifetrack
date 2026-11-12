@@ -1,4 +1,8 @@
-# Upgrading to LifeTrack 1.1.0
+# Upgrading LifeTrack
+
+LifeTrack 1.7.0 uses Android version code 8. The application ID is `com.lifetrack.app`. Room schema 4 and existing backup formats carry forward from 1.6.0. Export a backup from your current installation, then install the new APK over it. An in-place update requires the same signing certificate. The browser preview keeps its own storage.
+
+## Historical migration notes for 1.1.0
 
 This release uses Android `versionCode = 2` and Room database schema version 2. The explicit 1 → 2 migration preserves existing user data. It neither requires uninstalling nor uses a destructive fallback.
 

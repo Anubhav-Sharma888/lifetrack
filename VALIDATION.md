@@ -1,5 +1,18 @@
 # LifeTrack validation log
 
+## LifeTrack 1.7.0 validation
+
+Validated 12 November 2026 against the updated Google Stitch Personal Almanac export. Activities, Schedules & Reminders, Settings and backups, reset confirmation, and the post-reset Today view use existing app records and controls. Habit schedule cards open the existing editor. Native reminders use the existing scheduler. The browser provides an in-app daily nudge.
+
+- Browser: **99 tests passed**. Syntax checks passed for `app.js` and `analytics.js`. In an isolated browser preview, opened an existing workout from the dated ledger, navigated to daily and per-habit reminder editors, opened both backup flows, and verified the reset backup-first path, exact confirmation, and cancellation.
+- Android: **110 tests passed**, zero failures, errors, or skips. `:app:testDebugUnitTest :app:assembleDebug` succeeded with JDK 17 and Gradle 8.11.1 using `--max-workers=2 --no-parallel --no-daemon`.
+- The signed debug APK identifies as `com.lifetrack.app`, version name `1.7.0`, version code `8`. Its certificate matches the v1.6.0 APK. Room schema 4 and backup formats carry forward from v1.6.0.
+- No phone was connected for an installed upgrade or notification delivery test.
+
+APK SHA-256: `d3db3ed40596fab4fa11f704fe84a4472331887d85fded3035d5e9717beb6143`
+
+---
+
 ## LifeTrack 1.6.0 validation
 
 Validated 7 November 2026. Native database schema 4 (unchanged from 1.5.0); app versionCode 7, versionName 1.6.0; applicationId com.lifetrack.app unchanged. JDK 17 (Temurin 17.0.20.1), Gradle 8.11.1, Android SDK 36, Build Tools 35.0.0.

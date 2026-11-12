@@ -340,9 +340,9 @@ test('the erase button enables exactly when the confirmation input equals RESET'
 });
 
 test('the post-reset Today renders the fresh-page variant with restore actions', () => {
-  const emptyStateHTMLCode = section('function emptyStateHTML(', 'function activityRow(');
-  const render = (storage, partialState, active) => { const state = {logs: [], ...partialState}; return new Function('localStorage', 'RESET_STORE', 'state', 'active',
-    `${emptyStateHTMLCode}\nreturn emptyStateHTML(active);`)(storage, RESET_STORE, state, active); };
+  const emptyStateHTMLCode = section('function isFreshPage(', 'function activityRow(');
+  const render = (storage, partialState, active) => { const state = {habits: active, logs: [], activityEntries: [], ...partialState}; return new Function('localStorage', 'RESET_STORE', 'state', 'active', 'icon',
+    `${emptyStateHTMLCode}\nreturn emptyStateHTML(active);`)(storage, RESET_STORE, state, active, () => ''); };
   const storage = recordingStorage({[RESET_STORE]: 'r-1-abc'});
   const fresh = render(storage, {activities: []}, []);
   assert.match(fresh, /A fresh page/);
@@ -355,5 +355,6 @@ test('the post-reset Today renders the fresh-page variant with restore actions',
   assert.doesNotMatch(generic, /A fresh page/);
   assert.doesNotMatch(render(storage, {activities: [{id: 1}]}, []), /A fresh page/);
   assert.doesNotMatch(render(storage, {activities: [], logs: [{id: 1}]}, []), /A fresh page/);
+  assert.doesNotMatch(render(storage, {activities: [], habits: [{id: 1, isArchived: true}]}, []), /A fresh page/);
   assert.match(render(storage, {activities: []}, [{id: 1}]), /No matching habits/);
 });

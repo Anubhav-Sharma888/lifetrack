@@ -132,4 +132,30 @@ class EditorRecoveryTest {
         compose.onNodeWithContentDescription("Haptic feedback").assertExists()
         compose.onNodeWithContentDescription("Animations and celebrations").assertExists()
     }
+
+    @Test fun settingsOpensSchedulesAndReminders() {
+        var opened = false
+        compose.setContent {
+            MaterialTheme {
+                SettingsScreen(LifeTrackState(loaded = true), vm, onSchedules = { opened = true }, onOpen = {})
+            }
+        }
+        compose.onNodeWithText("Schedules & Reminders").performScrollTo().performClick()
+        compose.runOnIdle { assertTrue(opened) }
+    }
+
+    @Test fun habitScheduleRowShowsSavedReminderAndOpensEditor() {
+        val habit = Habit(id = 7, name = "Read", scheduledDays = listOf(1, 3, 5), reminderMinutes = 480)
+        var edited: Long? = null
+        compose.setContent {
+            MaterialTheme {
+                SchedulesScreen(LifeTrackState(habits = listOf(habit), loaded = true), vm,
+                    onBack = {}, onEdit = { edited = it })
+            }
+        }
+        compose.onNodeWithText("Reminder at 08:00").assertExists()
+        compose.onNodeWithContentDescription("Scheduled on Monday, Wednesday, Friday").assertExists()
+        compose.onNodeWithText("Edit schedule").performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(7L, edited) }
+    }
 }
