@@ -31,7 +31,14 @@ import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
 @Composable
-fun TodayScreen(state: LifeTrackState, vm: HabitViewModel, onAdd: () -> Unit, onOpen: (Long) -> Unit, onRestoreBackup: () -> Unit = {}) {
+fun TodayScreen(
+    state: LifeTrackState,
+    vm: HabitViewModel,
+    onAdd: () -> Unit,
+    onOpen: (Long) -> Unit,
+    onRestoreBackup: () -> Unit = {},
+    onSchedules: () -> Unit = {}
+) {
     val busy by vm.busy.collectAsState()
     val wasReset by vm.wasReset.collectAsState()
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
@@ -49,6 +56,7 @@ fun TodayScreen(state: LifeTrackState, vm: HabitViewModel, onAdd: () -> Unit, on
     var nudgeDismissed by rememberSaveable { mutableStateOf<String?>(null) }
     var order by remember { mutableStateOf(emptyList<Long>()) }
     val active = state.habits.filterNot { it.isArchived }
+    val showFreshStart = wasReset && state.habits.isEmpty() && state.activities.isEmpty() && state.activityEntries.isEmpty()
     val byId = active.associateBy { it.id }
     val dayLogs = remember(state.logs, date) { state.logs.filter { it.date == date }.associateBy { it.habitId } }
     LaunchedEffect(active.map { it.id to it.sortOrder }) { order = active.sortedBy { it.sortOrder }.map { it.id } }
@@ -112,7 +120,7 @@ fun TodayScreen(state: LifeTrackState, vm: HabitViewModel, onAdd: () -> Unit, on
                 HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
                 if (date != state.today) TextButton(onClick = { selected = null; focusUnmarked = false }) { Text("Back to today") }
                 // Almanac register summary: sunken parchment well, mono metric, 4dp sage progress line.
-                Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceVariant,
+                if (!showFreshStart) Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceVariant,
                     border = BorderStroke(1.dp, almanacColors().rule), modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("$completed of ${due.size} scheduled habits completed", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -154,20 +162,19 @@ fun TodayScreen(state: LifeTrackState, vm: HabitViewModel, onAdd: () -> Unit, on
                 }
             }
         }
-        if (active.isEmpty()) {
-            item(key = "empty-habits") { Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                if (wasReset) {
-                    Text("🌱", style = MaterialTheme.typography.displayLarge)
-                    Spacer(Modifier.height(16.dp)); Text("Ready for a fresh start", style = MaterialTheme.typography.headlineSmall)
-                    Text("Everything was erased. Add a habit, or restore a backup to continue where you left off.", Modifier.padding(vertical = 16.dp))
-                    Button(onClick = onAdd, modifier = Modifier.heightIn(min = 48.dp)) { Text("Add a habit") }
-                    Spacer(Modifier.height(8.dp)); OutlinedButton(onClick = onRestoreBackup, modifier = Modifier.heightIn(min = 48.dp)) { Text("Restore a backup") }
-                } else {
-                    Text("🌱", style = MaterialTheme.typography.displayLarge)
-                    Spacer(Modifier.height(16.dp)); Text("Start with something small", style = MaterialTheme.typography.headlineSmall)
-                    Text("A page. A walk. A quiet minute. Pick a suggestion or create your own habit. Choose the days and pace that work for you.", Modifier.padding(vertical = 16.dp))
-                    Button(onClick = onAdd) { Text("Create your first habit") }
+        if (showFreshStart) {
+            item(key = "fresh-start") { FreshStartCard(onAdd, onRestoreBackup) }
+            item(key = "fresh-start-reminders") {
+                SettingsGroup {
+                    SettingsAction("Schedules & Reminders", "Set up daily and habit reminders", Icons.Outlined.Tune, onClick = onSchedules)
                 }
+            }
+        } else if (active.isEmpty()) {
+            item(key = "empty-habits") { Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("🌱", style = MaterialTheme.typography.displayLarge)
+                Spacer(Modifier.height(16.dp)); Text("Start with something small", style = MaterialTheme.typography.headlineSmall)
+                Text("A page. A walk. A quiet minute. Pick a suggestion or create your own habit. Choose the days and pace that work for you.", Modifier.padding(vertical = 16.dp))
+                Button(onClick = onAdd) { Text("Create your first habit") }
             }
             }
         } else if (habits.isEmpty()) {
@@ -262,4 +269,36 @@ fun TodayScreen(state: LifeTrackState, vm: HabitViewModel, onAdd: () -> Unit, on
     editingLogId?.let { id -> state.habits.firstOrNull { it.id == id }?.let { habit ->
         LogEditorDialog(habit, date, dayLogs[id], vm, onDismiss = { editingLogId = null })
     } }
+}
+
+@Composable
+private fun FreshStartCard(onAdd: () -> Unit, onRestore: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    SettingsGroup {
+        Column(
+            Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Surface(shape = RoundedCornerShape(12.dp), color = colors.surfaceContainerHigh) {
+                Box(Modifier.size(64.dp), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Outlined.MenuBook, null, Modifier.size(32.dp))
+                }
+            }
+            Text("You’re starting fresh", style = MaterialTheme.typography.headlineMedium,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Text("There are no habits or activity logs yet. Add a habit or restore a backup.",
+                color = colors.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            val actionSize = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+            Button(onClick = onAdd, modifier = actionSize) {
+                Icon(Icons.Outlined.Add, null)
+                Spacer(Modifier.width(8.dp))
+                Text("Add a habit")
+            }
+            FilledTonalButton(onClick = onRestore, modifier = actionSize) {
+                Icon(Icons.Outlined.Restore, null)
+                Spacer(Modifier.width(8.dp))
+                Text("Restore a backup")
+            }
+        }
+    }
 }

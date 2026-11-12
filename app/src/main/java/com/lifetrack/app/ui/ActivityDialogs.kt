@@ -11,6 +11,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.History
@@ -153,7 +155,74 @@ fun HistorySpine(logs: List<HabitLog>, modifier: Modifier = Modifier) {
     }
 }
 
-/** Today-screen section: activity rows with Log/Edit and History, plus all activity dialogs. */
+@Composable
+fun ActivitiesScreen(state: LifeTrackState, vm: HabitViewModel) {
+    var selectedDay by rememberSaveable { mutableStateOf<String?>(null) }
+    val firstDay = LocalDate.of(1900, 1, 1)
+    val day = selectedDay?.let(LocalDate::parse)?.coerceIn(firstDay, state.today) ?: state.today
+    val dateFormat = remember { DateTimeFormatter.ofPattern("EEE, d MMM yyyy", Locale.getDefault()) }
+    val activitiesById = remember(state.activities) { state.activities.associateBy { it.id } }
+    val recentDays = remember(state.activityEntries, day) {
+        state.activityEntries.filter { it.date <= day }
+            .groupBy { it.date }.toSortedMap(reverseOrder()).entries.take(7)
+    }
+
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Activity ledger", style = AlmanacType.labelCaps, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Activities", style = MaterialTheme.typography.headlineLarge)
+            Text("Record workouts and other activities alongside your habits.",
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(8.dp)) {
+            Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(enabled = day > firstDay, onClick = { selectedDay = day.minusDays(1).toString() }) {
+                    Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, "Previous day")
+                }
+                TextButton(onClick = { selectedDay = null }, modifier = Modifier.weight(1f)) {
+                    Text(if (day == state.today) "Today · ${day.format(dateFormat)}" else day.format(dateFormat))
+                }
+                IconButton(enabled = day < state.today, onClick = { selectedDay = day.plusDays(1).toString() }) {
+                    Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, "Next day")
+                }
+            }
+        }
+        ActivitySection(state, vm, day)
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Recent activity by date", style = MaterialTheme.typography.titleLarge)
+            if (recentDays.isEmpty()) {
+                Text("No activity entries through this date.", style = MaterialTheme.typography.bodyMedium)
+            }
+            recentDays.forEach { (date, entries) ->
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                ) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(date.format(dateFormat), style = MaterialTheme.typography.titleMedium)
+                        entries.sortedBy { activitiesById[it.activityId]?.sortOrder }.forEach { entry ->
+                            activitiesById[entry.activityId]?.let { activity ->
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                                Text("${activity.name} · ${formatQuantityLabel(entry.quantity)} ${activity.unit}",
+                                    style = MaterialTheme.typography.bodyMedium)
+                                entry.note?.takeIf(String::isNotBlank)?.let { note ->
+                                    Text(note, style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Shared activity actions for Today and the Activities screen. */
 @Composable
 fun ActivitySection(state: LifeTrackState, vm: HabitViewModel, date: LocalDate, modifier: Modifier = Modifier) {
     val busy by vm.busy.collectAsState()
@@ -202,17 +271,23 @@ fun ActivitySection(state: LifeTrackState, vm: HabitViewModel, date: LocalDate, 
                                         entry?.note?.let { Text(it, style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1) }
                                     }
-                                    entry?.let {
-                                        Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
-                                            Text("${formatQuantityLabel(it.quantity)} ${activity.unit}", modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                                style = AlmanacType.monoData, fontWeight = FontWeight.SemiBold)
+                                }
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Box(Modifier.weight(1f)) {
+                                        entry?.let {
+                                            Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+                                                Text("${formatQuantityLabel(it.quantity)} ${activity.unit}",
+                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                                    style = AlmanacType.monoData, fontWeight = FontWeight.SemiBold)
+                                            }
                                         }
                                     }
                                     IconButton(enabled = !busy, onClick = { historyActivityId = activity.id }) {
                                         Icon(Icons.Outlined.History, "History for ${activity.name}")
                                     }
                                     Button(enabled = !busy, onClick = { loggingActivityId = activity.id; loggingDate = date.toString() },
-                                        modifier = Modifier.height(40.dp), contentPadding = PaddingValues(horizontal = 14.dp)) {
+                                        modifier = Modifier.heightIn(min = 48.dp), contentPadding = PaddingValues(horizontal = 14.dp)) {
                                         Text(if (entry == null) "Log" else "Edit")
                                     }
                                 }
@@ -317,12 +392,12 @@ fun ActivityLogDialog(activityId: Long, date: LocalDate, state: LifeTrackState, 
 fun ActivityHistoryDialog(activity: WorkoutActivity, state: LifeTrackState, vm: HabitViewModel,
                           onDismiss: () -> Unit, onLogFor: (LocalDate) -> Unit, onDelete: () -> Unit) {
     val history = state.activityEntries.filter { it.activityId == activity.id }.sortedByDescending { it.date }
-    val monthAgo = LocalDate.now().minusDays(27)
+    val monthAgo = state.today.minusDays(27)
     val inWindow = history.filter { it.date >= monthAgo }
     val total = inWindow.sumOf { it.quantity }
     val best = inWindow.maxOfOrNull { it.quantity } ?: 0.0
     AlertDialog(onDismissRequest = onDismiss, title = { Text("${activity.icon} ${activity.name}") }, text = {
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("History · newest first", style = MaterialTheme.typography.titleSmall)
             if (activity.target != null) Text("Target ${formatQuantityLabel(activity.target)} ${activity.unit} per day · actuals may sit above or below it.",
                 style = MaterialTheme.typography.bodySmall)
@@ -332,7 +407,10 @@ fun ActivityHistoryDialog(activity: WorkoutActivity, state: LifeTrackState, vm: 
                 Stat("${formatQuantityLabel(best)}", "BEST DAY", Modifier.weight(1f))
             }
             if (history.isEmpty()) Text("No entries yet — log the first session from Today.", style = MaterialTheme.typography.bodySmall)
-            else Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            else Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Activity progression", style = MaterialTheme.typography.titleMedium)
+                ExerciseTrace(activity, history.take(14))
+                Text("Entries", style = MaterialTheme.typography.titleMedium)
                 history.forEach { entry ->
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         // Date seal: two-line month / day stamp.
