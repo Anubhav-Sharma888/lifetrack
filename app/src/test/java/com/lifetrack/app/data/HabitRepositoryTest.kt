@@ -316,6 +316,51 @@ class HabitRepositoryTest {
     }
 
     @Test
+    fun directionalActivityValidationBackupRoundTripAndEntryGuards() = runBlocking {
+        expectRejected { repository.saveActivity(WorkoutActivity(name = "Sideways", unit = "u", trackingMode = "SIDEWAYS")) }
+        expectRejected { repository.saveActivity(WorkoutActivity(name = "Negative start", unit = "u", trackingMode = ActivityMode.DECREASING.name, startingValue = -1.0)) }
+        expectRejected { repository.saveActivity(WorkoutActivity(name = "Zero target", unit = "u", trackingMode = ActivityMode.INCREASING.name, target = 0.0)) }
+        // saveActivity echoes id 0 for inserts; the flow carries the real Room id.
+        repository.saveActivity(WorkoutActivity(
+            name = "Book", unit = "pages", trackingMode = ActivityMode.INCREASING.name, startingValue = 50.0, target = 300.0
+        ))
+        val id = repository.activities.first().single().id
+        assertEquals("INCREASING", repository.activities.first().single().trackingMode)
+        // A clock-skew future entry must be rejected before it can brick later JSON exports.
+        expectRejected { repository.setActivityEntry(id, today.plusDays(1), 10.0) }
+        repository.setActivityEntry(id, today, 76.0)
+        assertEquals(76.0, repository.activityEntries.first().single().quantity, 0.0)
+        val output = backupFile()
+        repository.exportTo(Uri.fromFile(output))
+        val text = output.readText(Charsets.UTF_8)
+        assertTrue(text.contains("\"formatVersion\": 5"))
+        assertTrue(text.contains("\"trackingMode\": \"INCREASING\""))
+        // Replacement import restores the directional activity and its entries exactly.
+        repository.deleteActivity(id)
+        repository.importFrom(Uri.fromFile(output))
+        val restored = repository.activities.first().single()
+        assertEquals("INCREASING", restored.trackingMode)
+        assertEquals(50.0, restored.startingValue!!, 0.0)
+        assertEquals(76.0, repository.activityEntries.first().single().quantity, 0.0)
+    }
+
+    @Test
+    fun decreasingActivityMayRecordZeroButLoggedMayNot() = runBlocking {
+        // saveActivity echoes id 0 for inserts; real ids come from the flow, matched by name.
+        repository.saveActivity(WorkoutActivity(
+            name = "Tasks left", unit = "tasks", trackingMode = ActivityMode.DECREASING.name, startingValue = 30.0, target = 0.0
+        ))
+        val countdown = repository.activities.first().single { it.name == "Tasks left" }.id
+        repository.setActivityEntry(countdown, today, 0.0)
+        assertEquals(0.0, repository.activityEntries.first().single().quantity, 0.0)
+        repository.saveActivity(WorkoutActivity(name = "Push-ups", unit = "pushups"))
+        val plain = repository.activities.first().single { it.name == "Push-ups" }.id
+        expectRejected { repository.setActivityEntry(plain, today, 0.0) }
+        repository.setActivityEntry(plain, today, 1.0)
+        assertEquals(1.0, repository.activityEntries.first().single { it.activityId == plain }.quantity, 0.0)
+    }
+
+    @Test
     fun resetErasesEveryRecordAndRestoresDefaultSettings() = runBlocking {
         val habit = createHabit("Keep me")
         repository.setLog(habit, today, LogStatus.COMPLETED, "Keep this note")

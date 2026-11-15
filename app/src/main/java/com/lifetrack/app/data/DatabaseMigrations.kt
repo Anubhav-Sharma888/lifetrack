@@ -38,4 +38,12 @@ object DatabaseMigrations {
             db.execSQL("ALTER TABLE habits ADD COLUMN goalHistory TEXT NOT NULL DEFAULT '[]'")
         }
     }
+
+    /** Directional tracking arrives in version 5; existing activities keep their plain LOGGED semantics. */
+    val MIGRATION_4_5 = object : Migration(4, 5) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE activities ADD COLUMN trackingMode TEXT NOT NULL DEFAULT 'LOGGED'")
+            db.execSQL("ALTER TABLE activities ADD COLUMN startingValue REAL DEFAULT NULL")
+        }
+    }
 }

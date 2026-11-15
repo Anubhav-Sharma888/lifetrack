@@ -48,9 +48,13 @@ class HabitRepository @Inject constructor(
     /** Actual quantities are recorded exactly as performed; targets never clamp them. */
     suspend fun saveActivity(activity: WorkoutActivity): WorkoutActivity = db.withTransaction {
         require(activity.name.isNotBlank() && activity.name.length <= 80) { "Activity names must contain 1–80 characters." }
-        require(activity.icon.isNotBlank() && activity.icon.length <= 32) { "Choose an emoji or short icon for the activity." }
+        require(activity.icon.isNotBlank() && activity.icon.length <= 32) { "Activity icons must contain 1–32 characters." }
         require(activity.unit.isNotBlank() && activity.unit.length <= 24) { "Activity units must contain 1–24 characters." }
-        require(activity.target == null || activity.target > 0 && activity.target <= 1_000_000.0) { "Activity targets must be between 0 and 1,000,000." }
+        require(activity.trackingMode in ActivityMode.entries.map(ActivityMode::name)) { "Unknown tracking mode for this activity." }
+        require(activity.startingValue == null || activity.startingValue.isFinite() && activity.startingValue >= 0 && activity.startingValue <= 1_000_000.0) { "Starting values must be between 0 and 1,000,000." }
+        // Only countdown activities may aim at zero; other modes keep positive targets.
+        require(activity.target == null || activity.target.isFinite() && activity.target >= 0 && activity.target <= 1_000_000.0 &&
+            (activity.target > 0 || activity.trackingMode == ActivityMode.DECREASING.name)) { "Activity targets must be between 0 and 1,000,000." }
         val now = nextTimestamp(System.currentTimeMillis())
         val saved = if (activity.id == 0L) activity.copy(createdAt = now, updatedAt = now) else activity.copy(updatedAt = now)
         dao.upsertActivity(saved)
@@ -63,8 +67,13 @@ class HabitRepository @Inject constructor(
     }
 
     suspend fun setActivityEntry(activityId: Long, date: LocalDate, quantity: Double, note: String? = null) = db.withTransaction {
-        require(dao.activity(activityId) != null) { "This activity no longer exists." }
-        require(quantity.isFinite() && quantity > 0 && quantity <= 1_000_000.0) { "Activity quantities must be between 0 and 1,000,000." }
+        val activity = dao.activity(activityId) ?: throw IllegalArgumentException("This activity no longer exists.")
+        // A clock-skew entry would otherwise make every later JSON export fail validation.
+        require(date <= LocalDate.now()) { "Activity entries cannot be in the future." }
+        // Only countdown activities may record a completed state of zero.
+        val allowsZero = activity.trackingMode == ActivityMode.DECREASING.name
+        require(quantity.isFinite() && quantity >= 0 && quantity <= 1_000_000.0 &&
+            (quantity > 0 || allowsZero)) { "Activity quantities must be between 0 and 1,000,000." }
         require(note == null || note.length <= 1_000) { "Activity entry notes are limited to 1,000 characters." }
         val existing = dao.activityEntry(activityId, date)
         val now = nextTimestamp(System.currentTimeMillis(), existing?.createdAt ?: 0, existing?.updatedAt ?: 0)
@@ -312,12 +321,17 @@ class HabitRepository @Inject constructor(
         val now = System.currentTimeMillis()
         val snapshot = db.withTransaction {
             val habits = dao.allHabits()
+            val activities = dao.allActivities()
             LifeTrackBackup(
-                formatVersion = if (habits.any { it.goalHistory.isNotEmpty() }) 4 else 3,
+                formatVersion = when {
+                    activities.any { it.isDirectional() } -> 5
+                    habits.any { it.goalHistory.isNotEmpty() } -> 4
+                    else -> 3
+                },
                 exportedAt = now, habits = habits, logs = dao.allLogs(),
                 settings = (dao.getSettings() ?: AppSettings()).copy(lastExportAt = now),
                 freezes = dao.allFreezes(), pauses = dao.allPauses(),
-                activities = dao.allActivities(), activityEntries = dao.allActivityEntries()
+                activities = activities, activityEntries = dao.allActivityEntries()
             )
         }
         BackupValidator.validate(snapshot)

@@ -74,23 +74,31 @@ object BackupValidator {
         require(activity.name.isNotBlank() && activity.name.length <= 80) { "Activity names must contain 1–80 characters." }
         require(activity.icon.isNotBlank() && activity.icon.length <= 32) { "Choose an emoji or short icon for each activity." }
         require(activity.unit.isNotBlank() && activity.unit.length <= 24) { "Activity units must contain 1–24 characters." }
-        require(activity.target == null || activity.target.isFinite() && activity.target > 0 && activity.target <= 1_000_000.0) { "Activity targets must be between 0 and 1,000,000." }
+        require(activity.trackingMode in ActivityMode.entries.map(ActivityMode::name)) { "Unknown activity tracking mode." }
+        require(activity.startingValue == null || activity.startingValue.isFinite() && activity.startingValue >= 0 && activity.startingValue <= 1_000_000.0) { "Activity starting values must be between 0 and 1,000,000." }
+        // Countdown activities may aim at zero; every other mode keeps positive targets.
+        require(activity.target == null || activity.target.isFinite() && activity.target >= 0 && activity.target <= 1_000_000.0 &&
+            (activity.target > 0 || activity.trackingMode == ActivityMode.DECREASING.name)) { "Activity targets must be between 0 and 1,000,000." }
         require(activity.sortOrder >= 0) { "Activity order cannot be negative." }
         require(activity.createdAt >= 0 && activity.updatedAt >= activity.createdAt) { "Invalid activity timestamps." }
     }
 
-    fun validateActivityEntry(entry: ActivityEntry, activityIds: Set<Long>, today: LocalDate = LocalDate.now()) {
+    fun validateActivityEntry(entry: ActivityEntry, activities: Map<Long, WorkoutActivity>, today: LocalDate = LocalDate.now()) {
         require(entry.id >= 0 && entry.id < Long.MAX_VALUE) { "Invalid activity entry ID." }
-        require(entry.activityId in activityIds) { "An activity entry belongs to a missing activity." }
+        require(entry.activityId in activities) { "An activity entry belongs to a missing activity." }
         require(entry.date >= earliestDate && entry.date <= today) { "Activity entries cannot be in the future." }
-        require(entry.quantity.isFinite() && entry.quantity > 0 && entry.quantity <= 1_000_000.0) { "Activity quantities must be between 0 and 1,000,000." }
+        // Only countdown activities may record a completed state of zero.
+        val allowsZero = activities[entry.activityId]?.trackingMode == ActivityMode.DECREASING.name
+        require(entry.quantity.isFinite() && entry.quantity >= 0 && entry.quantity <= 1_000_000.0 &&
+            (entry.quantity > 0 || allowsZero)) { "Activity quantities must be between 0 and 1,000,000." }
         require(entry.note == null || entry.note.length <= 1_000) { "Activity entry notes are limited to 1,000 characters." }
         require(entry.createdAt >= 0 && entry.updatedAt >= entry.createdAt) { "Invalid activity entry timestamps." }
     }
 
     fun validate(backup: LifeTrackBackup, today: LocalDate = LocalDate.now()) {
-        require(backup.formatVersion in 1..4) { "This backup version is not supported by this app." }
-        require(backup.formatVersion == 4 || backup.habits.none { it.goalHistory.isNotEmpty() }) { "Goal revisions require backup version 4." }
+        require(backup.formatVersion in 1..5) { "This backup version is not supported by this app." }
+        require(backup.formatVersion >= 4 || backup.habits.none { it.goalHistory.isNotEmpty() }) { "Goal revisions require backup version 4." }
+        require(backup.formatVersion >= 5 || backup.activities.none { it.isDirectional() }) { "Directional activity tracking requires backup version 5." }
         require(backup.exportedAt >= 0) { "Invalid export timestamp." }
         validateSettings(backup.settings)
         require(backup.habits.map { it.id }.toSet().size == backup.habits.size) { "Duplicate habit IDs in backup." }
@@ -136,7 +144,7 @@ object BackupValidator {
         if (backup.formatVersion >= 2) backup.habits.filter { it.isArchived }.forEach { habit ->
             require(backup.pauses.count { it.habitId == habit.id && it.endDate == null && it.startDate == habit.archivedOn!!.plusDays(1) } == 1) { "Archived habits must retain their open pause interval." }
         }
-        val activityIds = backup.activities.associateBy { it.id }
+        val activitiesById = backup.activities.associateBy { it.id }
         require(backup.activities.map { it.id }.toSet().size == backup.activities.size) { "Duplicate activity IDs in backup." }
         backup.activities.forEach { activity ->
             validateActivity(activity, today)
@@ -144,7 +152,7 @@ object BackupValidator {
         }
         require(backup.activityEntries.map { it.id }.toSet().size == backup.activityEntries.size) { "Duplicate activity entry IDs in backup." }
         require(backup.activityEntries.map { it.activityId to it.date }.toSet().size == backup.activityEntries.size) { "More than one activity entry exists for the same activity and date." }
-        backup.activityEntries.forEach { entry -> validateActivityEntry(entry, activityIds.keys, today) }
+        backup.activityEntries.forEach { entry -> validateActivityEntry(entry, activitiesById, today) }
         val frozenLogMonths = mutableSetOf<String>()
         backup.logs.forEach { log ->
             val habit = habits[log.habitId]
@@ -175,7 +183,7 @@ object BackupValidator {
     fun decode(text: String, today: LocalDate = LocalDate.now()): LifeTrackBackup {
         val document = json.parseToJsonElement(text.removePrefix("\uFEFF")).jsonObject
         val version = document["formatVersion"]?.jsonPrimitive?.intOrNull
-        require(version != null && version in 1..4) { "This backup version is not supported by this app." }
+        require(version != null && version in 1..5) { "This backup version is not supported by this app." }
         if (version >= 2) {
             require("pauses" in document) { "This version 2 backup is missing its pause history." }
             (document["habits"] as? JsonArray)?.forEach { entry ->

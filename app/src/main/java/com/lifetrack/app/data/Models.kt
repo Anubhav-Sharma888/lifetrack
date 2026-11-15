@@ -149,6 +149,19 @@ class Converters {
     @TypeConverter fun stringToRevisions(value: String): List<ScheduleRevision> = BackupValidator.json.decodeFromString(value)
 }
 
+/** Tracking semantics for activities. LOGGED preserves the original per-day quantity records. */
+@Serializable
+enum class ActivityMode { LOGGED, INCREASING, DECREASING, PERSONAL_BEST;
+
+    companion object {
+        /** Unknown stored values fall back to LOGGED so old or foreign data still renders. */
+        fun fromStored(value: String): ActivityMode = entries.firstOrNull { it.name == value } ?: LOGGED
+    }
+}
+
+/** True when an activity uses directional tracking rather than plain daily logs. */
+fun WorkoutActivity.isDirectional(): Boolean = trackingMode != ActivityMode.LOGGED.name || startingValue != null
+
 /** A free-form activity (push-ups, running, crunches). Optional target; actuals are recorded unclamped. */
 @Serializable
 @Entity(tableName = "activities")
@@ -158,6 +171,13 @@ data class WorkoutActivity(
     @Required val icon: String = "💪",
     @Required val unit: String,
     val target: Double? = null,
+    // EncodeDefault NEVER keeps v3/v4 exports free of the new keys, so older app versions can still decode them.
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @ColumnInfo(defaultValue = "'LOGGED'") val trackingMode: String = ActivityMode.LOGGED.name,
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @ColumnInfo(defaultValue = "NULL") val startingValue: Double? = null,
     @Required val sortOrder: Int = 0,
     @Required val createdAt: Long = System.currentTimeMillis(),
     @Required val updatedAt: Long = createdAt
