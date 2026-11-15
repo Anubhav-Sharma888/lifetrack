@@ -57,6 +57,13 @@ class ProgressTrackingTest {
         assertEquals(75.0, ProgressTracking.continuation(a, entries, start)!!, 0.0)
     }
 
+    @Test fun `backdated positions continue from the latest entry before the requested date`() {
+        val a = activity(ActivityMode.INCREASING)
+        val entries = listOf(entry(start.plusDays(10), 120.0), entry(start.plusDays(12), 130.0))
+        // Filling day 11 continues from day 10's position, not the newest one.
+        assertEquals(121.0, ProgressTracking.continuation(a, entries, start.plusDays(11))!!, 0.0)
+    }
+
     @Test fun `decreasing continues from the last reading without inventing direction`() {
         val a = activity(ActivityMode.DECREASING, startingValue = 85.0)
         val entries = listOf(entry(start, 85.0), entry(start.plusDays(1), 82.5))

@@ -1,6 +1,6 @@
 # Upgrading LifeTrack
 
-LifeTrack 1.7.0 uses Android version code 8. The application ID is `com.lifetrack.app`. Room schema 4 and existing backup formats carry forward from 1.6.0. Export a backup from your current installation, then install the new APK over it. An in-place update requires the same signing certificate. The browser preview keeps its own storage.
+LifeTrack 1.8.0 (development) migrates Room schema 4 → 5 additively: activities gain `trackingMode` and `startingValue`, and every existing activity keeps its plain daily-log semantics. Backup formats v1–v4 carry forward — they import with the new fields defaulted, and plain exports remain readable by older app versions. Version-5 backups (written only when directional activity data exists) cannot be read by app versions older than 1.8.0. The application ID is `com.lifetrack.app`. Export a backup from your current installation, then install the new APK over it. An in-place update requires the same signing certificate. The browser preview keeps its own storage.
 
 ## Historical migration notes for 1.1.0
 

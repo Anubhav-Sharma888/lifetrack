@@ -1,13 +1,14 @@
 package com.lifetrack.app.ui.components
 
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -23,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -51,11 +53,19 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.roundToInt
 
-/** Net change spoken plainly: signed quantity with a true minus sign, or a no-change phrase. */
+/** Net change spoken plainly: signed quantity with a true minus sign, or a flat phrase. */
 private fun netChangeLabel(change: Double, unit: String): String = when {
     change > 0 -> "+${formatQuantityLabel(change)} $unit"
     change < 0 -> "−${formatQuantityLabel(-change)} $unit"
-    else -> "no change yet"
+    else -> "no change so far"
+}
+
+/** Why a present goal produces no fraction; states the fix instead of implying patience. */
+private fun illDefinedGoalLabel(mode: ActivityMode): String = when (mode) {
+    ActivityMode.INCREASING -> "the goal must be above the starting value to measure progress"
+    ActivityMode.DECREASING -> "the goal must be below the starting value to measure progress"
+    ActivityMode.PERSONAL_BEST -> "the goal must be above zero to measure progress"
+    ActivityMode.LOGGED -> "this goal does not define progress"
 }
 
 /** Headline label for the current standing; LOGGED never reaches the directional summary. */
@@ -105,9 +115,10 @@ fun TrackingSummary(activity: WorkoutActivity, entries: List<ActivityEntry>, mod
             else -> add("No entries yet")
         }
         val target = activity.target
+        // The bar clamps to 0..1, so the caption clamps at zero too; overshoot above 100% stays truthful.
         when {
-            fraction != null -> add("Goal ${formatQuantityLabel(target ?: 0.0)} $unit · ${(fraction * 100f).roundToInt()}% reached")
-            target != null -> add("Goal ${formatQuantityLabel(target)} $unit — starting value and goal don't define progress yet")
+            fraction != null -> add("Goal ${formatQuantityLabel(target ?: 0.0)} $unit · ${(fraction * 100f).roundToInt().coerceAtLeast(0)}% reached")
+            target != null -> add("Goal ${formatQuantityLabel(target)} $unit — ${illDefinedGoalLabel(mode)}")
             else -> add("No goal set")
         }
     }
@@ -128,14 +139,14 @@ fun TrackingSummary(activity: WorkoutActivity, entries: List<ActivityEntry>, mod
         }
         val target = activity.target
         append(when {
-            fraction != null -> ", goal ${formatQuantityLabel(target ?: 0.0)} $unit, ${(fraction * 100f).roundToInt()} percent reached"
-            target != null -> ", goal ${formatQuantityLabel(target)} $unit, starting value and goal don't define progress yet"
+            fraction != null -> ", goal ${formatQuantityLabel(target ?: 0.0)} $unit, ${(fraction * 100f).roundToInt().coerceAtLeast(0)} percent reached"
+            target != null -> ", goal ${formatQuantityLabel(target)} $unit, ${illDefinedGoalLabel(mode)}"
             else -> ", no goal set"
         })
     }
 
     Surface(
-        modifier = modifier.fillMaxWidth().semantics { contentDescription = summary },
+        modifier = modifier.fillMaxWidth().semantics(mergeDescendants = true) { contentDescription = summary },
         shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.surfaceVariant
     ) {
@@ -225,13 +236,12 @@ fun ActivityTrend(activity: WorkoutActivity, entries: List<ActivityEntry>, modif
     }
 }
 
-/** The four tracking modes with example-led titles and supporting text, one selectable row each. */
+/** The four tracking modes with example-led titles and supporting text, one selectable row each.
+ *  Rows use selectable() with a RadioButton role so TalkBack reads one focusable, selected-aware stop per mode. */
 @Composable
 fun TrackingModeSelector(selected: ActivityMode, onSelect: (ActivityMode) -> Unit, enabled: Boolean = true, modifier: Modifier = Modifier) {
-    Column(
-        modifier.semantics { contentDescription = "Tracking mode" },
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("Tracking mode", style = MaterialTheme.typography.titleSmall)
         listOf(
             Triple(ActivityMode.LOGGED, "Daily log", "Quantity per day · push-ups, glasses of water"),
             Triple(ActivityMode.INCREASING, "Rising position", "Cumulative position toward a goal · book pages, savings"),
@@ -239,10 +249,11 @@ fun TrackingModeSelector(selected: ActivityMode, onSelect: (ActivityMode) -> Uni
             Triple(ActivityMode.PERSONAL_BEST, "Personal best", "Records · the best attempt ever wins")
         ).forEach { (mode, title, supporting) ->
             Row(
-                Modifier.fillMaxWidth().clickable(enabled = enabled) { onSelect(mode) },
+                Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    .selectable(selected = selected == mode, role = Role.RadioButton, enabled = enabled) { onSelect(mode) },
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                RadioButton(selected = selected == mode, onClick = { onSelect(mode) }, enabled = enabled)
+                RadioButton(selected = selected == mode, onClick = null, enabled = enabled)
                 Column(Modifier.weight(1f)) {
                     Text(title, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
                     Text(supporting, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -40,6 +40,16 @@ class DirectionalBackupTest {
         }
     }
 
+    @Test fun `a logged activity carrying a leftover starting value still requires version five`() {
+        // The editor clears hidden baselines on mode switches, but the data model treats any
+        // startingValue as directional so older apps are never surprised by unknown keys.
+        val hybrid = directionalActivity().copy(trackingMode = ActivityMode.LOGGED.name)
+        assertThrows(IllegalArgumentException::class.java) {
+            BackupValidator.validate(backup(listOf(hybrid), emptyList(), 3), today)
+        }
+        BackupValidator.validate(backup(listOf(hybrid), emptyList(), 5), today)
+    }
+
     @Test fun `plain activities omit the version five keys so older apps can still decode exports`() {
         val text = BackupValidator.json.encodeToString(
             backup(listOf(directionalActivity().copy(trackingMode = "LOGGED", startingValue = null)), emptyList(), 3)

@@ -95,7 +95,7 @@ fun AnalyticsScreen(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate,
                 val current = ProgressTracking.current(activity, activityEntries.filter { it.activityId == activity.id })
                 val datedText = if (inWindow.isEmpty()) "No entries in this window."
                     else "Oldest to newest: " + inWindow.joinToString(" · ") { entry ->
-                        "${if (entry.quantity == entry.quantity.toLong().toDouble()) entry.quantity.toLong().toString() else entry.quantity.toString()} ${activity.unit} on ${entry.date}"
+                        "${formatQuantityLabel(entry.quantity)} ${activity.unit} on ${entry.date}"
                     }
                 Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(activity.icon)
@@ -107,10 +107,17 @@ fun AnalyticsScreen(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate,
                         Text(datedText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Text(if (directional) current?.let(::formatQuantityLabel) ?: "—" else formatQuantityLabel(total),
-                        style = AlmanacType.monoData, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                        style = AlmanacType.monoData, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.semantics {
+                            contentDescription = if (directional) "${activity.name} current value: " +
+                                (current?.let(::formatQuantityLabel) ?: "none") + " " + activity.unit
+                            else "${activity.name} last 28 days total: " + formatQuantityLabel(total) + " " + activity.unit
+                        })
                 }
             }
-            Text("Actual workout quantities by day. A day total can include multiple sets. Directional activities show their current value instead of a window total.",
+            val anyDirectional = activities.any { ProgressTracking.mode(it) != ActivityMode.LOGGED }
+            Text(if (anyDirectional) "Actual workout quantities by day. A day total can include multiple sets. Directional activities show their current value instead of a window total."
+                else "Actual workout quantities by day. A day total can include multiple sets.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         AnalyticsPanel {

@@ -44,6 +44,6 @@ Avoid redundant analysis: one specialist per concern; reviewers see finished dif
 
 ## Current state
 
-- Branch `develop/v1.8.0`; versionName 1.7.0 / versionCode 8; Room schema 4; backup format v3/v4.
-- v1.8.0 plan (agreed): 1) CSV export, 2) app lock, 3) daily reflection (mood + journal), 4) milestones, 5) flexible scheduling (every-N-days / weekly quotas). Single Room migration 4→5 and backup format v3→v4-bump when those land.
-- Known gap: README still says "Room database schema 4 … backup format version 2" in places — refresh docs when releasing 1.8.0.
+- Branch `develop/v1.8.0`; versionName 1.7.0 / versionCode 8; Room schema **5**; backup format v1–v5 (v5 = directional activities; exported only when such data exists; plain exports stay key-free for older apps via `@EncodeDefault(NEVER)`).
+- v1.8.0 progress: 1) ✅ CSV export, 2) ✅ directional progress tracking in Activities (LOGGED/INCREASING/DECREASING/PERSONAL_BEST), 3) app lock, 4) daily reflection (mood + journal), 5) milestones, 6) flexible scheduling — remaining features may add migration 5→6 when they land.
+- Known gap: README still describes schema 4 / backup v2 in places — refresh docs when releasing 1.8.0.

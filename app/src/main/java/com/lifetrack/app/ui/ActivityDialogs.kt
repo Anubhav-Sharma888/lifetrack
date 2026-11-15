@@ -120,12 +120,13 @@ fun SpineItem(nodeColor: Color = MaterialTheme.colorScheme.onSurfaceVariant, con
 fun ExerciseTrace(activity: WorkoutActivity, entries: List<ActivityEntry>, modifier: Modifier = Modifier) {
     if (entries.isEmpty()) return
     val ordered = entries.sortedBy { it.date }
-    val max = ordered.maxOf { it.quantity }
+    // Completed countdowns log zero, so the tallest bar may be zero: scale 1 keeps heights finite instead of NaN.
+    val max = ordered.maxOf { it.quantity }.takeIf { it > 0.0 } ?: 1.0
     val baseline = MaterialTheme.colorScheme.outlineVariant
     Column(modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().height(34.dp).padding(bottom = 3.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
             ordered.forEach { entry ->
-                Box(Modifier.weight(1f).height((30 * (entry.quantity / max).coerceIn(0.06, 1.0)).dp)
+                Box(Modifier.weight(1f).height((30 * (entry.quantity / max).coerceIn(0.0, 1.0)).dp)
                     .clip(RoundedCornerShape(2.dp))
                     .background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.55f))
                     .semantics { contentDescription = entry.date.toString() + ": " + formatQuantityLabel(entry.quantity) + " " + activity.unit })
@@ -347,6 +348,11 @@ fun ActivityEditorDialog(id: Long, state: LifeTrackState, vm: HabitViewModel, on
     var mode by rememberSaveable { mutableStateOf(existing?.trackingMode ?: ActivityMode.LOGGED.name) }
     var starting by rememberSaveable { mutableStateOf(existing?.startingValue?.let { formatQuantityLabel(it) } ?: "") }
     val selectedMode = ActivityMode.fromStored(mode)
+    // A leftover baseline on LOGGED or PERSONAL_BEST is invisible in this form yet still reclassifies
+    // the activity as directional for exports, so switching modes clears it and malformed numbers block saving.
+    val positional = selectedMode == ActivityMode.INCREASING || selectedMode == ActivityMode.DECREASING
+    val numbersParse = (target.isBlank() || target.toDoubleOrNull() != null) &&
+        (starting.isBlank() || starting.toDoubleOrNull() != null)
     val busy by vm.busy.collectAsState()
     val operationError by vm.operationError.collectAsState()
     LaunchedEffect(id) { vm.clearOperationError() }
@@ -357,8 +363,11 @@ fun ActivityEditorDialog(id: Long, state: LifeTrackState, vm: HabitViewModel, on
                 OutlinedTextField(icon, { if (it.length <= 32) icon = it }, label = { Text("Emoji") }, singleLine = true, colors = almanacFieldColors(), modifier = Modifier.weight(1f))
                 OutlinedTextField(unit, { if (it.length <= 24) unit = it }, label = { Text("Unit · pushups, miles…") }, singleLine = true, colors = almanacFieldColors(), modifier = Modifier.weight(2f))
             }
-            TrackingModeSelector(selected = selectedMode, onSelect = { mode = it.name }, enabled = !busy)
-            if (selectedMode == ActivityMode.INCREASING || selectedMode == ActivityMode.DECREASING) {
+            TrackingModeSelector(selected = selectedMode, onSelect = { newMode ->
+                mode = newMode.name
+                if (newMode != ActivityMode.INCREASING && newMode != ActivityMode.DECREASING) starting = ""
+            }, enabled = !busy)
+            if (positional) {
                 OutlinedTextField(starting, { if (it.length <= 9 && (it.isEmpty() || it.all { c -> c.isDigit() || c == '.' })) starting = it },
                     label = { Text("Starting value · optional") }, singleLine = true, colors = almanacFieldColors(),
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal))
@@ -367,6 +376,8 @@ fun ActivityEditorDialog(id: Long, state: LifeTrackState, vm: HabitViewModel, on
                 label = { Text(if (selectedMode == ActivityMode.LOGGED) "Daily target · optional" else "Goal value · optional") },
                 singleLine = true, colors = almanacFieldColors(),
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal))
+            if (!numbersParse) Text("Enter whole numbers or one decimal point — values with more are not saved.",
+                color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             Text(when (selectedMode) {
                 ActivityMode.LOGGED -> "Actual quantities are recorded as-is: logging 32 against a 20 target is a good day, never an overshoot."
                 ActivityMode.INCREASING -> "Entries record the position reached by that date — page 50 today, resume at 51 tomorrow. The starting value anchors progress."
@@ -377,9 +388,10 @@ fun ActivityEditorDialog(id: Long, state: LifeTrackState, vm: HabitViewModel, on
                 style = MaterialTheme.typography.bodySmall)
             operationError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         }
-    }, confirmButton = { TextButton(enabled = !busy, onClick = {
+    }, confirmButton = { TextButton(enabled = !busy && numbersParse, onClick = {
         vm.saveActivity(WorkoutActivity(id = existing?.id ?: 0, name = name.trim(), icon = icon.trim().ifBlank { "💪" },
-            unit = unit.trim(), target = target.toDoubleOrNull(), trackingMode = mode, startingValue = starting.toDoubleOrNull(),
+            unit = unit.trim(), target = target.toDoubleOrNull(), trackingMode = mode,
+            startingValue = if (positional) starting.toDoubleOrNull() else null,
             sortOrder = existing?.sortOrder ?: state.activities.size,
             createdAt = existing?.createdAt ?: System.currentTimeMillis(), updatedAt = System.currentTimeMillis()),
             onSaved = { onDismiss() })
@@ -398,7 +410,7 @@ fun ActivityLogDialog(activityId: Long, date: LocalDate, state: LifeTrackState, 
     val busy by vm.busy.collectAsState()
     val operationError by vm.operationError.collectAsState()
     LaunchedEffect(activityId, date) { vm.clearOperationError() }
-    val allowsZero = activity.trackingMode == ActivityMode.DECREASING.name
+    val allowsZero = ProgressTracking.mode(activity) == ActivityMode.DECREASING
     AlertDialog(onDismissRequest = { if (!busy) onDismiss() }, title = { Text("${activity.icon} ${activity.name}") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(date.format(java.time.format.DateTimeFormatter.ofPattern("EEEE, d MMMM")), style = MaterialTheme.typography.labelLarge)
@@ -441,23 +453,29 @@ fun ActivityHistoryDialog(activity: WorkoutActivity, state: LifeTrackState, vm: 
         Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("History · newest first", style = MaterialTheme.typography.titleSmall)
             if (activity.target != null) Text(
-                if (directional) "Goal ${formatQuantityLabel(activity.target)} ${activity.unit} · entries record the position or measurement on each date."
-                else "Target ${formatQuantityLabel(activity.target)} ${activity.unit} per day · actuals may sit above or below it.",
+                when (mode) {
+                    ActivityMode.INCREASING -> "Goal ${formatQuantityLabel(activity.target)} ${activity.unit} · entries record the position reached on each date."
+                    ActivityMode.DECREASING -> "Goal ${formatQuantityLabel(activity.target)} ${activity.unit} · entries record the measurement on each date."
+                    ActivityMode.PERSONAL_BEST -> "Goal ${formatQuantityLabel(activity.target)} ${activity.unit} · each entry is an attempt; your best attempt ever is the record."
+                    ActivityMode.LOGGED -> "Target ${formatQuantityLabel(activity.target)} ${activity.unit} per day · actuals may sit above or below it."
+                },
                 style = MaterialTheme.typography.bodySmall)
             // Window sums are meaningless for positions, measurements and records; those show current, start and goal.
             if (directional) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Stat(ProgressTracking.current(activity, history)?.let(::formatQuantityLabel) ?: "—",
                     if (mode == ActivityMode.PERSONAL_BEST) "BEST EVER" else "CURRENT", Modifier.weight(1f))
-                Stat(ProgressTracking.baseline(activity, history)?.let(::formatQuantityLabel) ?: "—", "START", Modifier.weight(1f))
+                // Without an explicit starting value the baseline is the earliest reading, so label it honestly.
+                Stat(ProgressTracking.baseline(activity, history)?.let(::formatQuantityLabel) ?: "—",
+                    if (activity.startingValue == null) "FIRST" else "START", Modifier.weight(1f))
                 Stat(activity.target?.let(::formatQuantityLabel) ?: "—", "GOAL", Modifier.weight(1f))
             } else Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Stat("${formatQuantityLabel(total)}", "LAST 28 DAYS", Modifier.weight(1f))
                 Stat("${inWindow.size}", "DAYS LOGGED", Modifier.weight(1f))
                 Stat("${formatQuantityLabel(best)}", "BEST DAY", Modifier.weight(1f))
             }
-            if (history.isEmpty()) Text("No entries yet — log the first session from Today.", style = MaterialTheme.typography.bodySmall)
+            if (history.isEmpty()) Text("No entries yet — log the first entry from the Activities screen.", style = MaterialTheme.typography.bodySmall)
             else Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(if (directional) "Progression" else "Activity progression", style = MaterialTheme.typography.titleMedium)
+                Text("Activity progression", style = MaterialTheme.typography.titleMedium)
                 if (directional) ActivityTrend(activity, history) else ExerciseTrace(activity, history.take(14))
                 Text("Entries", style = MaterialTheme.typography.titleMedium)
                 history.forEach { entry ->

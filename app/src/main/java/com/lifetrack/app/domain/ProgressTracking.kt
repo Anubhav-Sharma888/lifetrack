@@ -55,7 +55,8 @@ object ProgressTracking {
                 ?.let { base -> ((current - base) / (target - base)).toFloat() }
             ActivityMode.DECREASING -> baseline(activity, entries)?.takeIf { it > target }
                 ?.let { base -> ((base - current) / (base - target)).toFloat() }
-            ActivityMode.PERSONAL_BEST -> (current / target).toFloat()
+            // A zero or negative record goal has no meaningful fraction (and would divide by zero).
+            ActivityMode.PERSONAL_BEST -> if (target > 0) (current / target).toFloat() else null
             ActivityMode.LOGGED -> null
         }
     }
