@@ -296,6 +296,26 @@ class HabitRepositoryTest {
     }
 
     @Test
+    fun csvExportWritesUtf8HeaderAndOneRowPerCheckInWithoutBackupSideEffects() = runBlocking {
+        val habit = createHabit("Export me")
+        repository.setLog(habit, today, LogStatus.COMPLETED, "A note with, comma and \"quote\"")
+        // A CSV export must not disturb the backup reminder's last-successful-backup timestamp.
+        val backup = backupFile()
+        repository.exportTo(Uri.fromFile(backup))
+        val lastBackupAt = repository.settings.first().lastExportAt
+        assertNotNull(lastBackupAt)
+        val file = backupFile()
+        repository.exportCsvTo(Uri.fromFile(file))
+        val text = file.readText(Charsets.UTF_8)
+        assertTrue(text.startsWith("\uFEFF"))
+        assertEquals("log_updated_at", text.removePrefix("\uFEFF").substringBefore("\r\n").substringAfterLast(','))
+        assertTrue(text.contains("Export me"))
+        assertTrue(text.contains("\"A note with, comma and \"\"quote\"\"\""))
+        assertEquals(2, text.split("\r\n").size - 1)
+        assertEquals(lastBackupAt, repository.settings.first().lastExportAt)
+    }
+
+    @Test
     fun resetErasesEveryRecordAndRestoresDefaultSettings() = runBlocking {
         val habit = createHabit("Keep me")
         repository.setLog(habit, today, LogStatus.COMPLETED, "Keep this note")

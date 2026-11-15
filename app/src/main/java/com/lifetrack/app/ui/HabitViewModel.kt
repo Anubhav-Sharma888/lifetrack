@@ -257,6 +257,11 @@ class HabitViewModel @Inject constructor(
         } finally { password?.fill('\u0000') }
     }
 
+    fun exportCsv(uri: Uri) = perform {
+        repository.exportCsvTo(uri)
+        _events.emit(UiEvent.Message("CSV exported. It is a spreadsheet copy, not a backup."))
+    }
+
     /** Room flows re-emit when the transaction commits, so LifeTrackApplication refreshes the widgets without an explicit call. */
     fun resetAllData() = perform {
         val habitIds = repository.resetAllData()

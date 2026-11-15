@@ -333,6 +333,16 @@ class HabitRepository @Inject constructor(
         }
     } }
 
+    /** Analysis copy for spreadsheets. JSON backups remain the only restorable format,
+     *  so this reads one consistent transaction snapshot and never updates `lastExportAt`. */
+    suspend fun exportCsvTo(uri: Uri) = withContext(Dispatchers.IO) {
+        val snapshot = readSnapshot()
+        val csv = buildString { CsvExport.write(snapshot, this) }
+        val output = context.contentResolver.openOutputStream(uri, "wt")
+            ?: throw IllegalStateException("The selected location cannot be opened for writing.")
+        output.use { stream -> stream.write(csv.toByteArray(Charsets.UTF_8)); stream.flush() }
+    }
+
     /** Replace, never merge: IDs, stack relationships, notes and the spent-freeze ledger survive exactly. */
     suspend fun importFrom(uri: Uri, password: CharArray? = null) = backupMutex.withLock { withContext(Dispatchers.IO) {
         val input = context.contentResolver.openInputStream(uri)
