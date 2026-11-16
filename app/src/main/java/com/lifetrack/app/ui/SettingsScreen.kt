@@ -71,6 +71,7 @@ fun SettingsScreen(
     // The typed reset confirmation stays out of saved instance state too, like the backup password.
     var resetConfirmation by remember { mutableStateOf("") }
     var permissionMessage by remember { mutableStateOf<String?>(null) }
+    var lockMessage by remember { mutableStateOf<String?>(null) }
     val export = rememberLauncherForActivityResult(CreateInDownloads("application/json")) { uri ->
         if (uri != null) {
             if (encryptedExport) { vm.clearOperationError(); pendingEncryptedExport = uri.toString(); backupPassword = ""; confirmPassword = "" }
@@ -114,6 +115,22 @@ fun SettingsScreen(
         }
         SettingsSection("Cadence & notifications") {
             SettingsAction("Schedules & Reminders", "Habit schedules and daily check-ins", Icons.Outlined.Notifications, onClick = onSchedules)
+        }
+        SettingsSection("Privacy & security") {
+            PreferenceSwitch("App lock", "Ask for your fingerprint or screen lock when LifeTrack opens · requires an enrolled screen lock",
+                settings.appLockEnabled, !busy) { enable ->
+                if (!enable) {
+                    lockMessage = null
+                    vm.updateSettings(settings.copy(appLockEnabled = false))
+                } else if (appLockAvailable(context)) {
+                    lockMessage = null
+                    vm.updateSettings(settings.copy(appLockEnabled = true))
+                } else lockMessage = "No screen lock or fingerprint is enrolled. Add one in Android settings, then turn app lock on."
+            }
+            lockMessage?.let {
+                Text(it, Modifier.padding(horizontal = 16.dp, vertical = 8.dp).semantics { liveRegion = LiveRegionMode.Polite },
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
         SettingsSection("Display & accessibility") {
             SettingsAction("Theme", settings.theme.lowercase().replaceFirstChar(Char::titlecase), Icons.Outlined.DarkMode, !busy) { themeDialog = true }

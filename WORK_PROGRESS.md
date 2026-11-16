@@ -1,6 +1,42 @@
-# LifeTrack v1.8.0 — Work Progress (autonomous session, 2026-11-15)
+# LifeTrack v1.8.0 — Work Progress (autonomous session, 2026-11-15; hardening session 2026-11-16/17)
 
 Branch: `develop/v1.8.0` · Backup at `D:\LifeTracker-backup` (untouched)
+
+---
+
+# Session 2 (2026-11-16/17) — app-lock hardening, all four review findings resolved
+
+## Commits
+
+| Commit | Content | Status |
+|---|---|---|
+| — | feat: opt-in biometric app lock (schema 6, gate, FLAG_SECURE, local-only setting) — implemented in the frozen state | uncommitted → committed this session |
+| — | Stage-1 hardening: widget lock enforcement, prompt-churn elimination, reset consistency, lint fixes, draft-survival evidence test | uncommitted → committed this session |
+
+GitHub push was **unblocked** between sessions (credentials completed): remote head matched local `b855d1e` at session start.
+
+## Stage-1 fixes (verified by the full unit suite below)
+
+1. **Lint errors — both fixed, no suppressions:** `local.properties` drive-colon escaping (`PropertyEscape`, my own file); `AppLock.kt` uses `LocalActivity` instead of casting `LocalContext` (`ContextCastToActivity`).
+2. **Widget bypass closed** (frontend-engineer + lead): `LifeTrackWidget.provideGlance` checks `appLockEnabled` BEFORE reading any habit data — a locked device renders a placeholder with zero habit content in memory; `CompleteHabitAction.onAction` is inert while locked. Reminder notifications keep showing habit names (pre-existing documented trade-off).
+3. **Backgrounded prompt churn eliminated:** `authenticate()` guard against double-tap; `ERROR_CANCELED`/non-resumed-success generation bumps gated on host STARTED; ON_RESUME observer re-offers the sheet once per return.
+4. **Editor drafts — prior finding REFUTED with evidence:** `AppLockGateTest.routeBackedDraftsSurviveGateUnmountAndRemount` mirrors the NavHost `SaveableStateProvider` pattern and PASSES — route-content `rememberSaveable` survives the gate's unmount/remount. Residual: device QA still recommended.
+5. **Reset consistency:** `resetAllData()` preserves the local `appLockEnabled` (never silently weakens security); pinned by the extended reset test.
+
+## Session-2 test results
+
+- **Final Stage-2 verification: `BUILD SUCCESSFUL in 7m 6s` — testDebugUnitTest 156/156 (17 suites) + lintDebug, all green after every fix.** Regression check for CSV export, directional tracking, migrations, JSON backups ✓.
+- Security-privacy-specialist verified fixes 1–3 and caught a vacuous draft test; the remedy (hoisted `SaveableStateHolder` above the gate in LifeTrackApp) makes editor drafts survive re-lock for real, and the test now mirrors the shipped structure.
+
+## Session-2 residual items (device QA / future)
+
+- Real BiometricPrompt sequencing on hardware (stop-during-prompt race, OEM quirks) — reasoned from library sources, not devices.
+- Reminder notifications still show habit names on the lock screen (VISIBILITY_PRIVATE hides them behind device unlock — pre-existing trade-off).
+- Settings About text and versionName still say 1.7.0 — release plumbing for the 1.8.0 bump.
+
+---
+
+# Session 1 (2026-11-15) — CSV export + directional progress tracking
 
 ## Completed work and commits
 

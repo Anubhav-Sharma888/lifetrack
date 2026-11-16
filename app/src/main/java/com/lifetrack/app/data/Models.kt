@@ -133,7 +133,11 @@ data class AppSettings(
     @Required val backupReminder: Boolean = false,
     @Required val lastExportAt: Long? = null,
     @ColumnInfo(defaultValue = "1") val hapticsEnabled: Boolean = true,
-    @ColumnInfo(defaultValue = "1") val animationsEnabled: Boolean = true
+    @ColumnInfo(defaultValue = "1") val animationsEnabled: Boolean = true,
+    // Local-only security choice: stripped from every backup so restoring can never silently change it.
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @ColumnInfo(defaultValue = "0") val appLockEnabled: Boolean = false
 )
 
 class Converters {

@@ -101,6 +101,8 @@ object BackupValidator {
         require(backup.formatVersion >= 5 || backup.activities.none { it.isDirectional() }) { "Directional activity tracking requires backup version 5." }
         require(backup.exportedAt >= 0) { "Invalid export timestamp." }
         validateSettings(backup.settings)
+        // App lock is a local-only security choice and never roams through backups, plain or encrypted.
+        require(!backup.settings.appLockEnabled) { "App lock is not carried in backups. Enable it again after restoring." }
         require(backup.habits.map { it.id }.toSet().size == backup.habits.size) { "Duplicate habit IDs in backup." }
         val habits = backup.habits.associateBy { it.id }
         backup.habits.forEach { habit ->

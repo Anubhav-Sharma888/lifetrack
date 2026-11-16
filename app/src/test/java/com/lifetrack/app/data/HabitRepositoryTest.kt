@@ -10,6 +10,7 @@ import java.time.YearMonth
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.jsonObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -361,6 +362,25 @@ class HabitRepositoryTest {
     }
 
     @Test
+    fun appLockSettingPersistsLocallySurvivesRestoresAndNeverTravelsInBackups() = runBlocking {
+        repository.updateSettings(AppSettings(appLockEnabled = true))
+        assertTrue(repository.settings.first().appLockEnabled)
+        val output = backupFile()
+        repository.exportTo(Uri.fromFile(output))
+        val text = output.readText(Charsets.UTF_8)
+        // The lock must be absent from the exported JSON so older app versions can still decode the file.
+        val settingsJson = kotlinx.serialization.json.Json.parseToJsonElement(text)
+            .jsonObject.getValue("settings").jsonObject
+        assertFalse("appLockEnabled" in settingsJson)
+        assertEquals(3, BackupValidator.decode(text).formatVersion)
+        // Restoring must never silently weaken the local lock, even though backups never carry it.
+        repository.importFrom(Uri.fromFile(output))
+        assertTrue(repository.settings.first().appLockEnabled)
+        repository.updateSettings(AppSettings(appLockEnabled = false))
+        assertFalse(repository.settings.first().appLockEnabled)
+    }
+
+    @Test
     fun resetErasesEveryRecordAndRestoresDefaultSettings() = runBlocking {
         val habit = createHabit("Keep me")
         repository.setLog(habit, today, LogStatus.COMPLETED, "Keep this note")
@@ -372,7 +392,7 @@ class HabitRepositoryTest {
         val activityId = repository.activities.first().single().id
         repository.setActivityEntry(activityId, today, 15.0)
         database.dao().insertReminderDelivery(ReminderDelivery(habit, today, 5L))
-        repository.updateSettings(AppSettings(theme = "DARK", backupReminder = true))
+        repository.updateSettings(AppSettings(theme = "DARK", backupReminder = true, appLockEnabled = true))
 
         val resetIds = repository.resetAllData()
         assertEquals(listOf(habit, archived), resetIds)
@@ -382,7 +402,8 @@ class HabitRepositoryTest {
         assertTrue(repository.pauses.first().isEmpty())
         assertTrue(repository.activities.first().isEmpty())
         assertTrue(repository.activityEntries.first().isEmpty())
-        assertEquals(AppSettings(), repository.settings.first())
+        // Reset restores default preferences but must never silently weaken the local lock.
+        assertEquals(AppSettings(appLockEnabled = true), repository.settings.first())
     }
 
     @Test

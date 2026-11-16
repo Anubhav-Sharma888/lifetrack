@@ -46,4 +46,11 @@ object DatabaseMigrations {
             db.execSQL("ALTER TABLE activities ADD COLUMN startingValue REAL DEFAULT NULL")
         }
     }
+
+    /** The opt-in app lock arrives in version 6 as a local-only preference; existing settings are untouched. */
+    val MIGRATION_5_6 = object : Migration(5, 6) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE app_settings ADD COLUMN appLockEnabled INTEGER NOT NULL DEFAULT 0")
+        }
+    }
 }

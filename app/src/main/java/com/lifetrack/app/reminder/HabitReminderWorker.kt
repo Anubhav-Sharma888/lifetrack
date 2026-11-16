@@ -26,6 +26,7 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.first
 
 class HabitReminderWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result { return try {
@@ -80,7 +81,8 @@ class HabitReminderWorker(context: Context, parameters: WorkerParameters) : Coro
     }
 }
 
-/** A stale notification cannot complete yesterday or a replacement habit from a restored backup. */
+/** A stale notification cannot complete yesterday or a replacement habit from a restored backup.
+ *  While the app lock is on, the Complete action is inert — data changes require unlocking first. */
 class CompleteReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val id = intent.getLongExtra("habit_id", -1)
@@ -90,6 +92,8 @@ class CompleteReminderReceiver : BroadcastReceiver() {
         val pending = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
+                // Same policy as the widget: mutations wait for the in-app lock gate.
+                if (backgroundRepository(context).settings.first().appLockEnabled) return@launch
                 backgroundRepository(context).completeHabit(id, LocalDate.ofEpochDay(epochDay), expectedCreatedAt = created)
                 HabitReminderNotifications.cancel(context, id)
                 refreshWidgets(context)

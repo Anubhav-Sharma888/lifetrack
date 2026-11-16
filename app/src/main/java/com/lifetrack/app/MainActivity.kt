@@ -2,15 +2,16 @@ package com.lifetrack.app
 
 import android.content.Intent
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.mutableStateOf
+import androidx.fragment.app.FragmentActivity
 import com.lifetrack.app.ui.LifeTrackApp
 import dagger.hilt.android.AndroidEntryPoint
 
+/** A FragmentActivity so the opt-in app lock can present BiometricPrompt. */
 @AndroidEntryPoint
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     private val settingsRequest = mutableStateOf(0)
     private val habitRequest = mutableStateOf<Long?>(null)
     override fun onCreate(savedInstanceState: Bundle?) {

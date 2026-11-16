@@ -46,6 +46,7 @@ import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
 /** Entry point for Android-created callbacks and workers, whose constructors Hilt does not own. */
@@ -65,6 +66,15 @@ fun backgroundRepository(context: Context): HabitRepository =
 class LifeTrackWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val today = LocalDate.now()
+        // While locked, no habit data is even read into memory — the placeholder renders from nothing.
+        if (backgroundRepository(context).settings.first().appLockEnabled) {
+            provideContent {
+                GlanceTheme {
+                    LockedWidgetContent(today)
+                }
+            }
+            return
+        }
         val snapshot = backgroundRepository(context).readSnapshot(today)
         val habits = snapshot.habits
             .filter { !it.isArchived && Analytics.eligible(it, today, snapshot.pauses) }
@@ -184,12 +194,54 @@ private fun WidgetContent(
     }
 }
 
+/** Rendered when app lock is on: no habit names, icons, day counts or completion status. */
+@Composable
+private fun LockedWidgetContent(today: LocalDate) {
+    Column(
+        modifier = GlanceModifier.fillMaxSize()
+            .background(GlanceTheme.colors.widgetBackground)
+            .padding(16.dp),
+    ) {
+        Row(
+            modifier = GlanceModifier.fillMaxWidth()
+                .clickable(actionStartActivity<MainActivity>()),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = GlanceModifier.defaultWeight()) {
+                Text(
+                    "LifeTrack",
+                    style = TextStyle(
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = GlanceTheme.colors.onSurface,
+                    ),
+                )
+                Text(
+                    "Locked · open LifeTrack and unlock to see your habits.",
+                    style = TextStyle(fontSize = 12.sp, color = GlanceTheme.colors.onSurfaceVariant),
+                )
+            }
+            Text(
+                "↗",
+                style = TextStyle(fontSize = 22.sp, color = GlanceTheme.colors.primary),
+            )
+        }
+        Spacer(GlanceModifier.height(10.dp))
+        Text(
+            "$today",
+            style = TextStyle(fontSize = 12.sp, color = GlanceTheme.colors.onSurfaceVariant),
+        )
+    }
+}
+
 class LifeTrackWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = LifeTrackWidget()
 }
 
 class CompleteHabitAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        // Defense in depth: a stale pre-lock widget snapshot must never complete a habit.
+        if (backgroundRepository(context).settings.first().appLockEnabled) return
         val habitId = parameters[HabitId] ?: return
         val habitCreatedAt = parameters[HabitCreatedAt] ?: return
         val displayedDate = parameters[DisplayedDate] ?: return

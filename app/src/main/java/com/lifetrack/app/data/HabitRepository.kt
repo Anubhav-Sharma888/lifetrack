@@ -329,7 +329,7 @@ class HabitRepository @Inject constructor(
                     else -> 3
                 },
                 exportedAt = now, habits = habits, logs = dao.allLogs(),
-                settings = (dao.getSettings() ?: AppSettings()).copy(lastExportAt = now),
+                settings = (dao.getSettings() ?: AppSettings()).copy(lastExportAt = now, appLockEnabled = false),
                 freezes = dao.allFreezes(), pauses = dao.allPauses(),
                 activities = activities, activityEntries = dao.allActivityEntries()
             )
@@ -386,6 +386,8 @@ class HabitRepository @Inject constructor(
         }
         BackupValidator.validate(backup)
         db.withTransaction {
+            // Restoring must never silently weaken the local lock: the local flag survives every import.
+            val keepAppLock = (dao.getSettings() ?: AppSettings()).appLockEnabled
             dao.deleteLogs()
             dao.deletePauses()
             dao.deleteReminderDeliveries()
@@ -400,13 +402,15 @@ class HabitRepository @Inject constructor(
             dao.insertFreezes(backup.freezes)
             dao.insertActivities(backup.activities)
             dao.insertActivityEntries(backup.activityEntries)
-            dao.saveSettings(backup.settings)
+            dao.saveSettings(backup.settings.copy(appLockEnabled = keepAppLock))
         }
     } }
 
-    /** Erases every record and restores default settings in one transaction; the same cleanup importFrom uses. Safe to retry after interruption. */
+    /** Erases every record and restores default settings in one transaction; the same cleanup importFrom uses. Safe to retry after interruption.
+     *  Like a restore, this never silently weakens the local app lock: the flag survives the reset. */
     suspend fun resetAllData(): List<Long> = backupMutex.withLock { withContext(Dispatchers.IO) {
         db.withTransaction {
+            val keepAppLock = (dao.getSettings() ?: AppSettings()).appLockEnabled
             val habitIds = dao.allHabits().map { it.id }
             dao.deleteLogs()
             dao.deletePauses()
@@ -416,7 +420,7 @@ class HabitRepository @Inject constructor(
             dao.deleteSettings()
             dao.deleteAllActivityEntries()
             dao.deleteAllActivities()
-            dao.saveSettings(AppSettings())
+            dao.saveSettings(AppSettings().copy(appLockEnabled = keepAppLock))
             habitIds
         }
     } }

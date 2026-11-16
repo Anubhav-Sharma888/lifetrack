@@ -44,6 +44,7 @@ Avoid redundant analysis: one specialist per concern; reviewers see finished dif
 
 ## Current state
 
-- Branch `develop/v1.8.0`; versionName 1.7.0 / versionCode 8; Room schema **5**; backup format v1–v5 (v5 = directional activities; exported only when such data exists; plain exports stay key-free for older apps via `@EncodeDefault(NEVER)`).
-- v1.8.0 progress: 1) ✅ CSV export, 2) ✅ directional progress tracking in Activities (LOGGED/INCREASING/DECREASING/PERSONAL_BEST), 3) app lock, 4) daily reflection (mood + journal), 5) milestones, 6) flexible scheduling — remaining features may add migration 5→6 when they land.
-- Known gap: README still describes schema 4 / backup v2 in places — refresh docs when releasing 1.8.0.
+- Branch `develop/v1.8.0`; versionName 1.7.0 / versionCode 8; Room schema **6**; backup format v1–v5 (v5 = directional activities; exported only when such data exists; plain exports stay key-free for older apps via `@EncodeDefault(NEVER)`).
+- App lock (opt-in biometric/device-credential gate) is local-only: `appLockEnabled` is stripped from backups and rejected on import — never serialize it.
+- v1.8.0 progress: 1) ✅ CSV export, 2) ✅ directional progress tracking in Activities, 3) ✅ biometric app lock, 4) daily reflection (mood + journal), 5) milestones, 6) flexible scheduling.
+- Known gap: README/UPGRADE describe the pre-1.8.0 state in places — refresh docs when releasing 1.8.0.
