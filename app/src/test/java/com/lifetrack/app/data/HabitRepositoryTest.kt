@@ -10,6 +10,7 @@ import java.time.YearMonth
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.jsonObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -296,6 +297,90 @@ class HabitRepositoryTest {
     }
 
     @Test
+    fun csvExportWritesUtf8HeaderAndOneRowPerCheckInWithoutBackupSideEffects() = runBlocking {
+        val habit = createHabit("Export me")
+        repository.setLog(habit, today, LogStatus.COMPLETED, "A note with, comma and \"quote\"")
+        // A CSV export must not disturb the backup reminder's last-successful-backup timestamp.
+        val backup = backupFile()
+        repository.exportTo(Uri.fromFile(backup))
+        val lastBackupAt = repository.settings.first().lastExportAt
+        assertNotNull(lastBackupAt)
+        val file = backupFile()
+        repository.exportCsvTo(Uri.fromFile(file))
+        val text = file.readText(Charsets.UTF_8)
+        assertTrue(text.startsWith("\uFEFF"))
+        assertEquals("log_updated_at", text.removePrefix("\uFEFF").substringBefore("\r\n").substringAfterLast(','))
+        assertTrue(text.contains("Export me"))
+        assertTrue(text.contains("\"A note with, comma and \"\"quote\"\"\""))
+        assertEquals(2, text.split("\r\n").size - 1)
+        assertEquals(lastBackupAt, repository.settings.first().lastExportAt)
+    }
+
+    @Test
+    fun directionalActivityValidationBackupRoundTripAndEntryGuards() = runBlocking {
+        expectRejected { repository.saveActivity(WorkoutActivity(name = "Sideways", unit = "u", trackingMode = "SIDEWAYS")) }
+        expectRejected { repository.saveActivity(WorkoutActivity(name = "Negative start", unit = "u", trackingMode = ActivityMode.DECREASING.name, startingValue = -1.0)) }
+        expectRejected { repository.saveActivity(WorkoutActivity(name = "Zero target", unit = "u", trackingMode = ActivityMode.INCREASING.name, target = 0.0)) }
+        // saveActivity echoes id 0 for inserts; the flow carries the real Room id.
+        repository.saveActivity(WorkoutActivity(
+            name = "Book", unit = "pages", trackingMode = ActivityMode.INCREASING.name, startingValue = 50.0, target = 300.0
+        ))
+        val id = repository.activities.first().single().id
+        assertEquals("INCREASING", repository.activities.first().single().trackingMode)
+        // A clock-skew future entry must be rejected before it can brick later JSON exports.
+        expectRejected { repository.setActivityEntry(id, today.plusDays(1), 10.0) }
+        repository.setActivityEntry(id, today, 76.0)
+        assertEquals(76.0, repository.activityEntries.first().single().quantity, 0.0)
+        val output = backupFile()
+        repository.exportTo(Uri.fromFile(output))
+        val text = output.readText(Charsets.UTF_8)
+        assertTrue(text.contains("\"formatVersion\": 5"))
+        assertTrue(text.contains("\"trackingMode\": \"INCREASING\""))
+        // Replacement import restores the directional activity and its entries exactly.
+        repository.deleteActivity(id)
+        repository.importFrom(Uri.fromFile(output))
+        val restored = repository.activities.first().single()
+        assertEquals("INCREASING", restored.trackingMode)
+        assertEquals(50.0, restored.startingValue!!, 0.0)
+        assertEquals(76.0, repository.activityEntries.first().single().quantity, 0.0)
+    }
+
+    @Test
+    fun decreasingActivityMayRecordZeroButLoggedMayNot() = runBlocking {
+        // saveActivity echoes id 0 for inserts; real ids come from the flow, matched by name.
+        repository.saveActivity(WorkoutActivity(
+            name = "Tasks left", unit = "tasks", trackingMode = ActivityMode.DECREASING.name, startingValue = 30.0, target = 0.0
+        ))
+        val countdown = repository.activities.first().single { it.name == "Tasks left" }.id
+        repository.setActivityEntry(countdown, today, 0.0)
+        assertEquals(0.0, repository.activityEntries.first().single().quantity, 0.0)
+        repository.saveActivity(WorkoutActivity(name = "Push-ups", unit = "pushups"))
+        val plain = repository.activities.first().single { it.name == "Push-ups" }.id
+        expectRejected { repository.setActivityEntry(plain, today, 0.0) }
+        repository.setActivityEntry(plain, today, 1.0)
+        assertEquals(1.0, repository.activityEntries.first().single { it.activityId == plain }.quantity, 0.0)
+    }
+
+    @Test
+    fun appLockSettingPersistsLocallySurvivesRestoresAndNeverTravelsInBackups() = runBlocking {
+        repository.updateSettings(AppSettings(appLockEnabled = true))
+        assertTrue(repository.settings.first().appLockEnabled)
+        val output = backupFile()
+        repository.exportTo(Uri.fromFile(output))
+        val text = output.readText(Charsets.UTF_8)
+        // The lock must be absent from the exported JSON so older app versions can still decode the file.
+        val settingsJson = kotlinx.serialization.json.Json.parseToJsonElement(text)
+            .jsonObject.getValue("settings").jsonObject
+        assertFalse("appLockEnabled" in settingsJson)
+        assertEquals(3, BackupValidator.decode(text).formatVersion)
+        // Restoring must never silently weaken the local lock, even though backups never carry it.
+        repository.importFrom(Uri.fromFile(output))
+        assertTrue(repository.settings.first().appLockEnabled)
+        repository.updateSettings(AppSettings(appLockEnabled = false))
+        assertFalse(repository.settings.first().appLockEnabled)
+    }
+
+    @Test
     fun resetErasesEveryRecordAndRestoresDefaultSettings() = runBlocking {
         val habit = createHabit("Keep me")
         repository.setLog(habit, today, LogStatus.COMPLETED, "Keep this note")
@@ -307,7 +392,7 @@ class HabitRepositoryTest {
         val activityId = repository.activities.first().single().id
         repository.setActivityEntry(activityId, today, 15.0)
         database.dao().insertReminderDelivery(ReminderDelivery(habit, today, 5L))
-        repository.updateSettings(AppSettings(theme = "DARK", backupReminder = true))
+        repository.updateSettings(AppSettings(theme = "DARK", backupReminder = true, appLockEnabled = true))
 
         val resetIds = repository.resetAllData()
         assertEquals(listOf(habit, archived), resetIds)
@@ -317,7 +402,8 @@ class HabitRepositoryTest {
         assertTrue(repository.pauses.first().isEmpty())
         assertTrue(repository.activities.first().isEmpty())
         assertTrue(repository.activityEntries.first().isEmpty())
-        assertEquals(AppSettings(), repository.settings.first())
+        // Reset restores default preferences but must never silently weaken the local lock.
+        assertEquals(AppSettings(appLockEnabled = true), repository.settings.first())
     }
 
     @Test

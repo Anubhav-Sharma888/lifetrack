@@ -31,6 +31,7 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.lifetrack.app.data.CsvExport
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.time.Instant
@@ -38,7 +39,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /** SAF owns the save destination. Downloads is offered as the initial location. */
-private class CreateBackupDocument : ActivityResultContracts.CreateDocument("application/json") {
+private class CreateInDownloads(mime: String) : ActivityResultContracts.CreateDocument(mime) {
     override fun createIntent(context: Context, input: String): Intent = super.createIntent(context, input).apply {
         putExtra(DocumentsContract.EXTRA_INITIAL_URI,
             DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", "primary:Download"))
@@ -70,11 +71,15 @@ fun SettingsScreen(
     // The typed reset confirmation stays out of saved instance state too, like the backup password.
     var resetConfirmation by remember { mutableStateOf("") }
     var permissionMessage by remember { mutableStateOf<String?>(null) }
-    val export = rememberLauncherForActivityResult(CreateBackupDocument()) { uri ->
+    var lockMessage by remember { mutableStateOf<String?>(null) }
+    val export = rememberLauncherForActivityResult(CreateInDownloads("application/json")) { uri ->
         if (uri != null) {
             if (encryptedExport) { vm.clearOperationError(); pendingEncryptedExport = uri.toString(); backupPassword = ""; confirmPassword = "" }
             else vm.export(uri)
         }
+    }
+    val csvExport = rememberLauncherForActivityResult(CreateInDownloads(CsvExport.MIME)) { uri ->
+        if (uri != null) vm.exportCsv(uri)
     }
     val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) vm.updateSettings(latestSettings.copy(backupReminder = true))
@@ -111,6 +116,22 @@ fun SettingsScreen(
         SettingsSection("Cadence & notifications") {
             SettingsAction("Schedules & Reminders", "Habit schedules and daily check-ins", Icons.Outlined.Notifications, onClick = onSchedules)
         }
+        SettingsSection("Privacy & security") {
+            PreferenceSwitch("App lock", "Ask for your fingerprint or screen lock when LifeTrack opens · requires an enrolled screen lock",
+                settings.appLockEnabled, !busy) { enable ->
+                if (!enable) {
+                    lockMessage = null
+                    vm.updateSettings(settings.copy(appLockEnabled = false))
+                } else if (appLockAvailable(context)) {
+                    lockMessage = null
+                    vm.updateSettings(settings.copy(appLockEnabled = true))
+                } else lockMessage = "No screen lock or fingerprint is enrolled. Add one in Android settings, then turn app lock on."
+            }
+            lockMessage?.let {
+                Text(it, Modifier.padding(horizontal = 16.dp, vertical = 8.dp).semantics { liveRegion = LiveRegionMode.Polite },
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
         SettingsSection("Display & accessibility") {
             SettingsAction("Theme", settings.theme.lowercase().replaceFirstChar(Char::titlecase), Icons.Outlined.DarkMode, !busy) { themeDialog = true }
             HorizontalDivider()
@@ -135,6 +156,9 @@ fun SettingsScreen(
             SettingsAction("Export data", "Save a complete JSON backup", Icons.Outlined.FileUpload, enabled = !busy) { launchExport(false) }
             HorizontalDivider()
             SettingsAction("Export encrypted backup", "Protect the file with a password · AES-256-GCM", Icons.Outlined.Lock, enabled = !busy) { launchExport(true) }
+            HorizontalDivider()
+            SettingsAction("Export CSV", "Habit details and check-in history for spreadsheets · analysis copy, not a backup",
+                Icons.Outlined.TableView, enabled = !busy) { csvExport.launch("lifetrack-habits-${state.today}.csv") }
             HorizontalDivider()
             SettingsAction("Import data", "Restore a backup · replaces current data", Icons.Outlined.FileDownload, enabled = !busy, onClick = onImport)
             HorizontalDivider()

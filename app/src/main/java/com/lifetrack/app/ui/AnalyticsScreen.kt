@@ -25,11 +25,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.lifetrack.app.data.ActivityMode
 import com.lifetrack.app.data.Habit
 import com.lifetrack.app.data.HabitLog
 import com.lifetrack.app.data.HabitPause
 import com.lifetrack.app.data.LogStatus
 import com.lifetrack.app.domain.Analytics
+import com.lifetrack.app.domain.ProgressTracking
 import com.lifetrack.app.ui.components.HeatmapWidget
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -85,28 +87,37 @@ fun AnalyticsScreen(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate,
             Spacer(Modifier.height(12.dp))
             val window = today.minusDays(27)
             activities.sortedBy { it.sortOrder }.forEach { activity ->
+                // Positions, measurements and records carry no daily total; they show their current value instead.
+                val directional = ProgressTracking.mode(activity) != ActivityMode.LOGGED
                 val inWindow = activityEntries.filter { it.activityId == activity.id && it.date in window..today }
                     .sortedBy { it.date }
                 val total = inWindow.sumOf { it.quantity }
-                val best = inWindow.maxOfOrNull { it.quantity } ?: 0.0
+                val current = ProgressTracking.current(activity, activityEntries.filter { it.activityId == activity.id })
                 val datedText = if (inWindow.isEmpty()) "No entries in this window."
                     else "Oldest to newest: " + inWindow.joinToString(" · ") { entry ->
-                        "${if (entry.quantity == entry.quantity.toLong().toDouble()) entry.quantity.toLong().toString() else entry.quantity.toString()} ${activity.unit} on ${entry.date}"
+                        "${formatQuantityLabel(entry.quantity)} ${activity.unit} on ${entry.date}"
                     }
                 Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(activity.icon)
                     Column(Modifier.weight(1f)) {
                         Text(activity.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text("${activity.unit}${activity.target?.let { " · target ${if (it == it.toLong().toDouble()) it.toLong().toString() else it.toString()}/day" } ?: ""} · ${inWindow.size} day${if (inWindow.size == 1) "" else "s"} logged",
+                        Text("${activity.unit}${activity.target?.let { " · " + (if (directional) "goal ${formatQuantityLabel(it)}" else "target ${formatQuantityLabel(it)}/day") } ?: ""} · ${inWindow.size} day${if (inWindow.size == 1) "" else "s"} logged",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (inWindow.isNotEmpty()) ExerciseTrace(activity, inWindow, modifier = Modifier.padding(top = 4.dp))
                         Text(datedText, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Text(if (total == total.toLong().toDouble()) total.toLong().toString() else total.toString(),
-                        style = AlmanacType.monoData, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                    Text(if (directional) current?.let(::formatQuantityLabel) ?: "—" else formatQuantityLabel(total),
+                        style = AlmanacType.monoData, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.semantics {
+                            contentDescription = if (directional) "${activity.name} current value: " +
+                                (current?.let(::formatQuantityLabel) ?: "none") + " " + activity.unit
+                            else "${activity.name} last 28 days total: " + formatQuantityLabel(total) + " " + activity.unit
+                        })
                 }
             }
-            Text("Actual workout quantities by day. A day total can include multiple sets.",
+            val anyDirectional = activities.any { ProgressTracking.mode(it) != ActivityMode.LOGGED }
+            Text(if (anyDirectional) "Actual workout quantities by day. A day total can include multiple sets. Directional activities show their current value instead of a window total."
+                else "Actual workout quantities by day. A day total can include multiple sets.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         AnalyticsPanel {

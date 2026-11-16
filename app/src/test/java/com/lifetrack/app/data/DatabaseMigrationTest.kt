@@ -51,7 +51,10 @@ class DatabaseMigrationTest {
             old.version = 1
         }
         val migrated = Room.databaseBuilder(context, AppDatabase::class.java, name)
-            .addMigrations(DatabaseMigrations.MIGRATION_1_2, DatabaseMigrations.MIGRATION_2_3, DatabaseMigrations.MIGRATION_3_4)
+            .addMigrations(
+                DatabaseMigrations.MIGRATION_1_2, DatabaseMigrations.MIGRATION_2_3,
+                DatabaseMigrations.MIGRATION_3_4, DatabaseMigrations.MIGRATION_4_5, DatabaseMigrations.MIGRATION_5_6
+            )
             .allowMainThreadQueries().build()
         try {
             val habit = migrated.dao().allHabits().single()
@@ -73,13 +76,23 @@ class DatabaseMigrationTest {
             assertEquals(123L, settings.lastExportAt)
             assertTrue(settings.hapticsEnabled)
             assertTrue(settings.animationsEnabled)
+            // MIGRATION_5_6 added the opt-in app lock; existing settings start with it off.
+            assertFalse(settings.appLockEnabled)
             val pause = migrated.dao().allPauses().single()
             assertEquals(7L, pause.habitId)
             assertEquals(today, pause.startDate)
             assertNull(pause.endDate)
             assertEquals("2026-10", migrated.dao().allFreezes().single().month)
-            assertEquals(4, migrated.openHelper.readableDatabase.version)
+            assertEquals(6, migrated.openHelper.readableDatabase.version)
             assertTrue("Version-3 activity tables start empty after migration from version 1", migrated.dao().allActivities().isEmpty())
+            // MIGRATION_4_5 added the tracking columns; the migrated schema must apply their defaults.
+            // (Opening schema 5 at all proves Room accepted the migrated structure — a mismatch would throw.)
+            migrated.openHelper.writableDatabase.execSQL(
+                "INSERT INTO activities (name,icon,unit,sortOrder,createdAt,updatedAt) VALUES ('Push-ups','💪','pushups',0,100,200)"
+            )
+            val activity = migrated.dao().allActivities().single()
+            assertEquals("LOGGED", activity.trackingMode)
+            assertNull(activity.startingValue)
         } finally {
             migrated.close()
             context.deleteDatabase(name)

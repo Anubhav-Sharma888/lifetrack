@@ -16,6 +16,7 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -41,6 +42,9 @@ import kotlin.math.sin
 fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, vm: HabitViewModel = hiltViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     val nav = rememberNavController()
+    // Lives ABOVE the app-lock gate: route saveable state (editor drafts, scroll positions) survives
+    // every lock/unmount/remount cycle, exactly as AppLockGateTest pins.
+    val routeState = rememberSaveableStateHolder()
     val backStack by nav.currentBackStackEntryAsState()
     val route = backStack?.destination?.route ?: "today"
     val snackbar = remember { SnackbarHostState() }
@@ -87,6 +91,8 @@ fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, vm: HabitView
         }
     }
     LifeTrackTheme(state.settings) {
+        AppLockGate(enabled = state.settings.appLockEnabled) {
+        routeState.SaveableStateProvider("app-content") {
         Box(Modifier.fillMaxSize()) {
             Scaffold(
                 snackbarHost = { SnackbarHost(snackbar) },
@@ -152,6 +158,8 @@ fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, vm: HabitView
                 vm.import(Uri.parse(path), backupPassword.takeIf { it.isNotEmpty() }?.toCharArray()) { pendingImport = null; backupPassword = "" }
             }) { Text(if (busy) "Restoring…" else "Replace and restore") } }, dismissButton = { TextButton(enabled = !busy, onClick = { pendingImport = null; backupPassword = "" }) { Text("Cancel") } }) }
             if (state.settings.animationsEnabled) MilestoneConfetti(celebration)
+        }
+        }
         }
     }
 }

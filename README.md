@@ -12,7 +12,7 @@ Open this directory directly in Android Studio. The supplied screenshots were vi
 4. The APK is `app/build/outputs/apk/debug/app-debug.apk`. Install through Android Studio or `adb install -r app/build/outputs/apk/debug/app-debug.apk`. Updating an existing installation requires the same package and signing certificate. Read [UPGRADE.md](UPGRADE.md); do not uninstall or clear storage to work around incompatible signatures.
 5. For publishing, use Android Studio **Build → Generate Signed App Bundle / APK** and your own release signing key. Release builds enable R8 and resource shrinking. Keep signing keys/passwords out of distributed source. Future updates need the same release key. Changing `applicationId` creates a separate app with separate data. Provide store artwork/privacy policy and review current store requirements.
 
-This release uses Android version code 8 and Room database schema 4. Activities has its own ledger, and Settings links to Schedules & Reminders. The implementation notes below describe the original architecture.
+This release uses Android version code 8 and Room database schema 5. Activities has its own ledger with directional tracking modes (below), and Settings links to Schedules & Reminders. The implementation notes below describe the original architecture.
 
 ## Step 1 — Project setup
 
@@ -78,9 +78,15 @@ The visual style uses whitespace, readable type and subtle borders. Dynamic wall
 - Undo restores the exact previous log, including note, amount and frozen state, only if the habit identity and current saved log still match that operation. A newer edit, replacement import, archive or changed eligibility can reject undo instead of overwriting data. It never refunds a spent freeze.
 - Future days are excluded. Category charts use the current category for past completions. Weeks start Monday; comparisons match elapsed weekdays. Months match elapsed days, clamped to the previous month's length. Missing comparable history is explained.
 
+### Activities tracking modes
+
+- Activities (v1.7.0's free-form quantity ledger) now carry a tracking mode. **Daily log** preserves the original per-day semantics exactly; existing records are unaffected. Three directional modes reinterpret each entry's meaning without ever rewriting it: **rising position** (a book at page 50 → 75; the next entry is suggested at 76), **falling measure** (body weight 85 → 82 kg, tasks remaining — zero is reachable), and **personal best** (each entry is an attempt; the best attempt ever is the current record).
+- The current value is the latest dated entry for positions and measurements, the maximum ever for records. Progress indicators derive from an optional starting value (or the earliest entry) and an optional goal; a goal at or beyond the start in the wrong direction suppresses the indicator instead of guessing. New entries continue from history: positions and records suggest one step past the last position or best attempt, measurements continue from the last reading. Same-day edits keep the recorded value as the suggestion.
+- Window sums (weekly and 28-day totals) remain meaningful only for daily logs; directional activities show current value, start and goal instead, in the ledger cards, history dialogs and Analytics. Entries cannot be dated in the future — a clock-skew entry would otherwise make every later JSON export fail validation.
+
 ## Step 6 — Export and import
 
-`data/Backup.kt` defines JSON data format version 2, dates, version-1 conversion and strict validation. `HabitRepository.kt` captures a consistent transaction snapshot, writes UTF-8 off the main thread and updates the last-export timestamp only after the output stream successfully closes. Files include habits/IDs, logs/quantities, notes/timestamps, order/stacks, schedule history, pauses, settings and freeze usage. The operational reminder ledger is excluded and resets on import.
+`data/Backup.kt` defines the JSON data formats (versions 1–5; v5 is required only when activities use directional tracking, and plain activities are exported without the version-5 keys so older app versions can still read them), dates, older-version normalization and strict validation. `HabitRepository.kt` captures a consistent transaction snapshot, writes UTF-8 off the main thread and updates the last-export timestamp only after the output stream successfully closes. Files include habits/IDs, logs/quantities, notes/timestamps, order/stacks, schedule history, pauses, settings and freeze usage. The operational reminder ledger is excluded and resets on import.
 
 Android's Storage Access Framework starts the create-file picker in Downloads when supported; you choose the actual location. No broad storage permission is needed. Google Drive or another provider is involved only if you select it in the system picker; LifeTrack never connects to it itself. See [SAF documentation](https://developer.android.com/training/data-storage/shared/documents-files).
 

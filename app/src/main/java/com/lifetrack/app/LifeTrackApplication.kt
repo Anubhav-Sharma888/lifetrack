@@ -33,7 +33,9 @@ class LifeTrackApplication : Application() {
             }.retryLocalWork().collect()
         }
         applicationScope.launch {
-            combine(repository.habits, repository.logs, repository.pauses) { _, _, _ -> Unit }.onEach {
+            // The app lock changes what the widget may show, so its flip must trigger a refresh too.
+            combine(repository.habits, repository.logs, repository.pauses,
+                repository.settings.map { it.appLockEnabled }.distinctUntilChanged()) { _, _, _, _ -> Unit }.onEach {
                 try { refreshWidgets(this@LifeTrackApplication) }
                 catch (cancel: CancellationException) { throw cancel }
                 catch (_: Exception) { Log.w("LifeTrack", "Widget refresh will retry on its next update") }

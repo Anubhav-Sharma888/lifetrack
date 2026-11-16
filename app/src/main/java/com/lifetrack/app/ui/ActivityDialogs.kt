@@ -32,14 +32,19 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lifetrack.app.data.ActivityEntry
+import com.lifetrack.app.data.ActivityMode
 import com.lifetrack.app.data.HabitLog
 import com.lifetrack.app.data.LogStatus
 import com.lifetrack.app.data.WorkoutActivity
+import com.lifetrack.app.domain.ProgressTracking
+import com.lifetrack.app.ui.components.ActivityTrend
+import com.lifetrack.app.ui.components.TrackingModeSelector
+import com.lifetrack.app.ui.components.TrackingSummary
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-private fun formatQuantityLabel(value: Double): String =
+internal fun formatQuantityLabel(value: Double): String =
     if (value == value.toLong().toDouble()) value.toLong().toString()
     else String.format(java.util.Locale.US, "%.2f", value).trimEnd('0').trimEnd('.')
 
@@ -115,19 +120,25 @@ fun SpineItem(nodeColor: Color = MaterialTheme.colorScheme.onSurfaceVariant, con
 fun ExerciseTrace(activity: WorkoutActivity, entries: List<ActivityEntry>, modifier: Modifier = Modifier) {
     if (entries.isEmpty()) return
     val ordered = entries.sortedBy { it.date }
-    val max = ordered.maxOf { it.quantity }
+    // Completed countdowns log zero, so the tallest bar may be zero: scale 1 keeps heights finite instead of NaN.
+    val max = ordered.maxOf { it.quantity }.takeIf { it > 0.0 } ?: 1.0
     val baseline = MaterialTheme.colorScheme.outlineVariant
     Column(modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().height(34.dp).padding(bottom = 3.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
             ordered.forEach { entry ->
-                Box(Modifier.weight(1f).height((30 * (entry.quantity / max).coerceIn(0.06, 1.0)).dp)
+                Box(Modifier.weight(1f).height((30 * (entry.quantity / max).coerceIn(0.0, 1.0)).dp)
                     .clip(RoundedCornerShape(2.dp))
                     .background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.55f))
                     .semantics { contentDescription = entry.date.toString() + ": " + formatQuantityLabel(entry.quantity) + " " + activity.unit })
             }
         }
         HorizontalDivider(color = baseline)
-        Text("Daily totals · " + activity.unit + " · oldest to newest", style = MaterialTheme.typography.labelSmall,
+        Text(when (ProgressTracking.mode(activity)) {
+                ActivityMode.INCREASING -> "Positions · "
+                ActivityMode.DECREASING -> "Measurements · "
+                ActivityMode.PERSONAL_BEST -> "Attempts · "
+                ActivityMode.LOGGED -> "Daily totals · "
+            } + activity.unit + " · oldest to newest", style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
@@ -247,10 +258,12 @@ fun ActivitySection(state: LifeTrackState, vm: HabitViewModel, date: LocalDate, 
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 state.activities.sortedBy { it.sortOrder }.forEach { activity ->
                     val entry = state.activityEntries.firstOrNull { it.activityId == activity.id && it.date == date }
+                    val directional = ProgressTracking.mode(activity) != ActivityMode.LOGGED
                     val weekAgo = date.minusDays(6)
                     val week = state.activityEntries.filter { it.activityId == activity.id && it.date in weekAgo..date }
-                    val weekTotal = week.sumOf { it.quantity }
-                    val weekLabel = if (week.isEmpty()) "No entries this week" else "${formatQuantityLabel(weekTotal)} ${activity.unit} this week"
+                    // Window totals are meaningless for positions, measurements and records; those get the tracking summary instead.
+                    val weekLabel = if (directional) "" else if (week.isEmpty()) "No entries this week"
+                        else "${formatQuantityLabel(week.sumOf { it.quantity })} ${activity.unit} this week"
                     val recent = state.activityEntries.filter { it.activityId == activity.id }
                         .sortedByDescending { it.date }.take(14)
                     SpineItem(nodeColor = if (entry != null) MaterialTheme.colorScheme.secondary
@@ -266,7 +279,7 @@ fun ActivitySection(state: LifeTrackState, vm: HabitViewModel, date: LocalDate, 
                                     Column(Modifier.weight(1f)) {
                                         Text(activity.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
                                             maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                        Text(activity.unit + (activity.target?.let { " · target ${formatQuantityLabel(it)}" } ?: "") + " · $weekLabel",
+                                        Text(activity.unit + (if (weekLabel.isEmpty()) "" else " · $weekLabel"),
                                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         entry?.note?.let { Text(it, style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1) }
@@ -291,6 +304,7 @@ fun ActivitySection(state: LifeTrackState, vm: HabitViewModel, date: LocalDate, 
                                         Text(if (entry == null) "Log" else "Edit")
                                     }
                                 }
+                                TrackingSummary(activity, state.activityEntries.filter { it.activityId == activity.id })
                                 if (recent.isNotEmpty()) ExerciseTrace(activity, recent)
                             }
                         }
@@ -330,6 +344,15 @@ fun ActivityEditorDialog(id: Long, state: LifeTrackState, vm: HabitViewModel, on
     var icon by rememberSaveable { mutableStateOf(existing?.icon ?: "💪") }
     var unit by rememberSaveable { mutableStateOf(existing?.unit ?: "") }
     var target by rememberSaveable { mutableStateOf(existing?.target?.let { formatQuantityLabel(it) } ?: "") }
+    // The whole entity is rebuilt on save, so the tracking style and baseline must survive every edit.
+    var mode by rememberSaveable { mutableStateOf(existing?.trackingMode ?: ActivityMode.LOGGED.name) }
+    var starting by rememberSaveable { mutableStateOf(existing?.startingValue?.let { formatQuantityLabel(it) } ?: "") }
+    val selectedMode = ActivityMode.fromStored(mode)
+    // A leftover baseline on LOGGED or PERSONAL_BEST is invisible in this form yet still reclassifies
+    // the activity as directional for exports, so switching modes clears it and malformed numbers block saving.
+    val positional = selectedMode == ActivityMode.INCREASING || selectedMode == ActivityMode.DECREASING
+    val numbersParse = (target.isBlank() || target.toDoubleOrNull() != null) &&
+        (starting.isBlank() || starting.toDoubleOrNull() != null)
     val busy by vm.busy.collectAsState()
     val operationError by vm.operationError.collectAsState()
     LaunchedEffect(id) { vm.clearOperationError() }
@@ -340,15 +363,36 @@ fun ActivityEditorDialog(id: Long, state: LifeTrackState, vm: HabitViewModel, on
                 OutlinedTextField(icon, { if (it.length <= 32) icon = it }, label = { Text("Emoji") }, singleLine = true, colors = almanacFieldColors(), modifier = Modifier.weight(1f))
                 OutlinedTextField(unit, { if (it.length <= 24) unit = it }, label = { Text("Unit · pushups, miles…") }, singleLine = true, colors = almanacFieldColors(), modifier = Modifier.weight(2f))
             }
+            TrackingModeSelector(selected = selectedMode, onSelect = { newMode ->
+                mode = newMode.name
+                if (newMode != ActivityMode.INCREASING && newMode != ActivityMode.DECREASING) starting = ""
+            }, enabled = !busy)
+            if (positional) {
+                OutlinedTextField(starting, { if (it.length <= 9 && (it.isEmpty() || it.all { c -> c.isDigit() || c == '.' })) starting = it },
+                    label = { Text("Starting value · optional") }, singleLine = true, colors = almanacFieldColors(),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal))
+            }
             OutlinedTextField(target, { if (it.length <= 7 && it.all { c -> c.isDigit() || c == '.' }) target = it },
-                label = { Text("Daily target · optional") }, singleLine = true, colors = almanacFieldColors(),
+                label = { Text(if (selectedMode == ActivityMode.LOGGED) "Daily target · optional" else "Goal value · optional") },
+                singleLine = true, colors = almanacFieldColors(),
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal))
-            Text("Actual quantities are recorded as-is: logging 32 against a 20 target is a good day, never an overshoot.", style = MaterialTheme.typography.bodySmall)
+            if (!numbersParse) Text("Enter whole numbers or one decimal point — values with more are not saved.",
+                color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            Text(when (selectedMode) {
+                ActivityMode.LOGGED -> "Actual quantities are recorded as-is: logging 32 against a 20 target is a good day, never an overshoot."
+                ActivityMode.INCREASING -> "Entries record the position reached by that date — page 50 today, resume at 51 tomorrow. The starting value anchors progress."
+                ActivityMode.DECREASING -> "Entries record the measurement on that date, counting down from the starting value toward the goal. Zero is reachable."
+                ActivityMode.PERSONAL_BEST -> "Every entry is an attempt; your best attempt ever is the record."
+            }, style = MaterialTheme.typography.bodySmall)
+            Text("Switching the tracking style re-reads existing entries under the new meaning; recorded values never change.",
+                style = MaterialTheme.typography.bodySmall)
             operationError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         }
-    }, confirmButton = { TextButton(enabled = !busy, onClick = {
+    }, confirmButton = { TextButton(enabled = !busy && numbersParse, onClick = {
         vm.saveActivity(WorkoutActivity(id = existing?.id ?: 0, name = name.trim(), icon = icon.trim().ifBlank { "💪" },
-            unit = unit.trim(), target = target.toDoubleOrNull(), sortOrder = existing?.sortOrder ?: state.activities.size,
+            unit = unit.trim(), target = target.toDoubleOrNull(), trackingMode = mode,
+            startingValue = if (positional) starting.toDoubleOrNull() else null,
+            sortOrder = existing?.sortOrder ?: state.activities.size,
             createdAt = existing?.createdAt ?: System.currentTimeMillis(), updatedAt = System.currentTimeMillis()),
             onSaved = { onDismiss() })
     }) { Text(if (busy) "Saving…" else "Save activity") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
@@ -358,26 +402,33 @@ fun ActivityEditorDialog(id: Long, state: LifeTrackState, vm: HabitViewModel, on
 fun ActivityLogDialog(activityId: Long, date: LocalDate, state: LifeTrackState, vm: HabitViewModel, onDismiss: () -> Unit) {
     val activity = state.activities.firstOrNull { it.id == activityId } ?: return
     val entry = state.activityEntries.firstOrNull { it.activityId == activityId && it.date == date }
-    val last = state.activityEntries.filter { it.activityId == activityId }.maxByOrNull { it.date }
     var quantity by rememberSaveable(activityId, date) {
-        mutableStateOf(entry?.let { formatQuantityLabel(it.quantity) } ?: last?.let { formatQuantityLabel(it.quantity) } ?: activity.target?.let { formatQuantityLabel(it) } ?: "")
+        mutableStateOf(ProgressTracking.continuation(activity, state.activityEntries.filter { it.activityId == activityId }, date)
+            ?.let { formatQuantityLabel(it) } ?: "")
     }
     var note by rememberSaveable(activityId, date) { mutableStateOf(entry?.note ?: "") }
     val busy by vm.busy.collectAsState()
     val operationError by vm.operationError.collectAsState()
     LaunchedEffect(activityId, date) { vm.clearOperationError() }
+    val allowsZero = ProgressTracking.mode(activity) == ActivityMode.DECREASING
     AlertDialog(onDismissRequest = { if (!busy) onDismiss() }, title = { Text("${activity.icon} ${activity.name}") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(date.format(java.time.format.DateTimeFormatter.ofPattern("EEEE, d MMMM")), style = MaterialTheme.typography.labelLarge)
             OutlinedTextField(quantity, { if (it.length <= 9 && (it.isEmpty() || it.all { c -> c.isDigit() || c == '.' })) quantity = it },
                 label = { Text("Quantity · ${activity.unit}") }, singleLine = true, colors = almanacFieldColors(),
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal))
-            Text(if (activity.target != null) "Target ${formatQuantityLabel(activity.target)} — actuals are recorded exactly as performed, even beyond it."
-                else "No target — log the real number. Same-day logs replace the previous value.", style = MaterialTheme.typography.bodySmall)
+            Text(when (ProgressTracking.mode(activity)) {
+                ActivityMode.LOGGED -> if (activity.target != null)
+                    "Target ${formatQuantityLabel(activity.target)} — actuals are recorded exactly as performed, even beyond it."
+                    else "No target — log the real number. Same-day logs replace the previous value."
+                ActivityMode.INCREASING -> "Entries record the position reached — the field starts one past your last position."
+                ActivityMode.DECREASING -> "Entries record the measurement on that date; the field continues from your last reading."
+                ActivityMode.PERSONAL_BEST -> "Each entry is an attempt — the field starts one past your best."
+            }, style = MaterialTheme.typography.bodySmall)
             OutlinedTextField(note, { if (it.length <= 1000) note = it }, label = { Text("Note · optional") }, singleLine = true, colors = almanacFieldColors())
             operationError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         }
-    }, confirmButton = { TextButton(enabled = !busy && quantity.toDoubleOrNull()?.let { it > 0 } == true, onClick = {
+    }, confirmButton = { TextButton(enabled = !busy && quantity.toDoubleOrNull()?.let { it > 0 || (allowsZero && it == 0.0) } == true, onClick = {
         vm.setActivityEntry(activityId, date, quantity.toDouble(), note.ifBlank { null }, onSaved = onDismiss)
     }) { Text(if (busy) "Saving…" else "Save entry") } }, dismissButton = {
         Row {
@@ -392,6 +443,8 @@ fun ActivityLogDialog(activityId: Long, date: LocalDate, state: LifeTrackState, 
 fun ActivityHistoryDialog(activity: WorkoutActivity, state: LifeTrackState, vm: HabitViewModel,
                           onDismiss: () -> Unit, onLogFor: (LocalDate) -> Unit, onDelete: () -> Unit) {
     val history = state.activityEntries.filter { it.activityId == activity.id }.sortedByDescending { it.date }
+    val mode = ProgressTracking.mode(activity)
+    val directional = mode != ActivityMode.LOGGED
     val monthAgo = state.today.minusDays(27)
     val inWindow = history.filter { it.date >= monthAgo }
     val total = inWindow.sumOf { it.quantity }
@@ -399,17 +452,31 @@ fun ActivityHistoryDialog(activity: WorkoutActivity, state: LifeTrackState, vm: 
     AlertDialog(onDismissRequest = onDismiss, title = { Text("${activity.icon} ${activity.name}") }, text = {
         Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("History · newest first", style = MaterialTheme.typography.titleSmall)
-            if (activity.target != null) Text("Target ${formatQuantityLabel(activity.target)} ${activity.unit} per day · actuals may sit above or below it.",
+            if (activity.target != null) Text(
+                when (mode) {
+                    ActivityMode.INCREASING -> "Goal ${formatQuantityLabel(activity.target)} ${activity.unit} · entries record the position reached on each date."
+                    ActivityMode.DECREASING -> "Goal ${formatQuantityLabel(activity.target)} ${activity.unit} · entries record the measurement on each date."
+                    ActivityMode.PERSONAL_BEST -> "Goal ${formatQuantityLabel(activity.target)} ${activity.unit} · each entry is an attempt; your best attempt ever is the record."
+                    ActivityMode.LOGGED -> "Target ${formatQuantityLabel(activity.target)} ${activity.unit} per day · actuals may sit above or below it."
+                },
                 style = MaterialTheme.typography.bodySmall)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            // Window sums are meaningless for positions, measurements and records; those show current, start and goal.
+            if (directional) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Stat(ProgressTracking.current(activity, history)?.let(::formatQuantityLabel) ?: "—",
+                    if (mode == ActivityMode.PERSONAL_BEST) "BEST EVER" else "CURRENT", Modifier.weight(1f))
+                // Without an explicit starting value the baseline is the earliest reading, so label it honestly.
+                Stat(ProgressTracking.baseline(activity, history)?.let(::formatQuantityLabel) ?: "—",
+                    if (activity.startingValue == null) "FIRST" else "START", Modifier.weight(1f))
+                Stat(activity.target?.let(::formatQuantityLabel) ?: "—", "GOAL", Modifier.weight(1f))
+            } else Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Stat("${formatQuantityLabel(total)}", "LAST 28 DAYS", Modifier.weight(1f))
                 Stat("${inWindow.size}", "DAYS LOGGED", Modifier.weight(1f))
                 Stat("${formatQuantityLabel(best)}", "BEST DAY", Modifier.weight(1f))
             }
-            if (history.isEmpty()) Text("No entries yet — log the first session from Today.", style = MaterialTheme.typography.bodySmall)
+            if (history.isEmpty()) Text("No entries yet — log the first entry from the Activities screen.", style = MaterialTheme.typography.bodySmall)
             else Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("Activity progression", style = MaterialTheme.typography.titleMedium)
-                ExerciseTrace(activity, history.take(14))
+                if (directional) ActivityTrend(activity, history) else ExerciseTrace(activity, history.take(14))
                 Text("Entries", style = MaterialTheme.typography.titleMedium)
                 history.forEach { entry ->
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {

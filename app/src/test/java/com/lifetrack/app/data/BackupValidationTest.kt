@@ -8,6 +8,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
 
@@ -54,6 +55,13 @@ class BackupValidationTest {
 
     @Test fun `deleting original freeze log does not invalidate spent ledger`() {
         BackupValidator.validate(backup().copy(freezes = listOf(FreezeUsage("2026-10", 123))), today)
+    }
+
+    @Test fun `app lock is a local-only choice and never travels in backups`() {
+        val exception = assertThrows(IllegalArgumentException::class.java) {
+            BackupValidator.validate(backup().copy(settings = AppSettings(appLockEnabled = true)))
+        }
+        assertTrue(exception.message!!.contains("not carried in backups"))
     }
 
     @Test fun `two frozen logs in one month are rejected across habits`() = invalid(backup(
