@@ -153,6 +153,21 @@ data class StreakProtection(
     val updatedAt: Long = createdAt
 )
 
+/**
+ * One optional mood and/or journal note per local calendar date. Moods are self-reported feelings
+ * on a 1–5 scale — never a diagnosis, and never treated as the cause or the consequence of anything.
+ * At least one of the two fields must be present; a row carrying neither is meaningless.
+ */
+@Serializable
+@Entity(tableName = "daily_reflections", primaryKeys = ["date"])
+data class DailyReflection(
+    @Serializable(with = LocalDateSerializer::class) val date: LocalDate,
+    val mood: Int? = null,
+    val journal: String? = null,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = createdAt
+)
+
 @Serializable
 @Entity(tableName = "app_settings")
 data class AppSettings(

@@ -27,7 +27,11 @@ data class LifeTrackBackup(
     // Smart Streaks: absent from every plain export so older app versions still decode them.
     @OptIn(ExperimentalSerializationApi::class)
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val streakProtections: List<StreakProtection> = emptyList()
+    val streakProtections: List<StreakProtection> = emptyList(),
+    // Daily reflections: same pattern — present only in v7 exports that carry them.
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val dailyReflections: List<DailyReflection> = emptyList()
 )
 
 /** Validation is independent of Android/Room so corrupt imports can be rejected before writes. */
@@ -71,6 +75,15 @@ object BackupValidator {
         require(habit.partialCreditPercent in 1..100) { "Partial-credit thresholds must be between 1 and 100 percent." }
     }
 
+    /** One optional mood and/or journal per date; a row carrying neither is rejected before any write. */
+    fun validateReflection(reflection: DailyReflection, today: LocalDate = LocalDate.now()) {
+        require(reflection.date >= earliestDate && reflection.date <= today) { "Reflection dates cannot be in the future or before 1900." }
+        require(reflection.mood == null || reflection.mood in 1..5) { "Moods are recorded on a scale of 1 to 5." }
+        require(reflection.journal == null || reflection.journal.isNotBlank() && reflection.journal.length <= 2_000) { "Journals are limited to 2,000 characters." }
+        require(reflection.mood != null || reflection.journal != null) { "A reflection needs a mood or a journal entry." }
+        require(reflection.createdAt >= 0 && reflection.updatedAt >= reflection.createdAt) { "Invalid reflection timestamps." }
+    }
+
     fun validateSettings(settings: AppSettings) {
         require(settings.id == 1) { "Invalid settings record." }
         require(settings.theme in setOf("SYSTEM", "LIGHT", "DARK")) { "Unknown theme preference." }
@@ -104,11 +117,12 @@ object BackupValidator {
     }
 
     fun validate(backup: LifeTrackBackup, today: LocalDate = LocalDate.now()) {
-        require(backup.formatVersion in 1..6) { "This backup version is not supported by this app." }
+        require(backup.formatVersion in 1..7) { "This backup version is not supported by this app." }
         require(backup.formatVersion >= 4 || backup.habits.none { it.goalHistory.isNotEmpty() }) { "Goal revisions require backup version 4." }
         require(backup.formatVersion >= 5 || backup.activities.none { it.isDirectional() }) { "Directional activity tracking requires backup version 5." }
         require(backup.formatVersion >= 6 || (backup.habits.none { com.lifetrack.app.domain.StreakPolicy.isConfigured(it) } &&
             backup.streakProtections.isEmpty())) { "Smart Streaks data requires backup version 6." }
+        require(backup.formatVersion >= 7 || backup.dailyReflections.isEmpty()) { "Daily reflections require backup version 7." }
         require(backup.exportedAt >= 0) { "Invalid export timestamp." }
         validateSettings(backup.settings)
         // App lock is a local-only security choice and never roams through backups, plain or encrypted.
@@ -198,13 +212,16 @@ object BackupValidator {
             require(habit.archivedOn == null || protection.date <= habit.archivedOn) { "A streak protection occurs after its habit was archived." }
             require(protection.createdAt >= 0 && protection.updatedAt >= protection.createdAt) { "Invalid streak protection timestamps." }
         }
+        // One reflection per date, each carrying a mood and/or a journal.
+        require(backup.dailyReflections.map { it.date }.toSet().size == backup.dailyReflections.size) { "More than one reflection exists for the same date." }
+        backup.dailyReflections.forEach { validateReflection(it, today) }
     }
 
     /** Version 1 lacks schedules, progress and intervals; normalize before replacing any table. */
     fun decode(text: String, today: LocalDate = LocalDate.now()): LifeTrackBackup {
         val document = json.parseToJsonElement(text.removePrefix("\uFEFF")).jsonObject
         val version = document["formatVersion"]?.jsonPrimitive?.intOrNull
-        require(version != null && version in 1..6) { "This backup version is not supported by this app." }
+        require(version != null && version in 1..7) { "This backup version is not supported by this app." }
         if (version >= 2) {
             require("pauses" in document) { "This version 2 backup is missing its pause history." }
             (document["habits"] as? JsonArray)?.forEach { entry ->

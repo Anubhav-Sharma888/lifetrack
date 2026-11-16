@@ -14,6 +14,7 @@ import com.lifetrack.app.data.HabitPause
 import com.lifetrack.app.data.WorkoutActivity
 import com.lifetrack.app.data.ActivityEntry
 import com.lifetrack.app.data.CheckInUndo
+import com.lifetrack.app.data.DailyReflection
 import com.lifetrack.app.data.StreakProtection
 import com.lifetrack.app.reminder.BackupReminderScheduler
 import com.lifetrack.app.reminder.DailyCheckInReminderScheduler
@@ -52,6 +53,7 @@ data class LifeTrackState(
     val activities: List<WorkoutActivity> = emptyList(),
     val activityEntries: List<ActivityEntry> = emptyList(),
     val streakProtections: List<StreakProtection> = emptyList(),
+    val reflections: List<DailyReflection> = emptyList(),
     val loadError: String? = null
 )
 
@@ -90,6 +92,7 @@ class HabitViewModel @Inject constructor(
         .combine(repository.activities) { current, activities -> current.copy(activities = activities) }
         .combine(repository.activityEntries) { current, entries -> current.copy(activityEntries = entries) }
         .combine(repository.streakProtections) { current, protections -> current.copy(streakProtections = protections) }
+        .combine(repository.reflections) { current, reflections -> current.copy(reflections = reflections) }
         .catch { error ->
             if (error is CancellationException) throw error
             emit(LifeTrackState(loadError = "Your local data could not be opened. Retry or restart the app; do not clear storage."))
@@ -217,6 +220,16 @@ class HabitViewModel @Inject constructor(
     fun clearStreakProtection(id: Long, date: LocalDate) = perform {
         repository.clearStreakProtection(id, date)
         _events.emit(UiEvent.Message("Streak decision removed — the policy decides again"))
+    }
+
+    fun setReflection(date: LocalDate, mood: Int?, journal: String?) = perform {
+        repository.setReflection(date, mood, journal)
+        _events.emit(UiEvent.Message("Reflection saved"))
+    }
+
+    fun clearReflection(date: LocalDate) = perform {
+        repository.clearReflection(date)
+        _events.emit(UiEvent.Message("Reflection removed"))
     }
 
     fun updateSettings(settings: AppSettings) = perform { repository.updateSettings(settings) }

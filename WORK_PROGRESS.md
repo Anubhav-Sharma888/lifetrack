@@ -1,6 +1,35 @@
-# LifeTrack v1.8.0 — Work Progress (sessions 2026-11-15 → 2026-11-17: CSV export, directional tracking, app lock, Smart Streaks Phases 1–2)
+# LifeTrack v1.8.0 — Work Progress (sessions 2026-11-15 → 2026-11-18: CSV export, directional tracking, app lock, Smart Streaks Phases 1–2, Mood/Journal data layer)
 
 Branch: `develop/v1.8.0` · Backup at `D:\LifeTracker-backup` (untouched)
+
+---
+
+# Session 5 (Prompt 3/12) — Mood Tracking + Daily Journal data layer
+
+## What was built
+
+- `DailyReflection` entity (schema **8** via additive MIGRATION_7→8): one optional mood (1–5) and/or journal (≤2000 trimmed) per local calendar date; date-scoped, no habit FK; historical dates allowed, future rejected at save and at import.
+- Repository APIs: `setReflection` (both-ends date bounds at save, mood reject-don't-clamp, trim-then-takeIf journal, at-least-one required, monotonic timestamps), `clearReflection` (idempotent), `reflections` flow; VM exposure (`state.reflections`, `setReflection`/`clearReflection` wrappers) ready for Prompt 4 UI.
+- Backup format **v7**: required only when reflections exist; plain v3–v6 exports stay key-free (`@EncodeDefault NEVER`); per-row validation (date bounds, mood range, journal length, at-least-one, timestamps, date uniqueness); imported journals normalized like saved ones.
+- Integration: `importFrom`/`resetAllData` explicitly clear reflections (date-scoped table has NO habit FK — the only such table besides freeze_usage; the key catch from the analyst).
+
+## Test evidence
+
+- **Final: `BUILD SUCCESSFUL` — testDebugUnitTest 222/222 across 22 suites (27 new: 17 repository, 10 backup) + lintDebug, all green.**
+- Migration chain test extended to v1→8 with a post-migration reflection INSERT/READ check; STRICT-parity and old-format round trips pinned.
+
+## Reviews (sequential per the 1-agent concurrency limit)
+
+- `product-requirements-analyst`: confirmed the single-entity design, the import/reset clearing gap (fixed before commit), trim normalization, reject-don't-clamp moods, export-ordering pitfalls.
+- `security-privacy-specialist`: **PASS, no High/Medium** — no permission/logging/widget/CSV/backup-rule widening; journal never reaches CSV or logs; import/reset atomicity verified; INFO item fixed (validateReflection dead-helper dedup); LOW items documented (plaintext journals in plain backups → Prompt 4 export-UI note; bidi/control chars → Prompt 4 sanitization).
+- `independent-reviewer`: no High/Medium; L1 import-normalization asymmetry → fixed; L2 old-format-restore test gap → test added; L3 AGENTS.md staleness → fixed; I2 mood-as-string pinned as coerced-then-range-checked.
+
+## Residual / deferred
+
+- Plaintext journals in plain JSON backups: same posture as notes; Prompt 4 adds an export-UI note recommending encrypted backups.
+- Bidi/control-character stripping for imported journals: Prompt 4 (render-time or save-time sanitization).
+- CSV export excludes reflections (deliberate — journals are the most personal text; revisit scope later).
+- On-device QA and Prompt 4 UI remain.
 
 ---
 

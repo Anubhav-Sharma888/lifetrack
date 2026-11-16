@@ -64,4 +64,12 @@ object DatabaseMigrations {
             db.execSQL("CREATE INDEX IF NOT EXISTS index_streak_protections_habitId ON streak_protections(habitId)")
         }
     }
+
+    /** Daily reflections arrive in version 8: one optional mood and/or journal per local date.
+     *  Date-scoped with no habit FK, so resets and imports must clear it explicitly. */
+    val MIGRATION_7_8 = object : Migration(7, 8) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS daily_reflections (date INTEGER NOT NULL, mood INTEGER, journal TEXT, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, PRIMARY KEY(date))")
+        }
+    }
 }
