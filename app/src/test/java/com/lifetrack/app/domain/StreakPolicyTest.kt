@@ -104,4 +104,12 @@ class StreakPolicyTest {
         assertTrue(StreakPolicy.isConfigured(habit(policy = StoredStreakPolicy.STRICT.name, credit = 74)))
         assertTrue(StreakPolicy.isConfigured(habit(policy = StoredStreakPolicy.STRICT.name, credit = 76)))
     }
+
+    @Test fun `automatic bridges helper mirrors the rowless rule`() {
+        assertTrue(StreakPolicy.automaticBridges(habit(credit = 75), log(start, 3)) == true)
+        assertTrue(StreakPolicy.automaticBridges(habit(credit = 75), log(start, 2)) == false)
+        assertNull(StreakPolicy.automaticBridges(habit(credit = 75), log(start, 0)))
+        assertNull(StreakPolicy.automaticBridges(habit(credit = 75), log(start, 3, status = LogStatus.FAILED)))
+        assertNull(StreakPolicy.automaticBridges(habit(credit = 75), null))
+    }
 }

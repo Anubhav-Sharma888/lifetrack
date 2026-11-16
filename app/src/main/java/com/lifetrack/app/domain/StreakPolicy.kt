@@ -31,4 +31,11 @@ object StreakPolicy {
         if (fromStored(habit.streakPolicy) != StoredStreakPolicy.AUTOMATIC) return null
         return log.progress * 100 >= habit.partialCreditPercent * habit.goalOn(log.date).targetCount
     }
+
+    /** The AUTOMATIC threshold alone, ignoring manual rows — the UI shows what the policy would decide.
+     *  Deliberately does not check the habit policy: the sole caller gates on AUTOMATIC itself. */
+    fun automaticBridges(habit: Habit, log: HabitLog?): Boolean? {
+        if (log == null || log.status != LogStatus.IN_PROGRESS || log.progress <= 0) return null
+        return log.progress * 100 >= habit.partialCreditPercent * habit.goalOn(log.date).targetCount
+    }
 }

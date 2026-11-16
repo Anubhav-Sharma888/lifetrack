@@ -11,6 +11,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -22,8 +23,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -32,6 +35,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.lifetrack.app.data.Habit
+import com.lifetrack.app.data.StreakPolicy
 import java.time.LocalDate
 import java.time.DayOfWeek
 import java.time.format.TextStyle
@@ -55,6 +59,8 @@ fun HabitEditorScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
     var reminder by rememberSaveable(id) { mutableStateOf(original?.reminderMinutes != null) }
     var hour by rememberSaveable(id) { mutableStateOf(((original?.reminderMinutes ?: 540) / 60).toString().padStart(2, '0')) }
     var minute by rememberSaveable(id) { mutableStateOf(((original?.reminderMinutes ?: 540) % 60).toString().padStart(2, '0')) }
+    var streakPolicy by rememberSaveable(id) { mutableStateOf(original?.streakPolicy ?: StreakPolicy.STRICT.name) }
+    var partialCredit by rememberSaveable(id) { mutableStateOf((original?.partialCreditPercent ?: 75).toString()) }
     var dateDialog by rememberSaveable { mutableStateOf(false) }
     var stackMenu by remember { mutableStateOf(false) }
     var discard by rememberSaveable { mutableStateOf(false) }
@@ -68,15 +74,22 @@ fun HabitEditorScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
     val hasCheckInToday = state.logs.any { it.habitId == id && it.date == state.today }
     val selectedDays = days.split(',').mapNotNull(String::toIntOrNull).sorted()
     val targetNumber = target.toIntOrNull()
+    val partialCreditNumber = partialCredit.toIntOrNull()
+    // Unknown stored values render as STRICT, matching how the streak engine canonicalizes them.
+    val selectedPolicy = StreakPolicy.fromStored(streakPolicy)
     val reminderNumber = if (reminder && hour.toIntOrNull() in 0..23 && minute.toIntOrNull() in 0..59) hour.toInt() * 60 + minute.toInt() else null
+    val thresholdValid = streakPolicy != StreakPolicy.AUTOMATIC.name ||
+        (partialCreditNumber != null && partialCreditNumber in 1..100)
     val valid = name.isNotBlank() && name.length <= 120 && category.isNotBlank() && category.length <= 40 &&
         icon.isNotBlank() && Regex("#[0-9a-fA-F]{6}").matches(color) && selectedDays.isNotEmpty() &&
-        targetNumber != null && targetNumber in 1..100_000 && unit.isNotBlank() && unit.length <= 24 && (!reminder || reminderNumber != null)
+        targetNumber != null && targetNumber in 1..100_000 && unit.isNotBlank() && unit.length <= 24 && (!reminder || reminderNumber != null) &&
+        thresholdValid
     val dirty = name != (original?.name ?: "") || description != (original?.description ?: "") || icon != (original?.icon ?: "🌱") ||
         color != (original?.colorHex ?: "#43866B") || category != (original?.category ?: "Personal") ||
         start != (original?.startDate ?: state.today).toString() || afterId != original?.afterHabitId ||
         selectedDays != (original?.scheduledDays ?: (1..7).toList()) || target != (original?.targetCount ?: 1).toString() ||
-        unit != (original?.targetUnit ?: "times") || reminderNumber != original?.reminderMinutes
+        unit != (original?.targetUnit ?: "times") || reminderNumber != original?.reminderMinutes ||
+        streakPolicy != (original?.streakPolicy ?: StreakPolicy.STRICT.name) || partialCredit != (original?.partialCreditPercent ?: 75).toString()
     val requestBack: () -> Unit = { if (!busy) { if (dirty) discard = true else onBack() } }
     BackHandler { requestBack() }
     Scaffold(topBar = { TopAppBar(title = { Text(if (id == 0L) "A new beginning" else "Edit habit") }, navigationIcon = {
@@ -132,6 +145,46 @@ fun HabitEditorScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
                 style = MaterialTheme.typography.bodySmall
             )
             HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
+            Text("Smart Streaks", style = AlmanacType.labelCaps, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            listOf(
+                Triple(StreakPolicy.STRICT, "Strict", "Only fully completed days keep the chain alive. Today's behavior, unchanged."),
+                Triple(StreakPolicy.AUTOMATIC, "Automatic", "A past partial day at or above the threshold keeps the chain alive without counting as completed."),
+                Triple(StreakPolicy.MANUAL, "Manual", "You decide per day whether a partial day protects the chain.")
+            ).forEach { (policy, title, supporting) ->
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                        .selectable(selected = selectedPolicy == policy, role = Role.RadioButton) { streakPolicy = policy.name },
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                ) {
+                    RadioButton(selected = selectedPolicy == policy, onClick = null)
+                    Column(Modifier.weight(1f)) {
+                        Text(title, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+                        Text(supporting, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            if (streakPolicy == StreakPolicy.AUTOMATIC.name) {
+                OutlinedTextField(partialCredit, { if (it.length <= 3 && it.all(Char::isDigit)) partialCredit = it },
+                    label = { Text("Partial-credit threshold · %") }, colors = almanacFieldColors(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true,
+                    isError = !thresholdValid,
+                    supportingText = {
+                        Text(
+                            if (thresholdValid) "Suggested: 75 — six of eight glasses keeps the day."
+                            else "Enter a threshold between 1 and 100.",
+                            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                    },
+                    modifier = Modifier.fillMaxWidth())
+            }
+            Text(
+                when (selectedPolicy) {
+                    StreakPolicy.STRICT -> "Your earlier per-day decisions still apply. Everything else needs a fully completed day."
+                    StreakPolicy.AUTOMATIC -> "Changes to the policy or threshold apply to your history — past partial days are re-evaluated."
+                    StreakPolicy.MANUAL -> "Decisions are per day and persist even if you change the policy later."
+                },
+                style = MaterialTheme.typography.bodySmall
+            )
+            HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
             Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 Text("Habit reminder", Modifier.weight(1f), style = AlmanacType.labelCaps, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Switch(reminder, onCheckedChange = { enabled ->
@@ -177,7 +230,11 @@ fun HabitEditorScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
                 vm.saveHabit((original ?: Habit(name = name)).copy(
                     name = name.trim(), description = description.trim().ifBlank { null }, icon = icon.trim(), colorHex = color.uppercase(),
                     category = category.trim(), startDate = LocalDate.parse(start), afterHabitId = afterId,
-                    scheduledDays = selectedDays, targetCount = targetNumber!!, targetUnit = unit.trim(), reminderMinutes = reminderNumber
+                    scheduledDays = selectedDays, targetCount = targetNumber!!, targetUnit = unit.trim(), reminderMinutes = reminderNumber,
+                    streakPolicy = streakPolicy,
+                    // An out-of-range hidden draft must never block saving or silently replace a stored value.
+                    partialCreditPercent = partialCredit.toIntOrNull()?.takeIf { it in 1..100 }
+                        ?: (original?.partialCreditPercent ?: 75)
                 )) { onBack() }
             }, modifier = Modifier.fillMaxWidth().height(54.dp)) { Text(if (busy) "Saving…" else "Save habit") }
             Spacer(Modifier.height(24.dp))

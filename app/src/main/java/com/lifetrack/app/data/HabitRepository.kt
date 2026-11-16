@@ -272,6 +272,8 @@ class HabitRepository @Inject constructor(
     suspend fun clearLog(habitId: Long, date: LocalDate) = db.withTransaction {
         editableHabit(habitId, date)
         dao.deleteLog(habitId, date)
+        // A cleared check-in also clears its streak decision: re-entering a partial starts clean.
+        dao.deleteStreakProtection(habitId, date)
     }
 
     /** One explicit decision per past partial day: bridge the completion chain or break it.

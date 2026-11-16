@@ -301,4 +301,16 @@ class StreakProtectionRepositoryTest {
             assertFalse(expected.message.isNullOrBlank())
         }
     }
+
+    @Test
+    fun `clearing a check in also clears its streak decision`() = runBlocking {
+        val habit = createQuantitativeHabit()
+        repository.setLog(habit, yesterday, LogStatus.IN_PROGRESS)
+        repository.setProgress(habit, yesterday, 3)
+        repository.setStreakProtection(habit, yesterday, true)
+        assertTrue(repository.streakProtections.first().single().protectChain)
+        repository.clearLog(habit, yesterday)
+        // Re-entering a partial day starts clean: no invisible decision survives the clear.
+        assertTrue(repository.streakProtections.first().isEmpty())
+    }
 }

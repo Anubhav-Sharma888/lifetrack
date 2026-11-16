@@ -1,6 +1,34 @@
-# LifeTrack v1.8.0 — Work Progress (autonomous session, 2026-11-15; hardening 2026-11-16/17; Smart Streaks Phase 1 2026-11-17)
+# LifeTrack v1.8.0 — Work Progress (sessions 2026-11-15 → 2026-11-17: CSV export, directional tracking, app lock, Smart Streaks Phases 1–2)
 
 Branch: `develop/v1.8.0` · Backup at `D:\LifeTracker-backup` (untouched)
+
+---
+
+# Session 4 (2026-11-17) — Smart Streaks Phase 2: configuration UI + manual decisions
+
+## What was built (this session)
+
+- **Habit Editor**: "Smart Streaks" section — Strict/Automatic/Manual selector (selectable rows, Role.RadioButton, 48dp targets, TalkBack-merged), threshold field for AUTOMATIC (digits-only, suggested 75, inline error with Polite live region, save gating 1..100), per-mode explanations + honesty line ("changes apply to your history"), dirty tracking, and a save expression that can never block on a hidden out-of-range draft (falls back to the stored value).
+- **Habit Detail**: Smart Streaks block inside the check-in well for past partial days — AUTOMATIC shows the threshold in day units ("X of Y needed") + only the differing override button; MANUAL shows both Protect chain / Break chain; an explicit decision shows "You decided: …" (Polite live region) + "Remove my decision". Decisions persist across policy changes and are visible/removable even under Strict (deliberate semantics; editor copy states it).
+- **Integration hardening**: `clearLog` also deletes the day's streak decision (clean slate for re-entered partials); dead DAO bulk query removed; the "configured habit" predicate centralized in `domain/StreakPolicy.isConfigured`.
+
+## Test evidence (session 4)
+
+- **Final: `BUILD SUCCESSFUL in 11m 4s` — testDebugUnitTest 193/193 across 20 suites (2 added this session: automaticBridges helper, clearLog row deletion) + lintDebug, all green.**
+- Regression coverage confirmed: CSV export, directional tracking, app lock, Room migrations (v1→7), JSON backups v1–v6, editor recovery.
+
+## Reviews (this session)
+
+- `frontend-engineer`: editor UI (single file, accessibility pattern from TrackingModeSelector, save gating).
+- `ui-ux-specialist`: H1 (stale decisions invisible under Strict → detail gate widened + editor copy), M1 (threshold copy in day units), M2 (error folded into supporting text + live region), M3/M4 (prose dedup + per-selection retroactivity line), L1–L4 (button heights, live region, wording, clearLog semantics) — all applied.
+- `independent-reviewer`: verified all mission-checklist items clean (bridge/gap interplay, row leakage, export combos, schema vs migration, partial-at-target invariant, call sites, wiring); findings applied: M1 (editor hidden-draft save block → fallback-to-stored expression), M2 (three untested behaviors → 2 tests added + EditorRecoveryTest UI cases deferred), Low (automaticBridges KDoc, dead DAO query removed).
+
+## Residual risks / device QA (Phase 2)
+
+- TalkBack traversal and live-region announcements on real devices; terracotta contrast on dynamic-color themes.
+- Retroactive re-evaluation is deliberate (always-current threshold); Phase 2 UI copy states it — monitor user feedback.
+- Missed (log-less) days cannot be protected by design — the freeze is the remedy; revisit if QA shows demand.
+- EditorRecoveryTest has no Smart-Streaks-specific UI cases (radio/threshold interactions) — candidate for Prompt 3.
 
 ---
 

@@ -86,6 +86,58 @@ fun HabitDetailScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
                     if (eligible && date < state.today && (log == null || log.status in setOf(LogStatus.FAILED, LogStatus.IN_PROGRESS))) {
                         OutlinedButton(enabled = !spent && !busy, onClick = { freezeDialog = true }, modifier = Modifier.fillMaxWidth()) { Text(if (spent) "${YearMonth.from(date)} freeze used" else "❄ Use monthly streak freeze") }
                     }
+                    // Smart Streaks: per-day decisions for past partial days. Decisions persist across
+                    // policy changes, so the block also appears under Strict whenever a decision exists.
+                    val streakPolicy = StreakPolicy.fromStored(habit.streakPolicy)
+                    val partialDay = eligible && date < state.today && log != null && log.status == LogStatus.IN_PROGRESS && log.progress > 0
+                    val existingDecision = state.streakProtections.firstOrNull { it.habitId == habit.id && it.date == date }
+                    if ((streakPolicy != StreakPolicy.STRICT || existingDecision != null) && partialDay) {
+                        HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
+                        Text("Smart Streaks", style = MaterialTheme.typography.titleSmall)
+                        val autoBridges = com.lifetrack.app.domain.StreakPolicy.automaticBridges(habit, log) == true
+                        if (streakPolicy == StreakPolicy.AUTOMATIC) {
+                            Text("Threshold ${habit.partialCreditPercent}% — ${log?.progress ?: 0} of ${goal.targetCount} needed; this day " +
+                                if (autoBridges) "keeps the chain alive automatically." else "breaks the chain automatically.",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else if (streakPolicy == StreakPolicy.MANUAL && existingDecision == null) {
+                            Text("Manual policy — you decide whether this partial day keeps the chain alive.",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        if (existingDecision != null) {
+                            Text(
+                                if (existingDecision.protectChain) "You decided: this day keeps the chain alive."
+                                else "You decided: this day breaks the chain.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                            OutlinedButton(enabled = !busy, onClick = { vm.clearStreakProtection(id, date) }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                                Text("Remove my decision")
+                            }
+                        } else {
+                            Text("A day kept by Smart Streaks stays partial — it never counts as fully completed.",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (streakPolicy == StreakPolicy.AUTOMATIC) {
+                                // Only the override that differs from the automatic outcome is offered.
+                                if (autoBridges) {
+                                    TextButton(enabled = !busy, onClick = { vm.setStreakProtection(id, date, false) }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                                        Text("Break the chain for this day", color = almanacColors().terracotta)
+                                    }
+                                } else {
+                                    OutlinedButton(enabled = !busy, onClick = { vm.setStreakProtection(id, date, true) }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                                        Text("Protect this partial day")
+                                    }
+                                }
+                            } else {
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    OutlinedButton(enabled = !busy, onClick = { vm.setStreakProtection(id, date, true) }, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+                                        Text("Protect chain")
+                                    }
+                                    TextButton(enabled = !busy, onClick = { vm.setStreakProtection(id, date, false) }, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+                                        Text("Break chain", color = almanacColors().terracotta)
+                                    }
+                                }
+                            }
+                        }
+                    }
                     if (habit.isArchived) Text("Restore this habit to change check-ins.", style = MaterialTheme.typography.bodySmall)
                     if (date < habit.startDate) Text("Check-ins begin on ${habit.startDate}.", style = MaterialTheme.typography.bodySmall)
                     else if (!eligible && !habit.isArchived) Text("This is a rest day or a preserved pause in your timeline.", style = MaterialTheme.typography.bodySmall)

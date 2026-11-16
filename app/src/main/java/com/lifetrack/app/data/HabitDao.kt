@@ -48,7 +48,6 @@ interface HabitDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertStreakProtections(protections: List<StreakProtection>)
     @Query("SELECT * FROM streak_protections ORDER BY date, habitId") fun observeStreakProtections(): Flow<List<StreakProtection>>
     @Query("SELECT * FROM streak_protections ORDER BY date, habitId") suspend fun allStreakProtections(): List<StreakProtection>
-    @Query("DELETE FROM streak_protections") suspend fun deleteStreakProtections()
     @Update suspend fun updatePause(pause: HabitPause)
     @Query("DELETE FROM habit_pauses WHERE id = :id") suspend fun deletePause(id: Long)
     @Query("DELETE FROM habit_pauses") suspend fun deletePauses()
