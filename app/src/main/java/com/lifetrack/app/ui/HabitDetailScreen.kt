@@ -63,9 +63,9 @@ fun HabitDetailScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
             if (habit.isArchived) Text("Archived · History preserved", color = MaterialTheme.colorScheme.primary)
             HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                StatCard("Current streak", Analytics.currentStreak(habit, ownLogs, state.today, state.pauses).toString(), Modifier.weight(1f))
+                StatCard("Current streak", Analytics.currentStreak(habit, ownLogs, state.today, state.pauses, state.streakProtections).toString(), Modifier.weight(1f))
                 StatCard("Completions", ownLogs.count { it.status == LogStatus.COMPLETED }.toString(), Modifier.weight(1f))
-                StatCard("Best streak", Analytics.bestStreak(habit, ownLogs, state.today, state.pauses).toString(), Modifier.weight(1f))
+                StatCard("Best streak", Analytics.bestStreak(habit, ownLogs, state.today, state.pauses, state.streakProtections).toString(), Modifier.weight(1f))
             }
             OutlinedButton(onClick = { showDate = true }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Outlined.DateRange, null); Spacer(Modifier.width(8.dp)); Text("$date · ${Analytics.dayNumber(habit, date)?.let { "Day $it" } ?: "Not started"}")

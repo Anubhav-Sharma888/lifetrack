@@ -1,5 +1,7 @@
 package com.lifetrack.app.data
 
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Required
 import kotlinx.serialization.json.Json
@@ -21,7 +23,11 @@ data class LifeTrackBackup(
     val freezes: List<FreezeUsage>,
     val pauses: List<HabitPause> = emptyList(),
     val activities: List<WorkoutActivity> = emptyList(),
-    val activityEntries: List<ActivityEntry> = emptyList()
+    val activityEntries: List<ActivityEntry> = emptyList(),
+    // Smart Streaks: absent from every plain export so older app versions still decode them.
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val streakProtections: List<StreakProtection> = emptyList()
 )
 
 /** Validation is independent of Android/Room so corrupt imports can be rejected before writes. */
@@ -61,6 +67,8 @@ object BackupValidator {
         require(habit.createdAt >= 0 && habit.updatedAt >= habit.createdAt) { "Invalid habit timestamps." }
         require(habit.isArchived == (habit.archivedOn != null)) { "Archived habits must include their archive date." }
         require(habit.archivedOn == null || (habit.archivedOn >= earliestDate && habit.archivedOn <= today)) { "Invalid archive date." }
+        require(habit.streakPolicy in StreakPolicy.entries.map(StreakPolicy::name)) { "Unknown streak policy for this habit." }
+        require(habit.partialCreditPercent in 1..100) { "Partial-credit thresholds must be between 1 and 100 percent." }
     }
 
     fun validateSettings(settings: AppSettings) {
@@ -96,9 +104,11 @@ object BackupValidator {
     }
 
     fun validate(backup: LifeTrackBackup, today: LocalDate = LocalDate.now()) {
-        require(backup.formatVersion in 1..5) { "This backup version is not supported by this app." }
+        require(backup.formatVersion in 1..6) { "This backup version is not supported by this app." }
         require(backup.formatVersion >= 4 || backup.habits.none { it.goalHistory.isNotEmpty() }) { "Goal revisions require backup version 4." }
         require(backup.formatVersion >= 5 || backup.activities.none { it.isDirectional() }) { "Directional activity tracking requires backup version 5." }
+        require(backup.formatVersion >= 6 || (backup.habits.none { com.lifetrack.app.domain.StreakPolicy.isConfigured(it) } &&
+            backup.streakProtections.isEmpty())) { "Smart Streaks data requires backup version 6." }
         require(backup.exportedAt >= 0) { "Invalid export timestamp." }
         validateSettings(backup.settings)
         // App lock is a local-only security choice and never roams through backups, plain or encrypted.
@@ -179,13 +189,22 @@ object BackupValidator {
                 require(log.status == LogStatus.SKIPPED && month in freezeMonths && frozenLogMonths.add(month)) { "Invalid frozen check-in or multiple freezes in one month." }
             }
         }
+        // A protection decision is meaningful only on a real check-in of the same habit and date.
+        require(backup.streakProtections.map { it.habitId to it.date }.toSet().size == backup.streakProtections.size) { "Duplicate streak protection decisions in backup." }
+        backup.streakProtections.forEach { protection ->
+            val habit = habits[protection.habitId]
+            require(habit != null) { "A streak protection belongs to a missing habit." }
+            require(protection.date >= habit.startDate && protection.date <= today) { "Streak protection dates cannot be before a habit starts or in the future." }
+            require(habit.archivedOn == null || protection.date <= habit.archivedOn) { "A streak protection occurs after its habit was archived." }
+            require(protection.createdAt >= 0 && protection.updatedAt >= protection.createdAt) { "Invalid streak protection timestamps." }
+        }
     }
 
     /** Version 1 lacks schedules, progress and intervals; normalize before replacing any table. */
     fun decode(text: String, today: LocalDate = LocalDate.now()): LifeTrackBackup {
         val document = json.parseToJsonElement(text.removePrefix("\uFEFF")).jsonObject
         val version = document["formatVersion"]?.jsonPrimitive?.intOrNull
-        require(version != null && version in 1..5) { "This backup version is not supported by this app." }
+        require(version != null && version in 1..6) { "This backup version is not supported by this app." }
         if (version >= 2) {
             require("pauses" in document) { "This version 2 backup is missing its pause history." }
             (document["habits"] as? JsonArray)?.forEach { entry ->

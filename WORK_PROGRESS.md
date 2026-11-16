@@ -1,10 +1,27 @@
-# LifeTrack v1.8.0 — Work Progress (autonomous session, 2026-11-15; hardening session 2026-11-16/17)
+# LifeTrack v1.8.0 — Work Progress (autonomous session, 2026-11-15; hardening 2026-11-16/17; Smart Streaks Phase 1 2026-11-17)
 
 Branch: `develop/v1.8.0` · Backup at `D:\LifeTracker-backup` (untouched)
 
 ---
 
-# Session 2 (2026-11-16/17) — app-lock hardening, all four review findings resolved
+# Session 3 (2026-11-17) — Smart Streaks Phase 1 (domain/db/repository; config UI deferred to Prompt 2/12)
+
+## Design decisions (lead, informed by product-requirements-analyst)
+
+- Threshold is **always-current** (read-time `partialCreditPercent`), consistent with the codebase's retroactive schedule pattern; MANUAL rows are the stability escape hatch. Phase 2 UI copy must say threshold changes apply to history.
+- **Zero-progress logs never bridge, even via stale manual rows** (SKIPPED already covers zero days; protects the freeze economy).
+- Integer bridge comparison: `progress * 100 >= partialCreditPercent * goalOn(date).targetCount` (inclusive boundary — 6/8 at 75% bridges).
+- Protection rows are kept-but-inert when a day later becomes COMPLETED or the log is cleared (undo reactivates); FAILED always breaks regardless of rows.
+- `protected` is a Kotlin keyword — the column/field is `protectChain`.
+
+## Work in flight
+
+- Lead: data layer landed (Models policy fields + `StreakProtection` entity, MIGRATION_6→7, AppDatabase v7, DAO surface, Backup v6 gates + validation, export/import wiring).
+- backend-engineer: `domain/StreakPolicy.kt` engine + `Analytics.currentStreak/bestStreak` protections integration + `HabitRepository` policy validation and set/clear-protection APIs (in flight).
+- quality-analyst: focused tests — StreakPolicyTest, StreakAnalyticsTest, StreakProtectionRepositoryTest (in flight, parallel, non-overlapping).
+- Pending: db-migration-specialist verification of 7.json, VM/UI threading (lead), security-privacy + independent-reviewer, full suite + lint.
+
+## Session-2 summary (2026-11-16/17) — app-lock hardening, all four review findings resolved
 
 ## Commits
 

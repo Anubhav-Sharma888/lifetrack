@@ -43,12 +43,13 @@ import kotlin.math.roundToInt
 @Composable
 fun AnalyticsScreen(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate, pauses: List<HabitPause> = emptyList(),
                     activities: List<com.lifetrack.app.data.WorkoutActivity> = emptyList(),
-                    activityEntries: List<com.lifetrack.app.data.ActivityEntry> = emptyList()) {
+                    activityEntries: List<com.lifetrack.app.data.ActivityEntry> = emptyList(),
+                    streakProtections: List<com.lifetrack.app.data.StreakProtection> = emptyList()) {
     val active = habits.filterNot { it.isArchived }
     val first = habits.minOfOrNull { it.startDate } ?: today
     val allTime = remember(habits, logs, today, pauses) { Analytics.rate(habits, logs, first, today, pauses) }
-    val leaderboard = remember(habits, logs, today, pauses) {
-        active.map { it to Analytics.currentStreak(it, logs, today, pauses) }.filter { it.second > 0 }.sortedByDescending { it.second }
+    val leaderboard = remember(habits, logs, today, pauses, streakProtections) {
+        active.map { it to Analytics.currentStreak(it, logs, today, pauses, streakProtections) }.filter { it.second > 0 }.sortedByDescending { it.second }
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         Text("Analytics", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)

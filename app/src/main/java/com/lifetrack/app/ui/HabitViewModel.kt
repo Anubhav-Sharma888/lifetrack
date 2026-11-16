@@ -14,6 +14,7 @@ import com.lifetrack.app.data.HabitPause
 import com.lifetrack.app.data.WorkoutActivity
 import com.lifetrack.app.data.ActivityEntry
 import com.lifetrack.app.data.CheckInUndo
+import com.lifetrack.app.data.StreakProtection
 import com.lifetrack.app.reminder.BackupReminderScheduler
 import com.lifetrack.app.reminder.DailyCheckInReminderScheduler
 import com.lifetrack.app.reminder.DailyReminderStore
@@ -50,6 +51,7 @@ data class LifeTrackState(
     val pauses: List<HabitPause> = emptyList(),
     val activities: List<WorkoutActivity> = emptyList(),
     val activityEntries: List<ActivityEntry> = emptyList(),
+    val streakProtections: List<StreakProtection> = emptyList(),
     val loadError: String? = null
 )
 
@@ -87,6 +89,7 @@ class HabitViewModel @Inject constructor(
     }.combine(repository.pauses) { current, pauses -> current.copy(pauses = pauses) }
         .combine(repository.activities) { current, activities -> current.copy(activities = activities) }
         .combine(repository.activityEntries) { current, entries -> current.copy(activityEntries = entries) }
+        .combine(repository.streakProtections) { current, protections -> current.copy(streakProtections = protections) }
         .catch { error ->
             if (error is CancellationException) throw error
             emit(LifeTrackState(loadError = "Your local data could not be opened. Retry or restart the app; do not clear storage."))
@@ -203,6 +206,17 @@ class HabitViewModel @Inject constructor(
         repository.useFreeze(id, date, note)
         _events.emit(UiEvent.Message("Streak protected with this month's freeze"))
         onSaved()
+    }
+
+    fun setStreakProtection(id: Long, date: LocalDate, protectChain: Boolean) = perform {
+        repository.setStreakProtection(id, date, protectChain)
+        _events.emit(UiEvent.Message(if (protectChain) "Partial day protected — your chain continues"
+            else "Partial day recorded — the chain breaks here"))
+    }
+
+    fun clearStreakProtection(id: Long, date: LocalDate) = perform {
+        repository.clearStreakProtection(id, date)
+        _events.emit(UiEvent.Message("Streak decision removed — the policy decides again"))
     }
 
     fun updateSettings(settings: AppSettings) = perform { repository.updateSettings(settings) }

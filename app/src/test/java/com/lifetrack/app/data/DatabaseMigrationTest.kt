@@ -53,7 +53,8 @@ class DatabaseMigrationTest {
         val migrated = Room.databaseBuilder(context, AppDatabase::class.java, name)
             .addMigrations(
                 DatabaseMigrations.MIGRATION_1_2, DatabaseMigrations.MIGRATION_2_3,
-                DatabaseMigrations.MIGRATION_3_4, DatabaseMigrations.MIGRATION_4_5, DatabaseMigrations.MIGRATION_5_6
+                DatabaseMigrations.MIGRATION_3_4, DatabaseMigrations.MIGRATION_4_5,
+                DatabaseMigrations.MIGRATION_5_6, DatabaseMigrations.MIGRATION_6_7
             )
             .allowMainThreadQueries().build()
         try {
@@ -78,12 +79,16 @@ class DatabaseMigrationTest {
             assertTrue(settings.animationsEnabled)
             // MIGRATION_5_6 added the opt-in app lock; existing settings start with it off.
             assertFalse(settings.appLockEnabled)
+            // MIGRATION_6_7 added Smart Streaks; every migrated habit keeps STRICT semantics.
+            assertEquals("STRICT", migrated.dao().allHabits().single().streakPolicy)
+            assertEquals(75, migrated.dao().allHabits().single().partialCreditPercent)
+            assertTrue("Streak protections start empty after migration", migrated.dao().allStreakProtections().isEmpty())
             val pause = migrated.dao().allPauses().single()
             assertEquals(7L, pause.habitId)
             assertEquals(today, pause.startDate)
             assertNull(pause.endDate)
             assertEquals("2026-10", migrated.dao().allFreezes().single().month)
-            assertEquals(6, migrated.openHelper.readableDatabase.version)
+            assertEquals(7, migrated.openHelper.readableDatabase.version)
             assertTrue("Version-3 activity tables start empty after migration from version 1", migrated.dao().allActivities().isEmpty())
             // MIGRATION_4_5 added the tracking columns; the migrated schema must apply their defaults.
             // (Opening schema 5 at all proves Room accepted the migrated structure — a mismatch would throw.)
