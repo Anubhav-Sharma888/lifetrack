@@ -1,10 +1,135 @@
-# LifeTrack v1.8.0 — Work Progress (autonomous session, 2026-11-15; hardening session 2026-11-16/17)
+# LifeTrack v1.8.0 — Work Progress (sessions 2026-11-15 → 2026-11-18: CSV export, directional tracking, app lock, Smart Streaks Phases 1–2, Mood/Journal data layer + UI)
 
-Branch: `develop/v1.8.0` · Backup at `D:\LifeTracker-backup` (untouched)
+Branch: `develop/v1.8.0` (LOCAL) · Backup at `D:\LifeTracker-backup` (untouched)
 
 ---
 
-# Session 2 (2026-11-16/17) — app-lock hardening, all four review findings resolved
+## ⚠️ OPEN BLOCKER — diverged `develop/v1.8.0`, Phase-4 UI push deferred (needs your decision)
+
+- **Remote state**: `origin/develop/v1.8.0` = `0e98de7` — three new CI commits (`c73f5c0`/`a1b16a0`/`0e98de7`: GitHub Actions workflow building a `v1.8.0-preview.1` APK, prerelease published) layered on top of my Prompt-3 data-layer commit `28791a2`. A tag `v1.8.0-preview.1` was also pushed.
+- **The remote's CI/preview ships WITHOUT the Prompt-4 reflection UI**: relative to my local HEAD, the remote deletes `ui/components/ReflectionWidgets.kt`, the Today/Activities/Analytics/Settings integration, `ReflectionUiTest.kt`, and rewrites `WORK_PROGRESS.md` (its own session notes). Another Prompt-4 session ran against this branch and evidently took the reflection UI in a different direction (or deliberately deferred it for the preview).
+- **My local state**: commit `62d5182` = the complete, validated Phase-4 UI (Today reflection card, Activities chronology display, Analytics moods panel, Settings privacy note, 4 UI tests) on top of `28791a2` — 226/226 unit tests + lintDebug green on this tree.
+- **What I did NOT do**: no force-push, no reset, no merge, no push to any other branch, no deletion of the remote's CI or its preview. Both histories are fully preserved.
+- **Why I stopped**: pushing my commit would require resolving a genuine product conflict (my UI vs. the remote's UI-less preview direction) — that is your call, not an autonomous one. Merging would resurrect the UI into a preview that was deliberately cut without it.
+
+### Decision needed when you return
+1. Keep the reflection UI → merge/rebase `62d5182` over `0e98de7` (small conflict set: WORK_PROGRESS.md + Today/Analytics/LifeTrackApp/EditorRecoveryTest), re-run the suite, push.
+2. Prefer the preview's UI-less state for now → Phase-4 UI stays preserved on my local branch (cherry-pick later); nothing to merge.
+3. Either way: the CI workflow on the remote now builds the preview automatically — verify whether you want it to pick up the UI once merged.
+
+### Local commits ahead of remote (all preserved on local `develop/v1.8.0`)
+| Commit | Content |
+|---|---|
+| `62d5182` | feat: Mood Tracking + Daily Journal UI (Prompt 4/12) — validated 226/226 + lint green |
+
+---
+
+# Session 6 (Prompt 4/12) — Mood Tracking + Daily Journal UI
+
+## What was built
+
+- **Today**: `ReflectionEditorCard` for the selected date (today or any past date via existing date navigation) — mood selector (five 48dp selectable circles, Role.RadioButton, per-chip meaning), optional journal (2000-char cap with monoData counter), Save gated on change + content, Cancel, Remove behind a confirmation dialog. Drafts use `rememberSaveable` — they survive scroll-away, tab switches and process death. Empty days show an invitation + "Add a reflection" (no auto-opened text field, which fought list scrolling).
+- **Activities chronology**: day groups show the day's mood (emoji + label, only when present) and journal (Ellipsis) — read-only, no duplication.
+- **Analytics**: "Moods · last 28 days" panel — Days with moods / Avg on habit days / Avg on quiet days + definitional footnote (habit/quiet-day definitions, 1–5 scale) + causation disclaimer + oldest-to-newest emoji/label/date list. Journal text deliberately kept out of Analytics.
+- **Settings**: "Export data" subtitle now warns that plain JSON files contain notes and journals unencrypted.
+
+## Test evidence (session 6)
+
+- **Final: `BUILD SUCCESSFUL` — testDebugUnitTest 226/226 across 23 suites (4 new compose tests: invitation, mood-only save + remove-guard, saved read-back + confirm-before-remove, cancel-restores; plus the rewritten short-screen scroll test and reorder scroll fix) + lintDebug, all green.**
+- Regression: Smart Streaks, App Lock, CSV export, backups, migrations all green.
+
+## Reviews (session 6)
+
+- `frontend-engineer`: ReflectionWidgets.kt (remember-key correctness fix caught pre-commit: identity-keyed arrays would have reset drafts per keystroke).
+- `ui-ux-specialist`: H1 (plain-remember draft loss on scroll → rememberSaveable), M1 (journal ellipsis), M2 (definitional footnote), M3 (chip semantics), M4 (error color for Remove), M5 (48dp TextButtons), M6 (dropped redundant contentDescriptions), M7 (today/past titles + Cancel on empty days), L1/L2 (counter style, color alignment) — all applied.
+- `independent-reviewer`: M-1 (card/panel test coverage → ReflectionUiTest 4 tests), M-2 (scroll-test bottom coverage → two-phase scroll), L-1/L-2 applied; I-1 locale format noted; M-3 (date-nav draft loss) documented as a lead product call (see below).
+
+## Product decisions & residual risks (session 6)
+
+- **Date navigation mid-edit resets the reflection draft** (no dirty guard on the date controls): deliberate — date controls are primary navigation; a guard there would fight every use. Documented; revisit if QA shows friction.
+- **No mood un-select affordance**: journal-only after mood+journal requires removing the whole reflection. Documented; revisit with Prompt 4 QA.
+- **Standalone bottom-scroll Robolectric test omitted**: scrolling from the reflection position to the last habit item trips a LazyColumn/reorderable interaction under Robolectric ("node no longer in the tree") regardless of target; bottom reachability is covered by the reorder test's scroll instead. Device QA will confirm real scrolling.
+- Device QA: TalkBack on mood chips/live regions, emoji rendering at fontScale 2, journal drafts across process death.
+
+## Earlier sessions (2026-11-15/16/17) — CSV export, directional tracking, app lock, Smart Streaks, mood/journal data layer: see logs below
+
+---
+
+# Session 5 (Prompt 3/12) — Mood Tracking + Daily Journal data layer
+
+## What was built
+
+- `DailyReflection` entity (schema **8** via additive MIGRATION_7→8): one optional mood (1–5) and/or journal (≤2000 trimmed) per local calendar date; date-scoped, no habit FK; historical dates allowed, future rejected at save and at import.
+- Repository APIs: `setReflection` (both-ends date bounds at save, mood reject-don't-clamp, trim-then-takeIf journal, at-least-one required, monotonic timestamps), `clearReflection` (idempotent), `reflections` flow; VM exposure (`state.reflections`, `setReflection`/`clearReflection` wrappers) ready for Prompt 4 UI.
+- Backup format **v7**: required only when reflections exist; plain v3–v6 exports stay key-free (`@EncodeDefault NEVER`); per-row validation (date bounds, mood range, journal length, at-least-one, timestamps, date uniqueness); imported journals normalized like saved ones.
+- Integration: `importFrom`/`resetAllData` explicitly clear reflections (date-scoped table has NO habit FK — the only such table besides freeze_usage; the key catch from the analyst).
+
+## Test evidence
+
+- **Final: `BUILD SUCCESSFUL` — testDebugUnitTest 222/222 across 22 suites (27 new: 17 repository, 10 backup) + lintDebug, all green.**
+- Migration chain test extended to v1→8 with a post-migration reflection INSERT/READ check; STRICT-parity and old-format round trips pinned.
+
+## Reviews (sequential per the 1-agent concurrency limit)
+
+- `product-requirements-analyst`: confirmed the single-entity design, the import/reset clearing gap (fixed before commit), trim normalization, reject-don't-clamp moods, export-ordering pitfalls.
+- `security-privacy-specialist`: **PASS, no High/Medium** — no permission/logging/widget/CSV/backup-rule widening; journal never reaches CSV or logs; import/reset atomicity verified; INFO item fixed (validateReflection dead-helper dedup); LOW items documented (plaintext journals in plain backups → Prompt 4 export-UI note; bidi/control chars → Prompt 4 sanitization).
+- `independent-reviewer`: no High/Medium; L1 import-normalization asymmetry → fixed; L2 old-format-restore test gap → test added; L3 AGENTS.md staleness → fixed; I2 mood-as-string pinned as coerced-then-range-checked.
+
+## Residual / deferred
+
+- Plaintext journals in plain JSON backups: same posture as notes; Prompt 4 adds an export-UI note recommending encrypted backups.
+- Bidi/control-character stripping for imported journals: Prompt 4 (render-time or save-time sanitization).
+- CSV export excludes reflections (deliberate — journals are the most personal text; revisit scope later).
+- On-device QA and Prompt 4 UI remain.
+
+---
+
+# Session 4 (2026-11-17) — Smart Streaks Phase 2: configuration UI + manual decisions
+
+## What was built (this session)
+
+- **Habit Editor**: "Smart Streaks" section — Strict/Automatic/Manual selector (selectable rows, Role.RadioButton, 48dp targets, TalkBack-merged), threshold field for AUTOMATIC (digits-only, suggested 75, inline error with Polite live region, save gating 1..100), per-mode explanations + honesty line ("changes apply to your history"), dirty tracking, and a save expression that can never block on a hidden out-of-range draft (falls back to the stored value).
+- **Habit Detail**: Smart Streaks block inside the check-in well for past partial days — AUTOMATIC shows the threshold in day units ("X of Y needed") + only the differing override button; MANUAL shows both Protect chain / Break chain; an explicit decision shows "You decided: …" (Polite live region) + "Remove my decision". Decisions persist across policy changes and are visible/removable even under Strict (deliberate semantics; editor copy states it).
+- **Integration hardening**: `clearLog` also deletes the day's streak decision (clean slate for re-entered partials); dead DAO bulk query removed; the "configured habit" predicate centralized in `domain/StreakPolicy.isConfigured`.
+
+## Test evidence (session 4)
+
+- **Final: `BUILD SUCCESSFUL in 11m 4s` — testDebugUnitTest 193/193 across 20 suites (2 added this session: automaticBridges helper, clearLog row deletion) + lintDebug, all green.**
+- Regression coverage confirmed: CSV export, directional tracking, app lock, Room migrations (v1→7), JSON backups v1–v6, editor recovery.
+
+## Reviews (this session)
+
+- `frontend-engineer`: editor UI (single file, accessibility pattern from TrackingModeSelector, save gating).
+- `ui-ux-specialist`: H1 (stale decisions invisible under Strict → detail gate widened + editor copy), M1 (threshold copy in day units), M2 (error folded into supporting text + live region), M3/M4 (prose dedup + per-selection retroactivity line), L1–L4 (button heights, live region, wording, clearLog semantics) — all applied.
+- `independent-reviewer`: verified all mission-checklist items clean (bridge/gap interplay, row leakage, export combos, schema vs migration, partial-at-target invariant, call sites, wiring); findings applied: M1 (editor hidden-draft save block → fallback-to-stored expression), M2 (three untested behaviors → 2 tests added + EditorRecoveryTest UI cases deferred), Low (automaticBridges KDoc, dead DAO query removed).
+
+## Residual risks / device QA (Phase 2)
+
+- TalkBack traversal and live-region announcements on real devices; terracotta contrast on dynamic-color themes.
+- Retroactive re-evaluation is deliberate (always-current threshold); Phase 2 UI copy states it — monitor user feedback.
+- Missed (log-less) days cannot be protected by design — the freeze is the remedy; revisit if QA shows demand.
+- EditorRecoveryTest has no Smart-Streaks-specific UI cases (radio/threshold interactions) — candidate for Prompt 3.
+
+---
+
+# Session 3 (2026-11-17) — Smart Streaks Phase 1 (domain/db/repository; config UI deferred to Prompt 2/12)
+
+## Design decisions (lead, informed by product-requirements-analyst)
+
+- Threshold is **always-current** (read-time `partialCreditPercent`), consistent with the codebase's retroactive schedule pattern; MANUAL rows are the stability escape hatch. Phase 2 UI copy must say threshold changes apply to history.
+- **Zero-progress logs never bridge, even via stale manual rows** (SKIPPED already covers zero days; protects the freeze economy).
+- Integer bridge comparison: `progress * 100 >= partialCreditPercent * goalOn(date).targetCount` (inclusive boundary — 6/8 at 75% bridges).
+- Protection rows are kept-but-inert when a day later becomes COMPLETED or the log is cleared (undo reactivates); FAILED always breaks regardless of rows.
+- `protected` is a Kotlin keyword — the column/field is `protectChain`.
+
+## Work in flight
+
+- Lead: data layer landed (Models policy fields + `StreakProtection` entity, MIGRATION_6→7, AppDatabase v7, DAO surface, Backup v6 gates + validation, export/import wiring).
+- backend-engineer: `domain/StreakPolicy.kt` engine + `Analytics.currentStreak/bestStreak` protections integration + `HabitRepository` policy validation and set/clear-protection APIs (in flight).
+- quality-analyst: focused tests — StreakPolicyTest, StreakAnalyticsTest, StreakProtectionRepositoryTest (in flight, parallel, non-overlapping).
+- Pending: db-migration-specialist verification of 7.json, VM/UI threading (lead), security-privacy + independent-reviewer, full suite + lint.
+
+## Session-2 summary (2026-11-16/17) — app-lock hardening, all four review findings resolved
 
 ## Commits
 

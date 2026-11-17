@@ -33,6 +33,8 @@ import com.lifetrack.app.data.LogStatus
 import com.lifetrack.app.domain.Analytics
 import com.lifetrack.app.domain.ProgressTracking
 import com.lifetrack.app.ui.components.HeatmapWidget
+import com.lifetrack.app.ui.components.moodEmoji
+import com.lifetrack.app.ui.components.moodLabel
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
@@ -43,12 +45,14 @@ import kotlin.math.roundToInt
 @Composable
 fun AnalyticsScreen(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate, pauses: List<HabitPause> = emptyList(),
                     activities: List<com.lifetrack.app.data.WorkoutActivity> = emptyList(),
-                    activityEntries: List<com.lifetrack.app.data.ActivityEntry> = emptyList()) {
+                    activityEntries: List<com.lifetrack.app.data.ActivityEntry> = emptyList(),
+                    streakProtections: List<com.lifetrack.app.data.StreakProtection> = emptyList(),
+                    reflections: List<com.lifetrack.app.data.DailyReflection> = emptyList()) {
     val active = habits.filterNot { it.isArchived }
     val first = habits.minOfOrNull { it.startDate } ?: today
     val allTime = remember(habits, logs, today, pauses) { Analytics.rate(habits, logs, first, today, pauses) }
-    val leaderboard = remember(habits, logs, today, pauses) {
-        active.map { it to Analytics.currentStreak(it, logs, today, pauses) }.filter { it.second > 0 }.sortedByDescending { it.second }
+    val leaderboard = remember(habits, logs, today, pauses, streakProtections) {
+        active.map { it to Analytics.currentStreak(it, logs, today, pauses, streakProtections) }.filter { it.second > 0 }.sortedByDescending { it.second }
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         Text("Analytics", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
@@ -119,6 +123,32 @@ fun AnalyticsScreen(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate,
             Text(if (anyDirectional) "Actual workout quantities by day. A day total can include multiple sets. Directional activities show their current value instead of a window total."
                 else "Actual workout quantities by day. A day total can include multiple sets.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (reflections.isNotEmpty()) AnalyticsPanel {
+            Text("Moods · last 28 days", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(12.dp))
+            val window = today.minusDays(27)
+            val moodDays = reflections.filter { it.mood != null && it.date in window..today }.sortedBy { it.date }
+            val completedDays = remember(logs) { logs.filter { it.status == LogStatus.COMPLETED }.map { it.date }.toSet() }
+            val moodOnHabitDays = moodDays.filter { completedDays.contains(it.date) }.map { it.mood!!.toDouble() }
+            val moodOnQuietDays = moodDays.filterNot { completedDays.contains(it.date) }.map { it.mood!!.toDouble() }
+            fun average(values: List<Double>) = if (values.isEmpty()) null else values.sum() / values.size
+            val habitAverage = average(moodOnHabitDays)
+            val quietAverage = average(moodOnQuietDays)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                MetricCard("Days with moods", "${moodDays.size}", Modifier.weight(1f))
+                MetricCard("Avg on habit days", habitAverage?.let { "%.1f".format(it) } ?: "—", Modifier.weight(1f))
+                MetricCard("Avg on quiet days", quietAverage?.let { "%.1f".format(it) } ?: "—", Modifier.weight(1f))
+            }
+            Text("Habit days = at least one completed check-in; quiet days = none. Moods are self-reported on a 1–5 scale.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Your self-reported moods next to whether any habit was completed that day. Descriptive only — this says nothing about what caused what.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (moodDays.isEmpty()) Text("No moods recorded in this window.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            else Text("Oldest to newest: " + moodDays.joinToString(" · ") { reflection ->
+                "${moodEmoji(reflection.mood!!)} ${moodLabel(reflection.mood!!)} on ${reflection.date}"
+            }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         AnalyticsPanel {
             Text("Streak leaderboard", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)

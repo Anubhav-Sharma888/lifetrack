@@ -153,7 +153,8 @@ fun SettingsScreen(
                 }
             }
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-            SettingsAction("Export data", "Save a complete JSON backup", Icons.Outlined.FileUpload, enabled = !busy) { launchExport(false) }
+            SettingsAction("Export data", "Save a complete JSON backup · plain files contain your notes and journals unencrypted",
+                Icons.Outlined.FileUpload, enabled = !busy) { launchExport(false) }
             HorizontalDivider()
             SettingsAction("Export encrypted backup", "Protect the file with a password · AES-256-GCM", Icons.Outlined.Lock, enabled = !busy) { launchExport(true) }
             HorizontalDivider()
@@ -187,7 +188,7 @@ fun SettingsScreen(
             }
         }
         SettingsGroup {
-            SettingsAction("About LifeTrack", "Version 1.7.0", Icons.Outlined.Info) { aboutDialog = true }
+            SettingsAction("About LifeTrack", "Version 1.9.0", Icons.Outlined.Info) { aboutDialog = true }
             HorizontalDivider()
             SettingsAction("Open-source licenses", "Runtime library license and notices", Icons.Outlined.Description) { licensesDialog = true }
         }
@@ -224,7 +225,7 @@ fun SettingsScreen(
     }, confirmButton = { TextButton(enabled = !busy && backupPassword.length >= 10 && backupPassword == confirmPassword, onClick = {
         vm.export(Uri.parse(path), backupPassword.toCharArray()) { pendingEncryptedExport = null; backupPassword = ""; confirmPassword = "" }
     }) { Text(if (busy) "Encrypting…" else "Encrypt and export") } }, dismissButton = { TextButton(enabled = !busy, onClick = { pendingEncryptedExport = null; backupPassword = ""; confirmPassword = "" }) { Text("Cancel") } }) }
-    if (aboutDialog) AlertDialog(onDismissRequest = { aboutDialog = false }, title = { Text("LifeTrack 1.7.0") }, text = {
+    if (aboutDialog) AlertDialog(onDismissRequest = { aboutDialog = false }, title = { Text("LifeTrack 1.9.0") }, text = {
         Text("An offline habit companion. Every habit has its own Day 1.\n\nAll user records live in a local Room database. There is no Internet permission or automatic cloud backup. Choose plain JSON for readability or optional password encryption for a private portable copy.\n\nLocal habit reminders are inexact and may be deferred by Android.\n\nCharts: Vico. Reordering: Calvin Reorderable. AndroidX, Kotlin and Hilt. Runtime libraries use Apache 2.0.", Modifier.verticalScroll(rememberScrollState()))
     }, confirmButton = { TextButton(onClick = { aboutDialog = false }) { Text("Close") } })
     if (licensesDialog) {

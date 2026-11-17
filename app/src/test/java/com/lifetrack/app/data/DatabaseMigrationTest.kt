@@ -53,7 +53,9 @@ class DatabaseMigrationTest {
         val migrated = Room.databaseBuilder(context, AppDatabase::class.java, name)
             .addMigrations(
                 DatabaseMigrations.MIGRATION_1_2, DatabaseMigrations.MIGRATION_2_3,
-                DatabaseMigrations.MIGRATION_3_4, DatabaseMigrations.MIGRATION_4_5, DatabaseMigrations.MIGRATION_5_6
+                DatabaseMigrations.MIGRATION_3_4, DatabaseMigrations.MIGRATION_4_5,
+                DatabaseMigrations.MIGRATION_5_6, DatabaseMigrations.MIGRATION_6_7,
+                DatabaseMigrations.MIGRATION_7_8
             )
             .allowMainThreadQueries().build()
         try {
@@ -78,12 +80,25 @@ class DatabaseMigrationTest {
             assertTrue(settings.animationsEnabled)
             // MIGRATION_5_6 added the opt-in app lock; existing settings start with it off.
             assertFalse(settings.appLockEnabled)
+            // MIGRATION_6_7 added Smart Streaks; every migrated habit keeps STRICT semantics.
+            assertEquals("STRICT", migrated.dao().allHabits().single().streakPolicy)
+            assertEquals(75, migrated.dao().allHabits().single().partialCreditPercent)
+            assertTrue("Streak protections start empty after migration", migrated.dao().allStreakProtections().isEmpty())
+            // MIGRATION_7_8 added daily reflections; the migrated table starts empty and accepts a row.
+            assertTrue(migrated.dao().allReflections().isEmpty())
+            migrated.openHelper.writableDatabase.execSQL(
+                "INSERT INTO daily_reflections (date,mood,journal,createdAt,updatedAt) VALUES (?,3,NULL,100,200)", arrayOf(today.toEpochDay())
+            )
+            val reflection = migrated.dao().allReflections().single()
+            assertEquals(3, reflection.mood)
+            assertNull(reflection.journal)
+            assertEquals(today, reflection.date)
             val pause = migrated.dao().allPauses().single()
             assertEquals(7L, pause.habitId)
             assertEquals(today, pause.startDate)
             assertNull(pause.endDate)
             assertEquals("2026-10", migrated.dao().allFreezes().single().month)
-            assertEquals(6, migrated.openHelper.readableDatabase.version)
+            assertEquals(8, migrated.openHelper.readableDatabase.version)
             assertTrue("Version-3 activity tables start empty after migration from version 1", migrated.dao().allActivities().isEmpty())
             // MIGRATION_4_5 added the tracking columns; the migrated schema must apply their defaults.
             // (Opening schema 5 at all proves Room accepted the migrated structure — a mismatch would throw.)

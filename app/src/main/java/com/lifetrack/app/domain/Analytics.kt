@@ -4,6 +4,7 @@ import com.lifetrack.app.data.Habit
 import com.lifetrack.app.data.HabitLog
 import com.lifetrack.app.data.HabitPause
 import com.lifetrack.app.data.LogStatus
+import com.lifetrack.app.data.StreakProtection
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
@@ -57,8 +58,8 @@ object Analytics {
         return total
     }
 
-    /** Skips, unscheduled weekdays and archived intervals bridge the chain without adding days. */
-    fun currentStreak(habit: Habit, logs: List<HabitLog>, today: LocalDate, pauses: List<HabitPause> = emptyList()): Int {
+    /** Skips, unscheduled weekdays, archived intervals and bridged partial days continue the chain without adding days. */
+    fun currentStreak(habit: Habit, logs: List<HabitLog>, today: LocalDate, pauses: List<HabitPause> = emptyList(), protections: List<StreakProtection> = emptyList()): Int {
         if (habit.isArchived || today < habit.startDate) return 0
         val own = logs.filter { it.habitId == habit.id && it.date <= today && eligible(habit, it.date, pauses) }
         val todayLog = own.firstOrNull { it.date == today }
@@ -69,6 +70,8 @@ object Analytics {
             when (log.status) {
                 LogStatus.COMPLETED -> count++
                 LogStatus.SKIPPED -> Unit
+                // A bridged partial day continues the chain without counting toward it.
+                LogStatus.IN_PROGRESS -> if (StreakPolicy.bridges(habit, log, protections) != true) break
                 else -> break
             }
             cursor = log.date.minusDays(1)
@@ -76,7 +79,7 @@ object Analytics {
         return count
     }
 
-    fun bestStreak(habit: Habit, logs: List<HabitLog>, today: LocalDate, pauses: List<HabitPause> = emptyList()): Int {
+    fun bestStreak(habit: Habit, logs: List<HabitLog>, today: LocalDate, pauses: List<HabitPause> = emptyList(), protections: List<StreakProtection> = emptyList()): Int {
         var current = 0
         var best = 0
         var previous: LocalDate? = null
@@ -85,6 +88,8 @@ object Analytics {
             when (log.status) {
                 LogStatus.COMPLETED -> { current++; best = maxOf(best, current) }
                 LogStatus.SKIPPED -> Unit
+                // Same bridging as currentStreak: a bridged partial day keeps the chain alive.
+                LogStatus.IN_PROGRESS -> if (StreakPolicy.bridges(habit, log, protections) != true) current = 0
                 else -> current = 0
             }
             previous = log.date

@@ -44,6 +44,8 @@ class HabitRepository @Inject constructor(
     val pauses: Flow<List<HabitPause>> = dao.observePauses()
     val activities: Flow<List<WorkoutActivity>> = dao.observeActivities()
     val activityEntries: Flow<List<ActivityEntry>> = dao.observeActivityEntries()
+    val streakProtections: Flow<List<StreakProtection>> = dao.observeStreakProtections()
+    val reflections: Flow<List<DailyReflection>> = dao.observeReflections()
 
     /** Actual quantities are recorded exactly as performed; targets never clamp them. */
     suspend fun saveActivity(activity: WorkoutActivity): WorkoutActivity = db.withTransaction {
@@ -95,6 +97,8 @@ class HabitRepository @Inject constructor(
         val existing = if (habit.id == 0L) null else dao.habit(habit.id)
         val now = nextTimestamp(System.currentTimeMillis(), existing?.createdAt ?: 0, existing?.updatedAt ?: 0)
         require(habit.id == 0L || existing != null) { "This habit no longer exists." }
+        require(habit.streakPolicy in StreakPolicy.entries.map(StreakPolicy::name)) { "Unknown streak policy for this habit." }
+        require(habit.partialCreditPercent in 1..100) { "Partial-credit thresholds must be between 1 and 100 percent." }
         val all = dao.allHabits()
         val days = habit.scheduledDays.distinct().sorted()
         val history = if (existing != null && existing.scheduledDays != days) {
@@ -269,6 +273,57 @@ class HabitRepository @Inject constructor(
     suspend fun clearLog(habitId: Long, date: LocalDate) = db.withTransaction {
         editableHabit(habitId, date)
         dao.deleteLog(habitId, date)
+        // A cleared check-in also clears its streak decision: re-entering a partial starts clean.
+        dao.deleteStreakProtection(habitId, date)
+    }
+
+    /** Creates or updates the day's optional mood and/or journal. Historical dates are allowed;
+     *  future dates are not. A call carrying neither a mood nor text is rejected — use [clearReflection]. */
+    suspend fun setReflection(date: LocalDate, mood: Int?, journal: String?) = db.withTransaction {
+        require(date >= BackupValidator.earliestDate && date <= LocalDate.now()) { "Reflections cannot be dated in the future or before 1900." }
+        require(mood == null || mood in 1..5) { "Moods are recorded on a scale of 1 to 5." }
+        val text = journal?.trim()?.takeIf { it.isNotEmpty() }
+        require(text == null || text.length <= 2_000) { "Journals are limited to 2,000 characters." }
+        require(mood != null || text != null) { "Add a mood or a few words about the day." }
+        val existing = dao.reflection(date)
+        val now = nextTimestamp(System.currentTimeMillis(), existing?.createdAt ?: 0, existing?.updatedAt ?: 0)
+        dao.upsertReflection(DailyReflection(
+            date = date, mood = mood, journal = text,
+            createdAt = existing?.createdAt ?: now, updatedAt = now
+        ))
+    }
+
+    /** Removes the day's reflection entirely; idempotent for dates that never had one. */
+    suspend fun clearReflection(date: LocalDate) = db.withTransaction {
+        require(date >= BackupValidator.earliestDate && date <= LocalDate.now()) { "Reflections cannot be dated in the future or before 1900." }
+        dao.deleteReflection(date)
+    }
+
+    /** One explicit decision per past partial day: bridge the completion chain or break it.
+     *  Rows turn inert once the day completes, clears or fails — the log status stays the source of truth. */
+    suspend fun setStreakProtection(habitId: Long, date: LocalDate, protectChain: Boolean) = db.withTransaction {
+        val habit = dao.habit(habitId) ?: throw IllegalArgumentException("This habit no longer exists.")
+        require(!habit.isArchived) { "Restore this archived habit before changing its check-ins." }
+        require(date < LocalDate.now()) { "Streak decisions apply to past days. Today's check-in is still available." }
+        require(date >= habit.startDate) { "Check-ins cannot be before this habit's start date." }
+        val weekdays = habit.scheduleHistory.lastOrNull { it.effectiveFrom <= date }?.days ?: habit.scheduleHistory.firstOrNull()?.days ?: habit.scheduledDays
+        require(date.dayOfWeek.value in weekdays) { "This habit is not scheduled for that weekday." }
+        require(dao.habitPauses(habitId).none { date >= it.startDate && (it.endDate == null || date < it.endDate) }) { "This date belongs to an archived pause. Choose an active day." }
+        val log = dao.log(habitId, date)
+        require(log != null && log.status == LogStatus.IN_PROGRESS && log.progress > 0) { "Only a partially completed day can be protected or broken." }
+        val existing = dao.streakProtection(habitId, date)
+        val now = nextTimestamp(System.currentTimeMillis(), existing?.createdAt ?: 0, existing?.updatedAt ?: 0)
+        dao.insertStreakProtections(listOf(StreakProtection(
+            habitId = habitId, date = date, protectChain = protectChain,
+            createdAt = existing?.createdAt ?: now, updatedAt = now
+        )))
+    }
+
+    /** Removing a decision returns the day to the habit's automatic policy; deleting an absent row is fine. */
+    suspend fun clearStreakProtection(habitId: Long, date: LocalDate) = db.withTransaction {
+        val habit = dao.habit(habitId) ?: throw IllegalArgumentException("This habit no longer exists.")
+        require(!habit.isArchived) { "Restore this archived habit before changing its check-ins." }
+        dao.deleteStreakProtection(habitId, date)
     }
 
     suspend fun useFreeze(habitId: Long, date: LocalDate, note: String? = null) = db.withTransaction {
@@ -322,8 +377,12 @@ class HabitRepository @Inject constructor(
         val snapshot = db.withTransaction {
             val habits = dao.allHabits()
             val activities = dao.allActivities()
+            val streakProtections = dao.allStreakProtections()
+            val reflections = dao.allReflections()
             LifeTrackBackup(
                 formatVersion = when {
+                    reflections.isNotEmpty() -> 7
+                    streakProtections.isNotEmpty() || habits.any { com.lifetrack.app.domain.StreakPolicy.isConfigured(it) } -> 6
                     activities.any { it.isDirectional() } -> 5
                     habits.any { it.goalHistory.isNotEmpty() } -> 4
                     else -> 3
@@ -331,7 +390,8 @@ class HabitRepository @Inject constructor(
                 exportedAt = now, habits = habits, logs = dao.allLogs(),
                 settings = (dao.getSettings() ?: AppSettings()).copy(lastExportAt = now, appLockEnabled = false),
                 freezes = dao.allFreezes(), pauses = dao.allPauses(),
-                activities = activities, activityEntries = dao.allActivityEntries()
+                activities = activities, activityEntries = dao.allActivityEntries(),
+                streakProtections = streakProtections, dailyReflections = reflections
             )
         }
         BackupValidator.validate(snapshot)
@@ -384,7 +444,11 @@ class HabitRepository @Inject constructor(
         } catch (exception: Exception) {
             throw IllegalArgumentException("This is not a valid LifeTrack JSON backup.", exception)
         }
-        BackupValidator.validate(backup)
+        // Imported journals normalize like saved ones: trimmed, blank-turned-null before validation.
+        val normalized = backup.copy(dailyReflections = backup.dailyReflections.map { reflection ->
+            reflection.copy(journal = reflection.journal?.trim()?.takeIf { it.isNotEmpty() })
+        })
+        BackupValidator.validate(normalized)
         db.withTransaction {
             // Restoring must never silently weaken the local lock: the local flag survives every import.
             val keepAppLock = (dao.getSettings() ?: AppSettings()).appLockEnabled
@@ -396,12 +460,16 @@ class HabitRepository @Inject constructor(
             dao.deleteSettings()
             dao.deleteAllActivityEntries()
             dao.deleteAllActivities()
+            // Date-scoped rows have no habit FK to cascade them: reflections must be cleared explicitly.
+            dao.deleteReflections()
             dao.insertHabits(backup.habits)
             dao.insertLogs(backup.logs)
             dao.insertPauses(backup.pauses)
             dao.insertFreezes(backup.freezes)
             dao.insertActivities(backup.activities)
             dao.insertActivityEntries(backup.activityEntries)
+            dao.insertStreakProtections(backup.streakProtections)
+            dao.insertReflections(normalized.dailyReflections)
             dao.saveSettings(backup.settings.copy(appLockEnabled = keepAppLock))
         }
     } }
@@ -420,6 +488,7 @@ class HabitRepository @Inject constructor(
             dao.deleteSettings()
             dao.deleteAllActivityEntries()
             dao.deleteAllActivities()
+            dao.deleteReflections()
             dao.saveSettings(AppSettings().copy(appLockEnabled = keepAppLock))
             habitIds
         }

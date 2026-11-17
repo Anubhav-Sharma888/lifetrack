@@ -40,6 +40,8 @@ import com.lifetrack.app.domain.ProgressTracking
 import com.lifetrack.app.ui.components.ActivityTrend
 import com.lifetrack.app.ui.components.TrackingModeSelector
 import com.lifetrack.app.ui.components.TrackingSummary
+import com.lifetrack.app.ui.components.moodEmoji
+import com.lifetrack.app.ui.components.moodLabel
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -224,6 +226,18 @@ fun ActivitiesScreen(state: LifeTrackState, vm: HabitViewModel) {
                                     Text(note, style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
+                            }
+                        }
+                        // The day's reflection, if any: read-only context, never duplicated as an activity.
+                        state.reflections.firstOrNull { it.date == date }?.let { reflection ->
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                            reflection.mood?.let { mood ->
+                                Text("${moodEmoji(mood)} ${moodLabel(mood)}", style = MaterialTheme.typography.bodyMedium)
+                            }
+                            reflection.journal?.takeIf(String::isNotBlank)?.let { journal ->
+                                Text(journal, style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 3,
+                                    overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }

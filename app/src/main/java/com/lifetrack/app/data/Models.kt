@@ -56,7 +56,14 @@ data class Habit(
     @ColumnInfo(defaultValue = "'[]'") val scheduleHistory: List<ScheduleRevision> = emptyList(),
     @OptIn(ExperimentalSerializationApi::class)
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    @ColumnInfo(defaultValue = "'[]'") val goalHistory: List<GoalRevision> = emptyList()
+    @ColumnInfo(defaultValue = "'[]'") val goalHistory: List<GoalRevision> = emptyList(),
+    // Smart Streaks: both keys stay out of plain exports so older app versions still decode them.
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @ColumnInfo(defaultValue = "'STRICT'") val streakPolicy: String = StreakPolicy.STRICT.name,
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @ColumnInfo(defaultValue = "75") val partialCreditPercent: Int = 75
 )
 
 @Serializable
@@ -124,6 +131,43 @@ data class ReminderDelivery(val habitId: Long, val date: LocalDate, val delivere
 @Entity(tableName = "freeze_usage")
 data class FreezeUsage(@PrimaryKey val month: String, val usedAt: Long)
 
+/**
+ * One explicit Smart Streaks decision per habit and date: whether that partially completed day
+ * bridges the completion streak. Rows exist only where the user decided manually, and they always
+ * override the habit's automatic policy. Actual progress lives solely in the habit log.
+ */
+@Serializable
+@Entity(
+    tableName = "streak_protections",
+    primaryKeys = ["habitId", "date"],
+    foreignKeys = [ForeignKey(
+        entity = Habit::class, parentColumns = ["id"], childColumns = ["habitId"], onDelete = ForeignKey.CASCADE
+    )],
+    indices = [Index("habitId")]
+)
+data class StreakProtection(
+    val habitId: Long,
+    @Serializable(with = LocalDateSerializer::class) val date: LocalDate,
+    val protectChain: Boolean,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = createdAt
+)
+
+/**
+ * One optional mood and/or journal note per local calendar date. Moods are self-reported feelings
+ * on a 1–5 scale — never a diagnosis, and never treated as the cause or the consequence of anything.
+ * At least one of the two fields must be present; a row carrying neither is meaningless.
+ */
+@Serializable
+@Entity(tableName = "daily_reflections", primaryKeys = ["date"])
+data class DailyReflection(
+    @Serializable(with = LocalDateSerializer::class) val date: LocalDate,
+    val mood: Int? = null,
+    val journal: String? = null,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = createdAt
+)
+
 @Serializable
 @Entity(tableName = "app_settings")
 data class AppSettings(
@@ -160,6 +204,16 @@ enum class ActivityMode { LOGGED, INCREASING, DECREASING, PERSONAL_BEST;
     companion object {
         /** Unknown stored values fall back to LOGGED so old or foreign data still renders. */
         fun fromStored(value: String): ActivityMode = entries.firstOrNull { it.name == value } ?: LOGGED
+    }
+}
+
+/** How partially completed quantitative days treat the completion streak. STRICT preserves the original rules. */
+@Serializable
+enum class StreakPolicy { STRICT, AUTOMATIC, MANUAL;
+
+    companion object {
+        /** Unknown stored values fall back to STRICT so old or foreign data keeps its original meaning. */
+        fun fromStored(value: String): StreakPolicy = entries.firstOrNull { it.name == value } ?: STRICT
     }
 }
 

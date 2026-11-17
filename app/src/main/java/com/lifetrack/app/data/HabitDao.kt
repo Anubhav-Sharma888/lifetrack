@@ -32,6 +32,8 @@ interface HabitDao {
     @Query("SELECT * FROM habit_logs WHERE habitId = :habitId ORDER BY date")
     suspend fun habitLogs(habitId: Long): List<HabitLog>
     @Query("SELECT * FROM freeze_usage WHERE month = :month") suspend fun freeze(month: String): FreezeUsage?
+    @Query("SELECT * FROM streak_protections WHERE habitId = :habitId AND date = :date") suspend fun streakProtection(habitId: Long, date: LocalDate): StreakProtection?
+    @Query("DELETE FROM streak_protections WHERE habitId = :habitId AND date = :date") suspend fun deleteStreakProtection(habitId: Long, date: LocalDate)
 
     @Insert suspend fun insertHabit(habit: Habit): Long
     @Insert suspend fun insertHabits(habits: List<Habit>)
@@ -43,6 +45,16 @@ interface HabitDao {
     @Insert suspend fun insertFreezes(freezes: List<FreezeUsage>)
     @Insert suspend fun insertPause(pause: HabitPause): Long
     @Insert suspend fun insertPauses(pauses: List<HabitPause>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertStreakProtections(protections: List<StreakProtection>)
+    @Query("SELECT * FROM streak_protections ORDER BY date, habitId") fun observeStreakProtections(): Flow<List<StreakProtection>>
+    @Query("SELECT * FROM streak_protections ORDER BY date, habitId") suspend fun allStreakProtections(): List<StreakProtection>
+    @Query("SELECT * FROM daily_reflections ORDER BY date") fun observeReflections(): Flow<List<DailyReflection>>
+    @Query("SELECT * FROM daily_reflections ORDER BY date") suspend fun allReflections(): List<DailyReflection>
+    @Query("SELECT * FROM daily_reflections WHERE date = :date") suspend fun reflection(date: LocalDate): DailyReflection?
+    @Upsert suspend fun upsertReflection(reflection: DailyReflection)
+    @Insert suspend fun insertReflections(reflections: List<DailyReflection>)
+    @Query("DELETE FROM daily_reflections WHERE date = :date") suspend fun deleteReflection(date: LocalDate)
+    @Query("DELETE FROM daily_reflections") suspend fun deleteReflections()
     @Update suspend fun updatePause(pause: HabitPause)
     @Query("DELETE FROM habit_pauses WHERE id = :id") suspend fun deletePause(id: Long)
     @Query("DELETE FROM habit_pauses") suspend fun deletePauses()

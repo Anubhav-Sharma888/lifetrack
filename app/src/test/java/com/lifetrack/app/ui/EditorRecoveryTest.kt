@@ -102,7 +102,7 @@ class EditorRecoveryTest {
         compose.onNodeWithText("Goal changes start tomorrow. Existing check-ins keep their original goal.").assertExists()
     }
 
-    @Test fun todayCanScrollFromTheHeaderToActivitiesOnAShortScreen() {
+    @Test fun todayScrollsToTheReflectionInvitationOnAShortScreen() {
         val habit = Habit(id = 1, name = "Read", startDate = today.minusDays(1))
         val state = LifeTrackState(habits = listOf(habit), today = today, loaded = true)
         compose.setContent {
@@ -112,14 +112,19 @@ class EditorRecoveryTest {
                 }
             }
         }
+        // The reflection invitation sits below the header wells; scrolling must reach it.
+        // Habit-list reachability is covered separately by reorderHasANonDragMenu's scroll.
         compose.onNode(hasScrollAction() and hasAnyDescendant(hasText("LifeTrack")))
-            .performScrollToNode(hasText("Activities"))
-        compose.onNodeWithText("Activities").assertIsDisplayed()
+            .performScrollToNode(hasText("How was the day?"))
+        compose.onNodeWithText("How was the day?").assertIsDisplayed()
     }
 
     @Test fun reorderHasANonDragMenu() {
         val habits = listOf(Habit(id = 1, name = "Read", sortOrder = 0), Habit(id = 2, name = "Walk", sortOrder = 1))
         compose.setContent { MaterialTheme { TodayScreen(LifeTrackState(habits = habits, loaded = true), vm, onAdd = {}, onOpen = {}) } }
+        // The reflection card sits above the habit list, so reorder controls may need scrolling into view.
+        compose.onNode(hasScrollAction() and hasAnyDescendant(hasText("LifeTrack")))
+            .performScrollToNode(hasContentDescription("Reorder Read"))
         compose.onNodeWithContentDescription("Reorder Read").performClick()
         compose.onNodeWithText("Move habit down").assertIsEnabled()
         compose.onNodeWithText("Move habit up").assertIsNotEnabled()

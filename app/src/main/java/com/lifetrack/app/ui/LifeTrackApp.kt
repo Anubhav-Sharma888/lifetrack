@@ -133,7 +133,7 @@ fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, vm: HabitView
                     composable("today") { TodayScreen(state, vm, onAdd = { nav.navigate("edit/0") }, onOpen = { nav.navigate("habit/$it") }, onRestoreBackup = launchImport,
                         onSchedules = { nav.navigate("schedules") }) }
                     composable("activities") { ActivitiesScreen(state, vm) }
-                    composable("analytics") { AnalyticsScreen(state.habits, state.logs, state.today, state.pauses, state.activities, state.activityEntries) }
+                    composable("analytics") { AnalyticsScreen(state.habits, state.logs, state.today, state.pauses, state.activities, state.activityEntries, state.streakProtections, state.reflections) }
                     composable("settings") { SettingsScreen(state, vm, onOpen = { nav.navigate("habit/$it") }, onImport = launchImport,
                         onSchedules = { nav.navigate("schedules") }) }
                     composable("schedules") { SchedulesScreen(state, vm, onBack = { nav.popBackStack() }, onEdit = { nav.navigate("edit/$it") }) }

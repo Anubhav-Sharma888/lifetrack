@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import com.lifetrack.app.data.*
 import com.lifetrack.app.domain.Analytics
 import com.lifetrack.app.ui.components.HabitCard
+import com.lifetrack.app.ui.components.ReflectionEditorCard
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import sh.calvin.reorderable.ReorderableItem
@@ -161,6 +162,17 @@ fun TodayScreen(
                     }
                 }
             }
+        }
+        // Daily reflection: mood and/or journal for the selected day — today or any past date.
+        item(key = "reflection") {
+            ReflectionEditorCard(
+                date = date,
+                today = state.today,
+                reflection = state.reflections.firstOrNull { it.date == date },
+                onSave = { mood, journal -> vm.setReflection(date, mood, journal) },
+                onRemove = { vm.clearReflection(date) },
+                enabled = !busy
+            )
         }
         if (showFreshStart) {
             item(key = "fresh-start") { FreshStartCard(onAdd, onRestoreBackup) }

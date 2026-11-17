@@ -53,4 +53,23 @@ object DatabaseMigrations {
             db.execSQL("ALTER TABLE app_settings ADD COLUMN appLockEnabled INTEGER NOT NULL DEFAULT 0")
         }
     }
+
+    /** Smart Streaks arrives in version 7: per-habit policy columns plus explicit per-day decisions.
+     *  Every existing habit keeps STRICT semantics — no historical interpretation changes. */
+    val MIGRATION_6_7 = object : Migration(6, 7) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE habits ADD COLUMN streakPolicy TEXT NOT NULL DEFAULT 'STRICT'")
+            db.execSQL("ALTER TABLE habits ADD COLUMN partialCreditPercent INTEGER NOT NULL DEFAULT 75")
+            db.execSQL("CREATE TABLE IF NOT EXISTS streak_protections (habitId INTEGER NOT NULL, date INTEGER NOT NULL, protectChain INTEGER NOT NULL, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, PRIMARY KEY(habitId, date), FOREIGN KEY(habitId) REFERENCES habits(id) ON UPDATE NO ACTION ON DELETE CASCADE)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS index_streak_protections_habitId ON streak_protections(habitId)")
+        }
+    }
+
+    /** Daily reflections arrive in version 8: one optional mood and/or journal per local date.
+     *  Date-scoped with no habit FK, so resets and imports must clear it explicitly. */
+    val MIGRATION_7_8 = object : Migration(7, 8) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS daily_reflections (date INTEGER NOT NULL, mood INTEGER, journal TEXT, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, PRIMARY KEY(date))")
+        }
+    }
 }
