@@ -168,6 +168,20 @@ data class DailyReflection(
     val updatedAt: Long = createdAt
 )
 
+/**
+ * Durable record that the user has seen and acknowledged an achievement's celebration. Achievement
+ * status itself is always derived from canonical data (and can be un-earned by later corrections);
+ * only the acknowledgment is stored, so a re-earned achievement never celebrates twice while a
+ * temporarily un-earned one does not lose its acknowledgment. Not tied to any habit FK: the
+ * catalogue is code-defined and survives habit deletion.
+ */
+@Serializable
+@Entity(tableName = "achievement_acknowledgments", primaryKeys = ["achievementId"])
+data class AchievementAcknowledgment(
+    val achievementId: String,
+    val acknowledgedAt: Long
+)
+
 @Serializable
 @Entity(tableName = "app_settings")
 data class AppSettings(

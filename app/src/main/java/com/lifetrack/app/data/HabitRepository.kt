@@ -46,6 +46,7 @@ class HabitRepository @Inject constructor(
     val activityEntries: Flow<List<ActivityEntry>> = dao.observeActivityEntries()
     val streakProtections: Flow<List<StreakProtection>> = dao.observeStreakProtections()
     val reflections: Flow<List<DailyReflection>> = dao.observeReflections()
+    val achievementAcknowledgments: Flow<List<AchievementAcknowledgment>> = dao.observeAchievementAcknowledgments()
 
     /** Actual quantities are recorded exactly as performed; targets never clamp them. */
     suspend fun saveActivity(activity: WorkoutActivity): WorkoutActivity = db.withTransaction {
@@ -299,6 +300,15 @@ class HabitRepository @Inject constructor(
         dao.deleteReflection(date)
     }
 
+    /** Marks an achievement as acknowledged (its celebration was shown). Idempotent: the first
+     *  acknowledgment time is the durable fact and is never overwritten. */
+    suspend fun acknowledgeAchievement(achievementId: String) = db.withTransaction {
+        require(achievementId.isNotBlank() && achievementId.length <= 100) { "Invalid achievement identifier." }
+        if (dao.achievementAcknowledgment(achievementId) == null) {
+            dao.upsertAchievementAcknowledgment(AchievementAcknowledgment(achievementId, nextTimestamp(System.currentTimeMillis())))
+        }
+    }
+
     /** One explicit decision per past partial day: bridge the completion chain or break it.
      *  Rows turn inert once the day completes, clears or fails — the log status stays the source of truth. */
     suspend fun setStreakProtection(habitId: Long, date: LocalDate, protectChain: Boolean) = db.withTransaction {
@@ -379,8 +389,10 @@ class HabitRepository @Inject constructor(
             val activities = dao.allActivities()
             val streakProtections = dao.allStreakProtections()
             val reflections = dao.allReflections()
+            val acknowledgments = dao.allAchievementAcknowledgments()
             LifeTrackBackup(
                 formatVersion = when {
+                    acknowledgments.isNotEmpty() -> 8
                     reflections.isNotEmpty() -> 7
                     streakProtections.isNotEmpty() || habits.any { com.lifetrack.app.domain.StreakPolicy.isConfigured(it) } -> 6
                     activities.any { it.isDirectional() } -> 5
@@ -391,7 +403,8 @@ class HabitRepository @Inject constructor(
                 settings = (dao.getSettings() ?: AppSettings()).copy(lastExportAt = now, appLockEnabled = false),
                 freezes = dao.allFreezes(), pauses = dao.allPauses(),
                 activities = activities, activityEntries = dao.allActivityEntries(),
-                streakProtections = streakProtections, dailyReflections = reflections
+                streakProtections = streakProtections, dailyReflections = reflections,
+                achievementAcknowledgments = acknowledgments
             )
         }
         BackupValidator.validate(snapshot)
@@ -462,6 +475,11 @@ class HabitRepository @Inject constructor(
             dao.deleteAllActivities()
             // Date-scoped rows have no habit FK to cascade them: reflections must be cleared explicitly.
             dao.deleteReflections()
+            // Acknowledgments are device-state with no FK either; a restore replaces them wholesale.
+            dao.deleteAchievementAcknowledgments()
+            // Unknown ids (older/newer catalogue versions) are pruned — they could never display.
+            val knownAchievementIds = com.lifetrack.app.domain.Achievements.catalogue.map { it.id }.toSet()
+            val acknowledgmentsToRestore = backup.achievementAcknowledgments.filter { it.achievementId in knownAchievementIds }
             dao.insertHabits(backup.habits)
             dao.insertLogs(backup.logs)
             dao.insertPauses(backup.pauses)
@@ -470,6 +488,7 @@ class HabitRepository @Inject constructor(
             dao.insertActivityEntries(backup.activityEntries)
             dao.insertStreakProtections(backup.streakProtections)
             dao.insertReflections(normalized.dailyReflections)
+            dao.insertAchievementAcknowledgments(acknowledgmentsToRestore)
             dao.saveSettings(backup.settings.copy(appLockEnabled = keepAppLock))
         }
     } }
@@ -489,6 +508,8 @@ class HabitRepository @Inject constructor(
             dao.deleteAllActivityEntries()
             dao.deleteAllActivities()
             dao.deleteReflections()
+            // A reset restarts the achievement journey too: acknowledgments start fresh.
+            dao.deleteAchievementAcknowledgments()
             dao.saveSettings(AppSettings().copy(appLockEnabled = keepAppLock))
             habitIds
         }

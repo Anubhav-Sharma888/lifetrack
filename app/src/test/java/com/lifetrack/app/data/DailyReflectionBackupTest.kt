@@ -158,9 +158,9 @@ class DailyReflectionBackupTest {
         }
     }
 
-    @Test fun `backups above version seven are rejected`() {
+    @Test fun `backups above version eight are rejected`() {
         assertThrows(IllegalArgumentException::class.java) {
-            BackupValidator.validate(backup(emptyList(), 8), today)
+            BackupValidator.validate(backup(emptyList(), 9), today)
         }
     }
 

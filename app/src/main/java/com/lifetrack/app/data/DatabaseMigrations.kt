@@ -72,4 +72,12 @@ object DatabaseMigrations {
             db.execSQL("CREATE TABLE IF NOT EXISTS daily_reflections (date INTEGER NOT NULL, mood INTEGER, journal TEXT, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, PRIMARY KEY(date))")
         }
     }
+
+    /** Achievement acknowledgments arrive in version 9: durable seen-markers that persist
+     *  independently of the derived achievement state and of habit deletion. */
+    val MIGRATION_8_9 = object : Migration(8, 9) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS achievement_acknowledgments (achievementId TEXT NOT NULL, acknowledgedAt INTEGER NOT NULL, PRIMARY KEY(achievementId))")
+        }
+    }
 }

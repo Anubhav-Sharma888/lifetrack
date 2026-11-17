@@ -15,7 +15,9 @@ import com.lifetrack.app.data.WorkoutActivity
 import com.lifetrack.app.data.ActivityEntry
 import com.lifetrack.app.data.CheckInUndo
 import com.lifetrack.app.data.DailyReflection
+import com.lifetrack.app.data.AchievementAcknowledgment
 import com.lifetrack.app.data.StreakProtection
+import com.lifetrack.app.domain.Achievements
 import com.lifetrack.app.reminder.BackupReminderScheduler
 import com.lifetrack.app.reminder.DailyCheckInReminderScheduler
 import com.lifetrack.app.reminder.DailyReminderStore
@@ -230,6 +232,33 @@ class HabitViewModel @Inject constructor(
     fun clearReflection(date: LocalDate) = perform {
         repository.clearReflection(date)
         _events.emit(UiEvent.Message("Reflection removed"))
+    }
+
+    /** Derived achievement state over canonical data, recomputed whenever any input changes
+     *  (including the day rolling over — `date` refreshes every 30 seconds and at resume). */
+    val achievements: StateFlow<List<Achievements.Progress>> = combine(
+        repository.habits, repository.logs, repository.pauses, repository.activities,
+        repository.activityEntries, repository.reflections, repository.streakProtections,
+        repository.achievementAcknowledgments, date
+    ) { values ->
+        val habits = values[0] as List<Habit>
+        val logs = values[1] as List<HabitLog>
+        val pauses = values[2] as List<HabitPause>
+        val activities = values[3] as List<WorkoutActivity>
+        val entries = values[4] as List<ActivityEntry>
+        val reflections = values[5] as List<DailyReflection>
+        val protections = values[6] as List<StreakProtection>
+        val acknowledgments = values[7] as List<AchievementAcknowledgment>
+        val today = values[8] as LocalDate
+        Achievements.evaluate(Achievements.Inputs(
+            habits = habits, logs = logs, pauses = pauses, protections = protections,
+            activities = activities, activityEntries = entries,
+            reflections = reflections, acknowledgments = acknowledgments, today = today
+        ))
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun acknowledgeAchievement(achievementId: String) = perform {
+        repository.acknowledgeAchievement(achievementId)
     }
 
     fun updateSettings(settings: AppSettings) = perform { repository.updateSettings(settings) }

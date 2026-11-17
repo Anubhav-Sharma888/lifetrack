@@ -1,30 +1,39 @@
-# LifeTrack v1.8.0 — Work Progress (sessions 2026-11-15 → 2026-11-18: CSV export, directional tracking, app lock, Smart Streaks Phases 1–2, Mood/Journal data layer + UI)
+# LifeTrack — Work Progress (sessions 2026-11-15 → 2026-11-18: CSV export, directional tracking, app lock, Smart Streaks Phases 1–2, Mood/Journal data layer + UI released as v1.9.0-preview.1; Achievements engine in progress)
 
-Branch: `develop/v1.8.0` (LOCAL) · Backup at `D:\LifeTracker-backup` (untouched)
+Branches: `develop/achievements` (current, from the v1.9.0 release commit `32c9bfa` on `main`) · `main` (= `32c9bfa`, carries the v1.9.0-preview.1 tag) · Backup at `D:\LifeTracker-backup` (untouched)
 
 ---
 
-## ⚠️ OPEN BLOCKER — diverged `develop/v1.8.0`, Phase-4 UI push deferred (needs your decision)
+# Session 7 (Prompt 5/12) — Milestones & Achievements: domain engine + acknowledgment persistence
 
-- **Remote state**: `origin/develop/v1.8.0` = `0e98de7` — three new CI commits (`c73f5c0`/`a1b16a0`/`0e98de7`: GitHub Actions workflow building a `v1.8.0-preview.1` APK, prerelease published) layered on top of my Prompt-3 data-layer commit `28791a2`. A tag `v1.8.0-preview.1` was also pushed.
-- **The remote's CI/preview ships WITHOUT the Prompt-4 reflection UI**: relative to my local HEAD, the remote deletes `ui/components/ReflectionWidgets.kt`, the Today/Activities/Analytics/Settings integration, `ReflectionUiTest.kt`, and rewrites `WORK_PROGRESS.md` (its own session notes). Another Prompt-4 session ran against this branch and evidently took the reflection UI in a different direction (or deliberately deferred it for the preview).
-- **My local state**: commit `62d5182` = the complete, validated Phase-4 UI (Today reflection card, Activities chronology display, Analytics moods panel, Settings privacy note, 4 UI tests) on top of `28791a2` — 226/226 unit tests + lintDebug green on this tree.
-- **What I did NOT do**: no force-push, no reset, no merge, no push to any other branch, no deletion of the remote's CI or its preview. Both histories are fully preserved.
-- **Why I stopped**: pushing my commit would require resolving a genuine product conflict (my UI vs. the remote's UI-less preview direction) — that is your call, not an autonomous one. Merging would resurrect the UI into a preview that was deliberately cut without it.
+## What was built (this session, uncommitted → committing at end)
 
-### Decision needed when you return
-1. Keep the reflection UI → merge/rebase `62d5182` over `0e98de7` (small conflict set: WORK_PROGRESS.md + Today/Analytics/LifeTrackApp/EditorRecoveryTest), re-run the suite, push.
-2. Prefer the preview's UI-less state for now → Phase-4 UI stays preserved on my local branch (cherry-pick later); nothing to merge.
-3. Either way: the CI workflow on the remote now builds the preview automatically — verify whether you want it to pick up the UI once merged.
+- **Catalogue + engine** (`domain/Achievements.kt`): 13 stable-id achievements across 4 categories (habit completion totals 1/7/30/100, qualifying streaks 7/30/90 via `Analytics.bestStreak` with Smart Streaks bridging, activity session/PB-improvement/directional-target attainment, reflection counts). Pure derivation from canonical Room data — fully reversible on edits/deletes/restores; no stored achievement state, no fabricated timestamps.
+- **Acknowledgment persistence** (schema **9** via additive MIGRATION_8_9, `9.json` exported): `achievement_acknowledgments(achievementId PK, acknowledgedAt)` — durable seen-markers that survive habit deletion and re-earning; device-state only.
+- **Backup v8**: required only when acknowledgments exist; plain exports stay key-free; unknown ids pruned on import (older/newer catalogue versions never pollute).
+- **Repository/ViewModel**: `acknowledgeAchievement` (idempotent, first timestamp preserved), `achievementAcknowledgments` flow, derived `achievements` StateFlow recomputed on any input change (incl. midnight `date` rollover).
+- Privacy verified by security-privacy-specialist: **PASS, no High/Medium** — no new permissions, no logging, widget/CSV/backup-rules all clean, mood field never read, no causation language.
 
-### Local commits ahead of remote (all preserved on local `develop/v1.8.0`)
-| Commit | Content |
-|---|---|
-| `62d5182` | feat: Mood Tracking + Daily Journal UI (Prompt 4/12) — validated 226/226 + lint green |
+## Test evidence
+
+- **Final: `BUILD SUCCESSFUL` — testDebugUnitTest 250/250 across 24 suites (35+ new/updated: 13 engine tests incl. boundary/bridging/eligibility matrix, backup v8 gating/round trips, migration v1→9 with acknowledgment row check, reflection tests unchanged) + lintDebug, all green.**
+- Limits verified live: 2 workers, `--no-parallel --no-daemon`, capped `-Xmx2500m`, in-process Kotlin compile, BelowNormal, free RAM 2.8–4.8 GB monitored.
+
+## Deferred (Prompt 6/12 — achievements interface)
+
+- Achievements UI (catalogue display, celebration surface, acknowledgment affordance) — VM state/API ready.
+- UI-phase copy: "changes apply to your history" semantics for the derived engine; acknowledged-revoked rendering ("no longer earned" instead of vanishing).
+- Localization of "%.1f" averages (Locale.US pinning, consistent with `formatQuantityLabel`).
 
 ---
 
 # Session 6 (Prompt 4/12) — Mood Tracking + Daily Journal UI
+
+## ✅ Resolution note (2026-11-18)
+
+The diverged-remote blocker recorded below was **resolved by the user**: my Prompt-4 UI was merged (`fba79df` "merge: preserve v1.8.0 preview workflow with Prompt 4 UI"), v1.9.0 was prepared and released, the `v1.9.0-preview.1` tag was published with a CI-built preview APK, and `main` now carries the full lineage including this session's work. The original blocker text is preserved below for the record.
+
+## What was built
 
 ## What was built
 

@@ -31,7 +31,11 @@ data class LifeTrackBackup(
     // Daily reflections: same pattern — present only in v7 exports that carry them.
     @OptIn(ExperimentalSerializationApi::class)
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val dailyReflections: List<DailyReflection> = emptyList()
+    val dailyReflections: List<DailyReflection> = emptyList(),
+    // Achievement acknowledgments: present only in v8 exports that carry them.
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val achievementAcknowledgments: List<AchievementAcknowledgment> = emptyList()
 )
 
 /** Validation is independent of Android/Room so corrupt imports can be rejected before writes. */
@@ -84,6 +88,12 @@ object BackupValidator {
         require(reflection.createdAt >= 0 && reflection.updatedAt >= reflection.createdAt) { "Invalid reflection timestamps." }
     }
 
+    /** Acknowledgment rows carry no user content — only a catalogue id and a durable timestamp. */
+    fun validateAchievementAcknowledgment(acknowledgment: AchievementAcknowledgment) {
+        require(acknowledgment.achievementId.isNotBlank() && acknowledgment.achievementId.length <= 100) { "Invalid achievement identifier." }
+        require(acknowledgment.acknowledgedAt >= 0) { "Invalid achievement acknowledgment timestamp." }
+    }
+
     fun validateSettings(settings: AppSettings) {
         require(settings.id == 1) { "Invalid settings record." }
         require(settings.theme in setOf("SYSTEM", "LIGHT", "DARK")) { "Unknown theme preference." }
@@ -117,12 +127,13 @@ object BackupValidator {
     }
 
     fun validate(backup: LifeTrackBackup, today: LocalDate = LocalDate.now()) {
-        require(backup.formatVersion in 1..7) { "This backup version is not supported by this app." }
+        require(backup.formatVersion in 1..8) { "This backup version is not supported by this app." }
         require(backup.formatVersion >= 4 || backup.habits.none { it.goalHistory.isNotEmpty() }) { "Goal revisions require backup version 4." }
         require(backup.formatVersion >= 5 || backup.activities.none { it.isDirectional() }) { "Directional activity tracking requires backup version 5." }
         require(backup.formatVersion >= 6 || (backup.habits.none { com.lifetrack.app.domain.StreakPolicy.isConfigured(it) } &&
             backup.streakProtections.isEmpty())) { "Smart Streaks data requires backup version 6." }
         require(backup.formatVersion >= 7 || backup.dailyReflections.isEmpty()) { "Daily reflections require backup version 7." }
+        require(backup.formatVersion >= 8 || backup.achievementAcknowledgments.isEmpty()) { "Achievement acknowledgments require backup version 8." }
         require(backup.exportedAt >= 0) { "Invalid export timestamp." }
         validateSettings(backup.settings)
         // App lock is a local-only security choice and never roams through backups, plain or encrypted.
@@ -215,13 +226,16 @@ object BackupValidator {
         // One reflection per date, each carrying a mood and/or a journal.
         require(backup.dailyReflections.map { it.date }.toSet().size == backup.dailyReflections.size) { "More than one reflection exists for the same date." }
         backup.dailyReflections.forEach { validateReflection(it, today) }
+        // Acknowledgments: no user content, no duplicates, sane timestamps.
+        require(backup.achievementAcknowledgments.map { it.achievementId }.toSet().size == backup.achievementAcknowledgments.size) { "Duplicate achievement acknowledgments in backup." }
+        backup.achievementAcknowledgments.forEach { validateAchievementAcknowledgment(it) }
     }
 
     /** Version 1 lacks schedules, progress and intervals; normalize before replacing any table. */
     fun decode(text: String, today: LocalDate = LocalDate.now()): LifeTrackBackup {
         val document = json.parseToJsonElement(text.removePrefix("\uFEFF")).jsonObject
         val version = document["formatVersion"]?.jsonPrimitive?.intOrNull
-        require(version != null && version in 1..7) { "This backup version is not supported by this app." }
+        require(version != null && version in 1..8) { "This backup version is not supported by this app." }
         if (version >= 2) {
             require("pauses" in document) { "This version 2 backup is missing its pause history." }
             (document["habits"] as? JsonArray)?.forEach { entry ->

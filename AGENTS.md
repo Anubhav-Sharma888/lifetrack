@@ -44,8 +44,8 @@ Avoid redundant analysis: one specialist per concern; reviewers see finished dif
 
 ## Current state
 
-- Branch `develop/v1.8.0`; versionName 1.7.0 / versionCode 8; Room schema **8**; backup format v1–v7 (v6 = Smart Streaks, v7 = daily reflections; each format required only when such data exists; plain exports stay key-free for older apps via `@EncodeDefault(NEVER)`).
+- Branch `develop/achievements` (branched from the v1.9.0-preview.1 release on `main`); versionName 1.9.0 / versionCode 9; Room schema **9**; backup format v1–v8 (v6 = Smart Streaks, v7 = daily reflections, v8 = achievement acknowledgments; each format required only when such data exists; plain exports stay key-free for older apps via `@EncodeDefault(NEVER)`).
 - App lock (opt-in biometric/device-credential gate) is local-only: `appLockEnabled` is stripped from backups and rejected on import — never serialize it.
-- Daily reflections (`daily_reflections`, date-scoped, NO habit FK): import/reset must clear them explicitly — habit cascades never touch this table.
-- v1.8.0 progress: 1) ✅ CSV export, 2) ✅ directional progress tracking, 3) ✅ biometric app lock, 4) ✅ Smart Streaks (engine + UI), 5) ✅ mood/journal data layer (UI = Prompt 4), 6) milestones, 7) flexible scheduling.
-- Known gap: README/UPGRADE describe the pre-1.8.0 state in places — refresh docs when releasing 1.8.0.
+- Daily reflections (`daily_reflections`, date-scoped, NO habit FK) and achievement acknowledgments (`achievement_acknowledgments`, id-scoped, NO FK): import/reset must clear both explicitly — habit cascades never touch these tables.
+- v1.8.0/v1.9.0 progress: 1) ✅ CSV export, 2) ✅ directional progress tracking, 3) ✅ biometric app lock, 4) ✅ Smart Streaks (engine + UI), 5) ✅ mood/journal data layer + UI, 6) ✅ achievements engine + acknowledgment persistence (this branch), 7) achievements UI = Prompt 6, 8) flexible scheduling.
+- Known gap: README/UPGRADE describe the pre-1.8.0 state in places — refresh docs when releasing.
