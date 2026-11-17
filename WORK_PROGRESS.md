@@ -1,6 +1,26 @@
 # LifeTrack v1.8.0 — Work Progress (sessions 2026-11-15 → 2026-11-18: CSV export, directional tracking, app lock, Smart Streaks Phases 1–2, Mood/Journal data layer + UI)
 
-Branch: `develop/v1.8.0` · Backup at `D:\LifeTracker-backup` (untouched)
+Branch: `develop/v1.8.0` (LOCAL) · Backup at `D:\LifeTracker-backup` (untouched)
+
+---
+
+## ⚠️ OPEN BLOCKER — diverged `develop/v1.8.0`, Phase-4 UI push deferred (needs your decision)
+
+- **Remote state**: `origin/develop/v1.8.0` = `0e98de7` — three new CI commits (`c73f5c0`/`a1b16a0`/`0e98de7`: GitHub Actions workflow building a `v1.8.0-preview.1` APK, prerelease published) layered on top of my Prompt-3 data-layer commit `28791a2`. A tag `v1.8.0-preview.1` was also pushed.
+- **The remote's CI/preview ships WITHOUT the Prompt-4 reflection UI**: relative to my local HEAD, the remote deletes `ui/components/ReflectionWidgets.kt`, the Today/Activities/Analytics/Settings integration, `ReflectionUiTest.kt`, and rewrites `WORK_PROGRESS.md` (its own session notes). Another Prompt-4 session ran against this branch and evidently took the reflection UI in a different direction (or deliberately deferred it for the preview).
+- **My local state**: commit `62d5182` = the complete, validated Phase-4 UI (Today reflection card, Activities chronology display, Analytics moods panel, Settings privacy note, 4 UI tests) on top of `28791a2` — 226/226 unit tests + lintDebug green on this tree.
+- **What I did NOT do**: no force-push, no reset, no merge, no push to any other branch, no deletion of the remote's CI or its preview. Both histories are fully preserved.
+- **Why I stopped**: pushing my commit would require resolving a genuine product conflict (my UI vs. the remote's UI-less preview direction) — that is your call, not an autonomous one. Merging would resurrect the UI into a preview that was deliberately cut without it.
+
+### Decision needed when you return
+1. Keep the reflection UI → merge/rebase `62d5182` over `0e98de7` (small conflict set: WORK_PROGRESS.md + Today/Analytics/LifeTrackApp/EditorRecoveryTest), re-run the suite, push.
+2. Prefer the preview's UI-less state for now → Phase-4 UI stays preserved on my local branch (cherry-pick later); nothing to merge.
+3. Either way: the CI workflow on the remote now builds the preview automatically — verify whether you want it to pick up the UI once merged.
+
+### Local commits ahead of remote (all preserved on local `develop/v1.8.0`)
+| Commit | Content |
+|---|---|
+| `62d5182` | feat: Mood Tracking + Daily Journal UI (Prompt 4/12) — validated 226/226 + lint green |
 
 ---
 
