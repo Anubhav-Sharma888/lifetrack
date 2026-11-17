@@ -1,4 +1,4 @@
-# LifeTrack 1.7.0
+# LifeTrack 1.9.0
 
 A complete native Android habit tracker using Kotlin, Jetpack Compose Material 3, Room, MVVM, a repository and Hilt. All user records and settings are local. There is no account, Internet permission, analytics SDK, advertising SDK, server or automatic app-data cloud backup.
 
