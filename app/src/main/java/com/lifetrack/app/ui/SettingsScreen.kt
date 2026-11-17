@@ -153,7 +153,8 @@ fun SettingsScreen(
                 }
             }
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-            SettingsAction("Export data", "Save a complete JSON backup", Icons.Outlined.FileUpload, enabled = !busy) { launchExport(false) }
+            SettingsAction("Export data", "Save a complete JSON backup · plain files contain your notes and journals unencrypted",
+                Icons.Outlined.FileUpload, enabled = !busy) { launchExport(false) }
             HorizontalDivider()
             SettingsAction("Export encrypted backup", "Protect the file with a password · AES-256-GCM", Icons.Outlined.Lock, enabled = !busy) { launchExport(true) }
             HorizontalDivider()

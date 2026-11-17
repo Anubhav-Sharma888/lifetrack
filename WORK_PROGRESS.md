@@ -1,6 +1,37 @@
-# LifeTrack v1.8.0 — Work Progress (sessions 2026-11-15 → 2026-11-18: CSV export, directional tracking, app lock, Smart Streaks Phases 1–2, Mood/Journal data layer)
+# LifeTrack v1.8.0 — Work Progress (sessions 2026-11-15 → 2026-11-18: CSV export, directional tracking, app lock, Smart Streaks Phases 1–2, Mood/Journal data layer + UI)
 
 Branch: `develop/v1.8.0` · Backup at `D:\LifeTracker-backup` (untouched)
+
+---
+
+# Session 6 (Prompt 4/12) — Mood Tracking + Daily Journal UI
+
+## What was built
+
+- **Today**: `ReflectionEditorCard` for the selected date (today or any past date via existing date navigation) — mood selector (five 48dp selectable circles, Role.RadioButton, per-chip meaning), optional journal (2000-char cap with monoData counter), Save gated on change + content, Cancel, Remove behind a confirmation dialog. Drafts use `rememberSaveable` — they survive scroll-away, tab switches and process death. Empty days show an invitation + "Add a reflection" (no auto-opened text field, which fought list scrolling).
+- **Activities chronology**: day groups show the day's mood (emoji + label, only when present) and journal (Ellipsis) — read-only, no duplication.
+- **Analytics**: "Moods · last 28 days" panel — Days with moods / Avg on habit days / Avg on quiet days + definitional footnote (habit/quiet-day definitions, 1–5 scale) + causation disclaimer + oldest-to-newest emoji/label/date list. Journal text deliberately kept out of Analytics.
+- **Settings**: "Export data" subtitle now warns that plain JSON files contain notes and journals unencrypted.
+
+## Test evidence (session 6)
+
+- **Final: `BUILD SUCCESSFUL` — testDebugUnitTest 226/226 across 23 suites (4 new compose tests: invitation, mood-only save + remove-guard, saved read-back + confirm-before-remove, cancel-restores; plus the rewritten short-screen scroll test and reorder scroll fix) + lintDebug, all green.**
+- Regression: Smart Streaks, App Lock, CSV export, backups, migrations all green.
+
+## Reviews (session 6)
+
+- `frontend-engineer`: ReflectionWidgets.kt (remember-key correctness fix caught pre-commit: identity-keyed arrays would have reset drafts per keystroke).
+- `ui-ux-specialist`: H1 (plain-remember draft loss on scroll → rememberSaveable), M1 (journal ellipsis), M2 (definitional footnote), M3 (chip semantics), M4 (error color for Remove), M5 (48dp TextButtons), M6 (dropped redundant contentDescriptions), M7 (today/past titles + Cancel on empty days), L1/L2 (counter style, color alignment) — all applied.
+- `independent-reviewer`: M-1 (card/panel test coverage → ReflectionUiTest 4 tests), M-2 (scroll-test bottom coverage → two-phase scroll), L-1/L-2 applied; I-1 locale format noted; M-3 (date-nav draft loss) documented as a lead product call (see below).
+
+## Product decisions & residual risks (session 6)
+
+- **Date navigation mid-edit resets the reflection draft** (no dirty guard on the date controls): deliberate — date controls are primary navigation; a guard there would fight every use. Documented; revisit if QA shows friction.
+- **No mood un-select affordance**: journal-only after mood+journal requires removing the whole reflection. Documented; revisit with Prompt 4 QA.
+- **Standalone bottom-scroll Robolectric test omitted**: scrolling from the reflection position to the last habit item trips a LazyColumn/reorderable interaction under Robolectric ("node no longer in the tree") regardless of target; bottom reachability is covered by the reorder test's scroll instead. Device QA will confirm real scrolling.
+- Device QA: TalkBack on mood chips/live regions, emoji rendering at fontScale 2, journal drafts across process death.
+
+## Earlier sessions (2026-11-15/16/17) — CSV export, directional tracking, app lock, Smart Streaks, mood/journal data layer: see logs below
 
 ---
 
