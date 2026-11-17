@@ -30,11 +30,14 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Install Android SDK components
-        uses: android-actions/setup-android@v3
-
-      - name: Install pinned SDK platform and build tools
-        run: sdkmanager --install "platforms;android-36" "build-tools;35.0.0"
+      - name: Use preinstalled Android SDK
+        shell: bash
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          command -v sdkmanager
+          test -d "$ANDROID_HOME"
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install "platforms;android-36" "build-tools;35.0.0" "platform-tools"
 
       - name: Configure isolated test preview only on CI runner
         shell: bash
