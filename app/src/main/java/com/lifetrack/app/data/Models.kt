@@ -63,7 +63,20 @@ data class Habit(
     @ColumnInfo(defaultValue = "'STRICT'") val streakPolicy: String = StreakPolicy.STRICT.name,
     @OptIn(ExperimentalSerializationApi::class)
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    @ColumnInfo(defaultValue = "75") val partialCreditPercent: Int = 75
+    @ColumnInfo(defaultValue = "75") val partialCreditPercent: Int = 75,
+    // Flexible scheduling: absent keys stay out of plain exports so older apps still decode them.
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @ColumnInfo(defaultValue = "'WEEKDAYS'") val scheduleMode: String = ScheduleMode.WEEKDAYS.name,
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @ColumnInfo(defaultValue = "NULL") val intervalDays: Int? = null,
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @ColumnInfo(defaultValue = "NULL") @Serializable(with = LocalDateSerializer::class) val intervalAnchor: LocalDate? = null,
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @ColumnInfo(defaultValue = "NULL") val weeklyTarget: Int? = null
 )
 
 @Serializable
@@ -81,7 +94,17 @@ internal fun Habit.goalOn(date: LocalDate): Habit {
 @Serializable
 data class ScheduleRevision(
     @Serializable(with = LocalDateSerializer::class) val effectiveFrom: LocalDate,
-    val days: List<Int>
+    val days: List<Int>,
+    // Flexible scheduling: absent on legacy revisions, which remain selected-weekday rules.
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val mode: String? = null,
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val intervalDays: Int? = null,
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val weeklyTarget: Int? = null
 )
 
 @Serializable
@@ -218,6 +241,16 @@ enum class ActivityMode { LOGGED, INCREASING, DECREASING, PERSONAL_BEST;
     companion object {
         /** Unknown stored values fall back to LOGGED so old or foreign data still renders. */
         fun fromStored(value: String): ActivityMode = entries.firstOrNull { it.name == value } ?: LOGGED
+    }
+}
+
+/** How a habit's due days are determined. WEEKDAYS preserves the original selected-weekday rules. */
+@Serializable
+enum class ScheduleMode { WEEKDAYS, EVERY_N_DAYS, WEEKLY_QUOTA;
+
+    companion object {
+        /** Unknown stored values fall back to WEEKDAYS so old or foreign data keeps its meaning. */
+        fun fromStored(value: String): ScheduleMode = entries.firstOrNull { it.name == value } ?: WEEKDAYS
     }
 }
 

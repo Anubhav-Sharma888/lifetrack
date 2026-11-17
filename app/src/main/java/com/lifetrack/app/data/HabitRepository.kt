@@ -100,11 +100,37 @@ class HabitRepository @Inject constructor(
         require(habit.id == 0L || existing != null) { "This habit no longer exists." }
         require(habit.streakPolicy in StreakPolicy.entries.map(StreakPolicy::name)) { "Unknown streak policy for this habit." }
         require(habit.partialCreditPercent in 1..100) { "Partial-credit thresholds must be between 1 and 100 percent." }
+        require(habit.scheduleMode in ScheduleMode.entries.map(ScheduleMode::name)) { "Unknown schedule mode for this habit." }
+        require(habit.intervalDays == null || habit.intervalDays in 2..365) { "Day intervals must be between 2 and 365 days." }
+        require(habit.weeklyTarget == null || habit.weeklyTarget in 1..7) { "Weekly targets must be between 1 and 7 days." }
+        val scheduleMode = ScheduleMode.fromStored(habit.scheduleMode)
+        require(
+            when (scheduleMode) {
+                ScheduleMode.WEEKDAYS -> habit.intervalDays == null && habit.weeklyTarget == null
+                ScheduleMode.EVERY_N_DAYS -> habit.weeklyTarget == null && habit.intervalDays != null
+                ScheduleMode.WEEKLY_QUOTA -> habit.intervalDays == null
+            }
+        ) { "The schedule mode and its parameters do not match." }
         val all = dao.allHabits()
-        val days = habit.scheduledDays.distinct().sorted()
-        val history = if (existing != null && existing.scheduledDays != days) {
+        // Non-WEEKDAYS habits keep a normalized placeholder grid so legacy readers and CSV never
+        // crash; the engine ignores `days` outside WEEKDAYS mode.
+        val days = if (scheduleMode == ScheduleMode.WEEKDAYS) habit.scheduledDays.distinct().sorted() else (1..7).toList()
+        val scheduleChanged = existing != null && (
+            existing.scheduleMode != scheduleMode.name ||
+                (scheduleMode == ScheduleMode.EVERY_N_DAYS && existing.intervalDays != habit.intervalDays) ||
+                (scheduleMode == ScheduleMode.WEEKLY_QUOTA && existing.weeklyTarget != habit.weeklyTarget) ||
+                (scheduleMode == ScheduleMode.WEEKDAYS && existing.scheduledDays != days)
+            )
+        val history = if (existing != null && scheduleChanged) {
             val earlier = existing.scheduleHistory.ifEmpty { listOf(ScheduleRevision(existing.startDate, existing.scheduledDays)) }
-            earlier.filter { it.effectiveFrom < today } + ScheduleRevision(today, days)
+            earlier.filter { it.effectiveFrom < today } + when (scheduleMode) {
+                ScheduleMode.EVERY_N_DAYS -> ScheduleRevision(today, days, mode = scheduleMode.name, intervalDays = habit.intervalDays)
+                ScheduleMode.WEEKLY_QUOTA -> ScheduleRevision(today, days, mode = scheduleMode.name, weeklyTarget = habit.weeklyTarget)
+                // WEEKDAYS revisions stay key-free: @EncodeDefault(NEVER) omits the mode fields.
+                ScheduleMode.WEEKDAYS -> ScheduleRevision(today, days)
+            }
+        } else if (existing == null && scheduleMode != ScheduleMode.WEEKDAYS) {
+            listOf(ScheduleRevision(today, days, mode = scheduleMode.name, intervalDays = habit.intervalDays, weeklyTarget = habit.weeklyTarget))
         } else existing?.scheduleHistory ?: habit.scheduleHistory
         val logs = existing?.let { dao.habitLogs(it.id) }.orEmpty()
         val unit = habit.targetUnit.trim()
@@ -119,6 +145,10 @@ class HabitRepository @Inject constructor(
             name = habit.name.trim(), description = habit.description?.trim()?.takeIf { it.isNotEmpty() },
             category = habit.category.trim(), colorHex = habit.colorHex.uppercase(),
             targetUnit = unit, scheduledDays = days, scheduleHistory = history, goalHistory = goals,
+            scheduleMode = scheduleMode.name,
+            intervalDays = if (scheduleMode == ScheduleMode.EVERY_N_DAYS) habit.intervalDays else null,
+            intervalAnchor = if (scheduleMode == ScheduleMode.EVERY_N_DAYS) today else null,
+            weeklyTarget = if (scheduleMode == ScheduleMode.WEEKLY_QUOTA) habit.weeklyTarget else null,
             // Archiving has its own operation so editing a form cannot change historical eligibility.
             isArchived = existing?.isArchived ?: false,
             archivedOn = existing?.archivedOn,
@@ -183,8 +213,17 @@ class HabitRepository @Inject constructor(
         require(!habit.isArchived) { "Restore this archived habit before changing its check-ins." }
         require(date <= LocalDate.now()) { "Future check-ins are not allowed. Come back on that date." }
         require(date >= habit.startDate) { "Check-ins cannot be before this habit's start date." }
-        val weekdays = habit.scheduleHistory.lastOrNull { it.effectiveFrom <= date }?.days ?: habit.scheduleHistory.firstOrNull()?.days ?: habit.scheduledDays
-        require(date.dayOfWeek.value in weekdays) { "This habit is not scheduled for that weekday." }
+        when (com.lifetrack.app.domain.Scheduling.mode(habit, date)) {
+            com.lifetrack.app.data.ScheduleMode.WEEKDAYS -> {
+                val weekdays = habit.scheduleHistory.lastOrNull { it.effectiveFrom <= date }?.days
+                    ?: habit.scheduleHistory.firstOrNull()?.days ?: habit.scheduledDays
+                require(date.dayOfWeek.value in weekdays) { "This habit is not scheduled for that weekday." }
+            }
+            com.lifetrack.app.data.ScheduleMode.EVERY_N_DAYS -> require(
+                com.lifetrack.app.domain.Scheduling.isScheduledOn(habit, date)
+            ) { "This habit is only scheduled every ${com.lifetrack.app.domain.Scheduling.intervalDays(habit, date)} days — the next window opens later." }
+            com.lifetrack.app.data.ScheduleMode.WEEKLY_QUOTA -> { } // any day may count toward the quota
+        }
         require(dao.habitPauses(id).none { date >= it.startDate && (it.endDate == null || date < it.endDate) }) { "This date belongs to an archived pause. Choose an active day." }
         return habit.goalOn(date)
     }
@@ -337,7 +376,11 @@ class HabitRepository @Inject constructor(
     }
 
     suspend fun useFreeze(habitId: Long, date: LocalDate, note: String? = null) = db.withTransaction {
-        editableHabit(habitId, date)
+        val habit = editableHabit(habitId, date)
+        // Weekly-quota habits are never due on a specific day: a freeze would be meaningless.
+        if (com.lifetrack.app.domain.Scheduling.mode(habit, date) == com.lifetrack.app.data.ScheduleMode.WEEKLY_QUOTA) {
+            throw IllegalArgumentException("Weekly-quota habits do not use streak freezes.")
+        }
         require(date < LocalDate.now()) { "A freeze protects a past missed day. Today's check-in is still available." }
         require(note == null || note.length <= 4_000) { "Notes are limited to 4,000 characters." }
         val month = YearMonth.from(date).toString()
@@ -368,7 +411,12 @@ class HabitRepository @Inject constructor(
         if (date != LocalDate.now()) return@withTransaction false
         val habit = dao.habit(habitId) ?: return@withTransaction false
         if (expectedCreatedAt != null && habit.createdAt != expectedCreatedAt) return@withTransaction false
-        if (habit.isArchived || habit.reminderMinutes == null || !com.lifetrack.app.domain.Analytics.eligible(habit, date, dao.habitPauses(habitId))) return@withTransaction false
+        if (habit.isArchived || habit.reminderMinutes == null) return@withTransaction false
+        // Weekly-quota habits get no daily "overdue" reminder: the user picks the days (Prompt 8 UX).
+        if (com.lifetrack.app.data.ScheduleMode.fromStored(habit.scheduleMode) == com.lifetrack.app.data.ScheduleMode.WEEKLY_QUOTA) {
+            return@withTransaction false
+        }
+        if (!com.lifetrack.app.domain.Analytics.eligible(habit, date, dao.habitPauses(habitId))) return@withTransaction false
         val localTime = java.time.LocalTime.now()
         if (localTime.hour * 60 + localTime.minute < habit.reminderMinutes) return@withTransaction false
         if (dao.log(habitId, date)?.status in setOf(LogStatus.COMPLETED, LogStatus.SKIPPED)) return@withTransaction false
@@ -392,6 +440,7 @@ class HabitRepository @Inject constructor(
             val acknowledgments = dao.allAchievementAcknowledgments()
             LifeTrackBackup(
                 formatVersion = when {
+                    habits.any { com.lifetrack.app.domain.Scheduling.isConfigured(it) } -> 9
                     acknowledgments.isNotEmpty() -> 8
                     reflections.isNotEmpty() -> 7
                     streakProtections.isNotEmpty() || habits.any { com.lifetrack.app.domain.StreakPolicy.isConfigured(it) } -> 6

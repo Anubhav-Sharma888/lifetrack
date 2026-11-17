@@ -80,4 +80,15 @@ object DatabaseMigrations {
             db.execSQL("CREATE TABLE IF NOT EXISTS achievement_acknowledgments (achievementId TEXT NOT NULL, acknowledgedAt INTEGER NOT NULL, PRIMARY KEY(achievementId))")
         }
     }
+
+    /** Flexible scheduling arrives in version 10: every existing habit keeps WEEKDAYS semantics
+     *  with no anchor — no historical reinterpretation. */
+    val MIGRATION_9_10 = object : Migration(9, 10) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE habits ADD COLUMN scheduleMode TEXT NOT NULL DEFAULT 'WEEKDAYS'")
+            db.execSQL("ALTER TABLE habits ADD COLUMN intervalDays INTEGER DEFAULT NULL")
+            db.execSQL("ALTER TABLE habits ADD COLUMN intervalAnchor INTEGER DEFAULT NULL")
+            db.execSQL("ALTER TABLE habits ADD COLUMN weeklyTarget INTEGER DEFAULT NULL")
+        }
+    }
 }

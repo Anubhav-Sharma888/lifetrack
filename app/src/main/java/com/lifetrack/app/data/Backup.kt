@@ -77,6 +77,21 @@ object BackupValidator {
         require(habit.archivedOn == null || (habit.archivedOn >= earliestDate && habit.archivedOn <= today)) { "Invalid archive date." }
         require(habit.streakPolicy in StreakPolicy.entries.map(StreakPolicy::name)) { "Unknown streak policy for this habit." }
         require(habit.partialCreditPercent in 1..100) { "Partial-credit thresholds must be between 1 and 100 percent." }
+        val scheduleMode = ScheduleMode.fromStored(habit.scheduleMode)
+        require(habit.scheduleMode in ScheduleMode.entries.map(ScheduleMode::name)) { "Unknown schedule mode for this habit." }
+        require(
+            when (scheduleMode) {
+                ScheduleMode.WEEKDAYS -> habit.intervalDays == null && habit.weeklyTarget == null
+                ScheduleMode.EVERY_N_DAYS -> habit.weeklyTarget == null && habit.intervalDays != null
+                ScheduleMode.WEEKLY_QUOTA -> habit.intervalDays == null && habit.weeklyTarget != null
+            }
+        ) { "The schedule mode and its parameters do not match." }
+        require(
+            habit.scheduleHistory.all { revision ->
+                val revisionMode = ScheduleMode.fromStored(revision.mode ?: habit.scheduleMode)
+                revisionMode != ScheduleMode.WEEKLY_QUOTA || (revision.weeklyTarget != null && revision.weeklyTarget in 1..7)
+            }
+        ) { "Invalid schedule revision parameters." }
     }
 
     /** One optional mood and/or journal per date; a row carrying neither is rejected before any write. */
@@ -127,13 +142,14 @@ object BackupValidator {
     }
 
     fun validate(backup: LifeTrackBackup, today: LocalDate = LocalDate.now()) {
-        require(backup.formatVersion in 1..8) { "This backup version is not supported by this app." }
+        require(backup.formatVersion in 1..9) { "This backup version is not supported by this app." }
         require(backup.formatVersion >= 4 || backup.habits.none { it.goalHistory.isNotEmpty() }) { "Goal revisions require backup version 4." }
         require(backup.formatVersion >= 5 || backup.activities.none { it.isDirectional() }) { "Directional activity tracking requires backup version 5." }
         require(backup.formatVersion >= 6 || (backup.habits.none { com.lifetrack.app.domain.StreakPolicy.isConfigured(it) } &&
             backup.streakProtections.isEmpty())) { "Smart Streaks data requires backup version 6." }
         require(backup.formatVersion >= 7 || backup.dailyReflections.isEmpty()) { "Daily reflections require backup version 7." }
         require(backup.formatVersion >= 8 || backup.achievementAcknowledgments.isEmpty()) { "Achievement acknowledgments require backup version 8." }
+        require(backup.formatVersion >= 9 || backup.habits.none { com.lifetrack.app.domain.Scheduling.isConfigured(it) }) { "Flexible scheduling requires backup version 9." }
         require(backup.exportedAt >= 0) { "Invalid export timestamp." }
         validateSettings(backup.settings)
         // App lock is a local-only security choice and never roams through backups, plain or encrypted.
@@ -235,7 +251,7 @@ object BackupValidator {
     fun decode(text: String, today: LocalDate = LocalDate.now()): LifeTrackBackup {
         val document = json.parseToJsonElement(text.removePrefix("\uFEFF")).jsonObject
         val version = document["formatVersion"]?.jsonPrimitive?.intOrNull
-        require(version != null && version in 1..8) { "This backup version is not supported by this app." }
+        require(version != null && version in 1..9) { "This backup version is not supported by this app." }
         if (version >= 2) {
             require("pauses" in document) { "This version 2 backup is missing its pause history." }
             (document["habits"] as? JsonArray)?.forEach { entry ->

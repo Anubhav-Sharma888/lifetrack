@@ -1,6 +1,35 @@
-# LifeTrack — Work Progress (sessions 2026-11-15 → 2026-11-18: CSV export, directional tracking, app lock, Smart Streaks Phases 1–2, Mood/Journal data layer + UI released as v1.9.0-preview.1; Achievements engine + UI complete)
+# LifeTrack — Work Progress (sessions 2026-11-15 → 2026-11-18: CSV export, directional tracking, app lock, Smart Streaks, Mood/Journal, Achievements; Flexible Scheduling engine in progress)
 
-Branches: `develop/achievements` (current, from the v1.9.0 release commit `32c9bfa` on `main`) · `main` (= `32c9bfa`, carries the v1.9.0-preview.1 tag) · Backup at `D:\LifeTracker-backup` (untouched)
+Branches: `develop/achievements` (current) · `main` (= `32c9bfa`, carries the v1.9.0-preview.1 tag) · Backup at `D:\LifeTracker-backup` (untouched)
+
+---
+
+# Session 9 (Prompt 7/12) — Flexible Scheduling: domain engine, persistence, integration
+
+## What was built (this session, uncommitted → committing at end)
+
+- **Three schedule modes**: WEEKDAYS (default, all existing habits unchanged), EVERY_N_DAYS (date-grid recurrence from an explicit anchor, LocalDate/epochDay arithmetic — month/leap/year safe, never elapsed millis), WEEKLY_QUOTA (X completions per ISO Mon–Sun week on any day; distinct period-based metric, never folded into daily denominators).
+- **Data layer** (schema **10** via additive MIGRATION_9_10, `10.json` exported): Habit gains scheduleMode/'WEEKDAYS' default, intervalDays, intervalAnchor, weeklyTarget — all `@EncodeDefault(NEVER)` so plain exports stay key-free; ScheduleRevision gains mode/intervalDays/weeklyTarget (nullable, key-free for weekday revisions). Backup **v9** gate: required only when a habit carries flexible configuration; old formats decode with WEEKDAYS defaults.
+- **Engine** (`domain/Scheduling.kt`): mode/interval/anchor/quota resolvers from schedule history (per-date), grid eligibility, next-grid-date, weekly-quota status (achieved/ongoing/missed/rest with pause-aware eligible days).
+- **Analytics mode-aware**: eligible dispatches per mode; dueCount per-segment dispatched (EVERY_N_DAYS counts grid dates per segment; WEEKLY_QUOTA contributes no daily dues); rate() excludes quota habits entirely; currentStreak/bestStreak return 0 for quota habits (no fabricated day-streaks).
+- **Repository guards**: editableHabit mode-aware (INTERVAL grid-only, QUOTA any day); useFreeze rejects quota habits; claimReminder excludes quota habits (no daily overdue reminders — Prompt 8 may add a weekly nudge); ReminderPolicy same exclusion.
+- **CSV**: renders the placeholder weekday grid for non-WEEKDAYS modes (flagged for Prompt 8 polish).
+
+## Test evidence
+
+- **Final: `BUILD SUCCESSFUL` — testDebugUnitTest 263/263 across 25 suites + lintDebug, all green** (13 new SchedulingTest tests; all prior suites unchanged and green; schema 10.json exported with the new columns verified).
+- Limits verified live: 2 workers, `--no-parallel --no-daemon`, capped `-Xmx2500m`, in-process Kotlin compile, BelowNormal, free RAM 2.8–4.9 GB monitored.
+
+## Reviews (this session)
+
+- `product-requirements-analyst`: decision matrix + edge cases (interval boundaries, quota states, reminder contract) — incorporated.
+- `independent-reviewer`: confirmed the WEEKLY_QUOTA daily-denominator exclusion and identified two Critical/High gaps fixed this session — decode gate 1..9 (was 1..8: v9 backups were unrestorable) and the missing EVERY_N_DAYS dueCount branch (interval habits silently computed weekday dues) — plus import-validation additions and quota-habit exclusions in rate/daily-reminder.
+- Known residual: standalone bottom-scroll Robolectric fragment from Prompt 4 deferred to device QA; CSV renders the placeholder weekday grid for non-WEEKDAYS modes (Prompt 8 polish).
+
+## Deferred (Prompt 8/12 — Flexible Scheduling UI)
+
+- Schedule-mode selector, interval/quota parameter fields, next-eligible-date display, weekly progress cards.
+- Editor behavior for mode switching (placeholder weekday selection is recoverable from the seed revision).
 
 ---
 

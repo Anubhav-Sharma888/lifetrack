@@ -55,7 +55,8 @@ class DatabaseMigrationTest {
                 DatabaseMigrations.MIGRATION_1_2, DatabaseMigrations.MIGRATION_2_3,
                 DatabaseMigrations.MIGRATION_3_4, DatabaseMigrations.MIGRATION_4_5,
                 DatabaseMigrations.MIGRATION_5_6, DatabaseMigrations.MIGRATION_6_7,
-                DatabaseMigrations.MIGRATION_7_8, DatabaseMigrations.MIGRATION_8_9
+                DatabaseMigrations.MIGRATION_7_8, DatabaseMigrations.MIGRATION_8_9,
+                DatabaseMigrations.MIGRATION_9_10
             )
             .allowMainThreadQueries().build()
         try {
@@ -100,12 +101,15 @@ class DatabaseMigrationTest {
             val acknowledgment = migrated.dao().allAchievementAcknowledgments().single()
             assertEquals("habit.first_completion", acknowledgment.achievementId)
             assertEquals(300, acknowledgment.acknowledgedAt)
+            // MIGRATION_9_10 added flexible scheduling; every migrated habit keeps WEEKDAYS semantics.
+            assertEquals("WEEKDAYS", migrated.dao().allHabits().single().scheduleMode)
+            assertNull(migrated.dao().allHabits().single().intervalAnchor)
             val pause = migrated.dao().allPauses().single()
             assertEquals(7L, pause.habitId)
             assertEquals(today, pause.startDate)
             assertNull(pause.endDate)
             assertEquals("2026-10", migrated.dao().allFreezes().single().month)
-            assertEquals(9, migrated.openHelper.readableDatabase.version)
+            assertEquals(10, migrated.openHelper.readableDatabase.version)
             assertTrue("Version-3 activity tables start empty after migration from version 1", migrated.dao().allActivities().isEmpty())
             // MIGRATION_4_5 added the tracking columns; the migrated schema must apply their defaults.
             // (Opening schema 5 at all proves Room accepted the migrated structure — a mismatch would throw.)
