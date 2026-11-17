@@ -73,6 +73,11 @@ fun TodayScreen(
         Analytics.unmarked(state.habits, state.logs, state.today.minusDays(1), state.pauses)
     }
     val showNudge = date == state.today && unmarkedYesterday.isNotEmpty() && nudgeDismissed != state.today.minusDays(1).toString()
+    // Milestone hint: the locked achievement closest to completion, derived above the LazyColumn
+    // (state reads must stay in composable scope, never inside the builder lambda).
+    val achievementList by vm.achievements.collectAsState()
+    val nextMilestone = achievementList.filterNot { it.achieved }
+        .minByOrNull { progress -> (progress.definition.target - progress.current).coerceAtLeast(0) }
     val listState = rememberLazyListState()
     val reorder = rememberReorderableLazyListState(listState) { from, to ->
         val fromIndex = (from.key as? Long)?.let(order::indexOf) ?: -1
@@ -173,6 +178,11 @@ fun TodayScreen(
                 onRemove = { vm.clearReflection(date) },
                 enabled = !busy
             )
+        }
+        // Small next-milestone hint: never displacing the habit cards or the reflection card above
+        // it, and hidden during the fresh-start onboarding (nothing to measure yet).
+        if (!showFreshStart) {
+            nextMilestone?.let { milestone -> item(key = "next-milestone") { NextMilestoneCard(progress = milestone) } }
         }
         if (showFreshStart) {
             item(key = "fresh-start") { FreshStartCard(onAdd, onRestoreBackup) }

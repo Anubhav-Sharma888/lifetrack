@@ -1,29 +1,30 @@
-# LifeTrack — Work Progress (sessions 2026-11-15 → 2026-11-18: CSV export, directional tracking, app lock, Smart Streaks Phases 1–2, Mood/Journal data layer + UI released as v1.9.0-preview.1; Achievements engine in progress)
+# LifeTrack — Work Progress (sessions 2026-11-15 → 2026-11-18: CSV export, directional tracking, app lock, Smart Streaks Phases 1–2, Mood/Journal data layer + UI released as v1.9.0-preview.1; Achievements engine + UI complete)
 
 Branches: `develop/achievements` (current, from the v1.9.0 release commit `32c9bfa` on `main`) · `main` (= `32c9bfa`, carries the v1.9.0-preview.1 tag) · Backup at `D:\LifeTracker-backup` (untouched)
 
 ---
 
-# Session 7 (Prompt 5/12) — Milestones & Achievements: domain engine + acknowledgment persistence
+# Session 8 (Prompt 6/12) — Achievements interface complete
 
 ## What was built (this session, uncommitted → committing at end)
 
-- **Catalogue + engine** (`domain/Achievements.kt`): 13 stable-id achievements across 4 categories (habit completion totals 1/7/30/100, qualifying streaks 7/30/90 via `Analytics.bestStreak` with Smart Streaks bridging, activity session/PB-improvement/directional-target attainment, reflection counts). Pure derivation from canonical Room data — fully reversible on edits/deletes/restores; no stored achievement state, no fabricated timestamps.
-- **Acknowledgment persistence** (schema **9** via additive MIGRATION_8_9, `9.json` exported): `achievement_acknowledgments(achievementId PK, acknowledgedAt)` — durable seen-markers that survive habit deletion and re-earning; device-state only.
-- **Backup v8**: required only when acknowledgments exist; plain exports stay key-free; unknown ids pruned on import (older/newer catalogue versions never pollute).
-- **Repository/ViewModel**: `acknowledgeAchievement` (idempotent, first timestamp preserved), `achievementAcknowledgments` flow, derived `achievements` StateFlow recomputed on any input change (incl. midnight `date` rollover).
-- Privacy verified by security-privacy-specialist: **PASS, no High/Medium** — no new permissions, no logging, widget/CSV/backup-rules all clean, mood field never read, no causation language.
+- **AchievementsScreen** (new route "achievements" from Analytics): earned/total summary with percentage + progress line, "Recently unlocked" list from acknowledgment timestamps, four category sections (Habit completion, Consistency, Activity progress, Daily reflections), achievement cards (category icon seal, title, description, ✓ Achieved / locked "current / target" + progress bar, TalkBack state descriptions), detail dialog (exact requirement per id, progress, remaining, Smart Streaks + protected-partial explanations for streak/completion achievements), empty state for brand-new users.
+- **Celebrations**: VM celebration driver — milestones earned after the feature's introduction fire exactly one snackbar + confetti (respects the animations toggle); milestones predating it are marked seen silently on the first evaluation (no fabricated unlock events); re-earning after data loss does not re-celebrate while the session acknowledgment set holds, and reset clears it so a fresh journey celebrates again.
+- **Today**: compact NextMilestoneCard (locked achievement closest to completion), placed after the reflection card, hidden during fresh-start onboarding.
+- **Analytics**: achievements summary row (Milestones X/Y + Earned % + "View all" entry point).
+- Deferred to later prompts: per-achievement unlock-date display (needs the derived earnedAt calculation), mood-free celebration copy fine-tuning.
 
 ## Test evidence
 
-- **Final: `BUILD SUCCESSFUL` — testDebugUnitTest 250/250 across 24 suites (35+ new/updated: 13 engine tests incl. boundary/bridging/eligibility matrix, backup v8 gating/round trips, migration v1→9 with acknowledgment row check, reflection tests unchanged) + lintDebug, all green.**
-- Limits verified live: 2 workers, `--no-parallel --no-daemon`, capped `-Xmx2500m`, in-process Kotlin compile, BelowNormal, free RAM 2.8–4.8 GB monitored.
+- **Final: `BUILD SUCCESSFUL` — testDebugUnitTest 250/250 across 24 suites + lintDebug, all green** (Prompt-5 engine suites + all regression suites unchanged and green).
 
-## Deferred (Prompt 6/12 — achievements interface)
+## Reviews (this session)
 
-- Achievements UI (catalogue display, celebration surface, acknowledgment affordance) — VM state/API ready.
-- UI-phase copy: "changes apply to your history" semantics for the derived engine; acknowledged-revoked rendering ("no longer earned" instead of vanishing).
-- Localization of "%.1f" averages (Locale.US pinning, consistent with `formatQuantityLabel`).
+- `frontend-engineer`: AchievementsScreen.kt (single file; caught its own remember-key pitfall: identity-keyed arrays would reset drafts per keystroke — fixed to value keys).
+- `ui-ux-specialist`: **H1** (Analytics call site never passed the achievements list — screen unreachable; fixed by threading `vm.achievements` through LifeTrackApp), **M2** (NextMilestoneCard now navigates to the register), **M3** ("· seen" suffix removed — internal vocabulary), **M4** (state line no longer repeats the title in TalkBack), **M5** (large-font reflow deferred with device QA noted), L1 (TaskAlt seal avoids Today-tab icon collision), L2 (HorizontalDivider idiom), L3 (dialog Close 48dp), L4/L6 documented as product calls — applied.
+- `independent-reviewer`: findings applied where in scope for this UI phase (see engine-phase review under Prompt 5 notes).
+
+## Session-5 (Prompt 5/12) summary — see below; engine + acknowledgment persistence landed there
 
 ---
 

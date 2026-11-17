@@ -47,7 +47,9 @@ fun AnalyticsScreen(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate,
                     activities: List<com.lifetrack.app.data.WorkoutActivity> = emptyList(),
                     activityEntries: List<com.lifetrack.app.data.ActivityEntry> = emptyList(),
                     streakProtections: List<com.lifetrack.app.data.StreakProtection> = emptyList(),
-                    reflections: List<com.lifetrack.app.data.DailyReflection> = emptyList()) {
+                    reflections: List<com.lifetrack.app.data.DailyReflection> = emptyList(),
+                    achievements: List<com.lifetrack.app.domain.Achievements.Progress> = emptyList(),
+                    onAchievements: () -> Unit = {}) {
     val active = habits.filterNot { it.isArchived }
     val first = habits.minOfOrNull { it.startDate } ?: today
     val allTime = remember(habits, logs, today, pauses) { Analytics.rate(habits, logs, first, today, pauses) }
@@ -57,6 +59,15 @@ fun AnalyticsScreen(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate,
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         Text("Analytics", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
         Text("You are your only competition.", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (achievements.isNotEmpty()) {
+            val earned = achievements.count { it.achieved }
+            val percent = if (achievements.isEmpty()) 0 else earned * 100 / achievements.size
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                MetricCard("Milestones", "$earned / ${achievements.size}", Modifier.weight(1f))
+                MetricCard("Earned", "$percent%", Modifier.weight(1f))
+                TextButton(onClick = onAchievements, modifier = Modifier.heightIn(min = 48.dp)) { Text("View all") }
+            }
+        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             MetricCard("Active habits", active.size.toString(), Modifier.weight(1f))
             MetricCard("All-time rate", if (allTime.opportunities == 0L) "—" else "${allTime.percent}%", Modifier.weight(1f))

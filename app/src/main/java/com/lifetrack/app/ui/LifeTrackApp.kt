@@ -90,6 +90,13 @@ fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, vm: HabitView
             }
         }
     }
+    // Achievement celebrations: one subtle snackbar + confetti per newly earned milestone.
+    LaunchedEffect(Unit) {
+        vm.achievementCelebration.collect { progress ->
+            if (state.settings.animationsEnabled) celebration++
+            scope.launch { snackbar.showSnackbar("🏆 Milestone earned — ${progress.definition.title}") }
+        }
+    }
     LifeTrackTheme(state.settings) {
         AppLockGate(enabled = state.settings.appLockEnabled) {
         routeState.SaveableStateProvider("app-content") {
@@ -133,7 +140,8 @@ fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, vm: HabitView
                     composable("today") { TodayScreen(state, vm, onAdd = { nav.navigate("edit/0") }, onOpen = { nav.navigate("habit/$it") }, onRestoreBackup = launchImport,
                         onSchedules = { nav.navigate("schedules") }) }
                     composable("activities") { ActivitiesScreen(state, vm) }
-                    composable("analytics") { AnalyticsScreen(state.habits, state.logs, state.today, state.pauses, state.activities, state.activityEntries, state.streakProtections, state.reflections) }
+                    composable("analytics") { AnalyticsScreen(state.habits, state.logs, state.today, state.pauses, state.activities, state.activityEntries, state.streakProtections, state.reflections, vm.achievements.collectAsStateWithLifecycle().value, onAchievements = { nav.navigate("achievements") }) }
+                    composable("achievements") { AchievementsScreen(state, vm.achievements.collectAsStateWithLifecycle().value, vm.achievementAcknowledgments.collectAsStateWithLifecycle().value, onBack = { nav.popBackStack() }) }
                     composable("settings") { SettingsScreen(state, vm, onOpen = { nav.navigate("habit/$it") }, onImport = launchImport,
                         onSchedules = { nav.navigate("schedules") }) }
                     composable("schedules") { SchedulesScreen(state, vm, onBack = { nav.popBackStack() }, onEdit = { nav.navigate("edit/$it") }) }

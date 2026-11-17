@@ -257,6 +257,39 @@ class HabitViewModel @Inject constructor(
         ))
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    val achievementAcknowledgments: StateFlow<List<AchievementAcknowledgment>> =
+        repository.achievementAcknowledgments.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    // Session state for the celebration flow: the first evaluation silently marks milestones that
+    // predate the celebrations feature as seen; everything earned afterwards celebrates once.
+    private var achievementsSeeded = false
+    private val celebratedThisSession = mutableSetOf<String>()
+    private val _achievementCelebration = MutableSharedFlow<Achievements.Progress>(extraBufferCapacity = 4)
+    val achievementCelebration = _achievementCelebration.asSharedFlow()
+
+    init {
+        // Celebration driver: milestones earned after the celebrations feature was introduced
+        // fire exactly one acknowledgment + one celebration; milestones that predate the feature
+        // are marked seen quietly on the first evaluation (no fabricated unlock events).
+        viewModelScope.launch(Dispatchers.Default) {
+            achievements.collect { list ->
+                val newlyEarned = list.filter {
+                    it.achieved && !it.acknowledged && celebratedThisSession.add(it.definition.id)
+                }
+                if (newlyEarned.isEmpty()) return@collect
+                if (!achievementsSeeded) {
+                    achievementsSeeded = true
+                    newlyEarned.forEach { repository.acknowledgeAchievement(it.definition.id) }
+                } else {
+                    newlyEarned.forEach { progress ->
+                        repository.acknowledgeAchievement(progress.definition.id)
+                        _achievementCelebration.tryEmit(progress)
+                    }
+                }
+            }
+        }
+    }
+
     fun acknowledgeAchievement(achievementId: String) = perform {
         repository.acknowledgeAchievement(achievementId)
     }
@@ -308,6 +341,9 @@ class HabitViewModel @Inject constructor(
             repository.importFrom(uri, password)
             undoHistory.clear()
             _wasReset.value = false
+            // Restored milestones were earned historically: mark them seen silently, no celebration.
+            achievementsSeeded = false
+            celebratedThisSession.clear()
             _events.emit(UiEvent.Message("Backup restored successfully"))
             onSaved()
         } finally { password?.fill('\u0000') }
@@ -333,6 +369,8 @@ class HabitViewModel @Inject constructor(
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { true }
         undoHistory.clear()
+        // A reset restarts the achievement journey: previously celebrated ids may be earned again.
+        celebratedThisSession.clear()
         _events.emit(UiEvent.Message(if (cleanupFailed) "Your data was erased, but reminder cleanup failed. Restart the app to finish it." else "LifeTrack was reset"))
         _wasReset.value = true
     }
