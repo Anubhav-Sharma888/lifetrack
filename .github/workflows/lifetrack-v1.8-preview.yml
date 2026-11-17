@@ -34,10 +34,12 @@ jobs:
         shell: bash
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
-          command -v sdkmanager
           test -d "$ANDROID_HOME"
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager --install "platforms;android-36" "build-tools;35.0.0" "platform-tools"
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -1)"
+          test -n "$SDKMANAGER"
+          "$SDKMANAGER" --version
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --install "platforms;android-36" "build-tools;35.0.0" "platform-tools"
 
       - name: Configure isolated test preview only on CI runner
         shell: bash
