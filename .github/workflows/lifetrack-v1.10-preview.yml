@@ -24,6 +24,8 @@ jobs:
       RELEASE_NAME: LifeTrack-v1.10.0-preview.1
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - name: Verify release source boundary
         shell: bash
