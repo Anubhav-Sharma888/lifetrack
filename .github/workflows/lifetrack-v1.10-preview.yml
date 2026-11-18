@@ -1,0 +1,119 @@
+name: Build LifeTrack v1.10.0 Preview APK
+
+on:
+  push:
+    branches: [release/v1.10.0-preview.1]
+    paths: [.github/workflows/lifetrack-v1.10-preview.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: lifetrack-v1.10-preview
+  cancel-in-progress: false
+
+jobs:
+  preview-apk:
+    if: github.repository == 'Anubhav-Sharma888/lifetrack'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      RELEASE_SOURCE_SHA: 7040c2896e5c2f990cf238ff616eb51740849423
+      RELEASE_TAG: v1.10.0-preview.1
+      RELEASE_NAME: LifeTrack-v1.10.0-preview.1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify release source boundary
+        shell: bash
+        run: |
+          test "$(git merge-base HEAD "$RELEASE_SOURCE_SHA")" = "$RELEASE_SOURCE_SHA"
+          git diff --quiet "$RELEASE_SOURCE_SHA" -- . ':!.github/workflows/lifetrack-v1.10-preview.yml'
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Use preinstalled Android SDK
+        shell: bash
+        run: |
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -1)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --install "platforms;android-36" "build-tools;35.0.0" "platform-tools"
+
+      - name: Configure isolated preview
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          gradle = Path('app/build.gradle.kts')
+          text = gradle.read_text(encoding='utf-8')
+          for expected in ('versionCode = 9', 'versionName = "1.9.0"', 'buildTypes {\n        release {'):
+              assert expected in text, f'Unexpected build configuration: {expected}'
+          text = text.replace('versionCode = 9', 'versionCode = 10', 1)
+          text = text.replace('versionName = "1.9.0"', 'versionName = "1.10.0-preview.1"', 1)
+          text = text.replace('buildTypes {\n        release {',
+              'buildTypes {\n        getByName("debug") {\n            applicationIdSuffix = ".preview"\n        }\n        release {', 1)
+          gradle.write_text(text, encoding='utf-8')
+          manifest = Path('app/src/main/AndroidManifest.xml')
+          text = manifest.read_text(encoding='utf-8')
+          assert 'android:label="LifeTrack"' in text
+          manifest.write_text(text.replace('android:label="LifeTrack"', 'android:label="LifeTrack 1.10 Preview"', 1), encoding='utf-8')
+          PY
+
+      - name: Build, test and lint
+        shell: bash
+        env:
+          GRADLE_OPTS: -Xmx512m
+        run: |
+          chmod +x gradlew
+          ./gradlew --max-workers=2 --no-parallel --no-daemon \
+            "-Dorg.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8" \
+            assembleDebug testDebugUnitTest lintDebug
+
+      - name: Package APK and checksum
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk "dist/$RELEASE_NAME.apk"
+          cd dist
+          sha256sum "$RELEASE_NAME.apk" > "$RELEASE_NAME.apk.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LifeTrack-v1.10.0-preview.1
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Publish GitHub prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > dist/RELEASE-NOTES.md <<'EOF'
+          LifeTrack v1.10.0 Preview 1 is the verified Prompt 7 development checkpoint.
+
+          Included: the Flexible Scheduling engine (selected weekdays, every-N-days,
+          and weekly-quota scheduling) with persistence, historical schedule handling,
+          Smart Streaks, achievements, analytics, reminder-policy and backup integration.
+
+          Not included: the Flexible Scheduling UI (Prompt 8), UI/UX refinement,
+          final QA, or completed physical-device testing.
+
+          This is a debug-signed prerelease test build. It installs separately as
+          com.lifetrack.app.preview and does not replace or share local data with
+          the existing LifeTrack app. Do not uninstall or clear an existing install
+          to install this preview.
+
+          Not a stable production release. Device testing remains outstanding.
+          EOF
+          gh release create "$RELEASE_TAG" \
+            "dist/$RELEASE_NAME.apk" \
+            "dist/$RELEASE_NAME.apk.sha256" \
+            --target "$RELEASE_SOURCE_SHA" \
+            --title "LifeTrack v1.10.0 Preview 1" \
+            --notes-file dist/RELEASE-NOTES.md \
+            --prerelease
