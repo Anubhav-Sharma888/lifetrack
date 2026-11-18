@@ -1,8 +1,47 @@
-# LifeTrack — Work Progress (sessions 2026-11-15 → 2026-11-18: CSV export, directional tracking, app lock, Smart Streaks, Mood/Journal, Achievements; Flexible Scheduling engine in progress)
+# LifeTrack — Work Progress (sessions 2026-11-15 → 2026-11-19: CSV export, directional tracking, app lock, Smart Streaks, Mood/Journal, Achievements, Flexible Scheduling engine + UI)
 
 Branches: `develop/achievements` (current) · `main` (= `32c9bfa`, carries the v1.9.0-preview.1 tag) · Backup at `D:\LifeTracker-backup` (untouched)
 
 ---
+
+# Session 10 (Prompt 8/12) — Flexible Scheduling: complete UI and integration
+
+## What was built (this session, uncommitted → committing at end)
+
+- **Habit Editor**: "Schedule" mode selector (Selected weekdays / Every N days / X times per week) using the Smart-Streaks selectable-row idiom (48dp, Role.RadioButton, merged semantics); interval field 2–365 with next-date preview + "runs from {anchor}" explanations (all dates resolved by `Scheduling.nextScheduledOn/intervalAnchor` — no date math in Compose); weekly sessions 1–7 with Monday–Sunday explanation; quota habits disable the reminder switch and save `reminderMinutes = null` (a quota reminder never fires); editor preview habit mirrors `saveHabit` revision seeding exactly (new habits seed at their start date, existing parameter changes re-anchor to today). Drafts survive restoration (pinned by a `StateRestorationTester` test).
+- **Today**: schedule-aware cards — interval rest days show "Next scheduled {date}", quota cards show "This week: {c} of {r} · Achieved | {n} session(s) to go | Started mid-week | Missed" ("Week of {d MMM}: …" on navigated past weeks); quota habits hidden from the "Due" filter, skip/missed quick actions and the nudge highlight; header register counts daily-due habits only (`Analytics.dueOn`); LogEditorDialog offers only Completed/In-progress for quota habits (no chain vocabulary on days that have no chain).
+- **Habit Detail**: Schedule block (mode, "Every N days"/"From {date} · next scheduled {date}", "{n} sessions per week · Monday through Sunday"); quota stat cards "This week"/"Week status" replace streak cards; WeeklyRhythm rows replace CompletionTrend for quota habits (mode-at-week gated, empty-state line when no quota week exists yet); freeze button hidden for quota (mode checked at the freeze date, matching the repository guard).
+- **Schedules**: mode-specific summaries replace the weekday grid for flexible habits; quota habits show "Flexible days · no daily reminder".
+- **Analytics**: canonical engine only; footnote explains weekly habits stay out of daily rates/heatmap; leaderboard untouched (quota streaks are 0 by design).
+- **CSV**: real scheduling columns (`habit_schedule_mode`, `habit_interval_days`, `habit_interval_anchor`, `habit_weekly_target`) resolved per row date by the engine — log rows render empty for parameters not in force that date; the placeholder weekday-grid rows are gone; RFC 4180 + formula-injection guard unchanged.
+- **Reminders**: `DailyCheckInReminderWorker` now uses `Analytics.unmarked` (quota-safe) — weekly habits never appear in "still open" notifications; verified widget/backup-reminder surfaces clean.
+
+## Engine fixes found and fixed during UI work (all pinned by tests)
+
+- `Scheduling.mode` leaked the current mode into weekday-era history after weekday→flexible switches (firstOrNull fallback) — null-mode revisions are now weekday periods; pre-revision dates on habits with history resolve WEEKDAYS. (Prompt 7 latent bug; retroactive-ineligibility class.)
+- `Analytics.dueCount` EVERY_N_DAYS counted a phantom grid date on segment boundaries (off-by-one vs the half-open `[a,b)` convention) — inflated interval rates; fixed + calendar-reference test.
+- `Scheduling.weeklyQuotaStatus` counted completions against OTHER habits' pauses (any archived habit poisoned all quota counts from its archive date) — habit-scoped now.
+- `Analytics.rate` could exceed 100% after a quota→weekday switch — quota-era completions now sample the mode at their own date.
+- Born-flexible habits with backdated start dates invented daily dues before their first revision — `saveHabit` seeds new-habit revisions at `habit.startDate`; editor preview mirrors it.
+- Backup import validation gaps: habit-level interval/weekly-target range checks (2..365 / 1..7) added at habit AND revision level; revision resolution repaired to match the engine (`revision.mode ?: WEEKDAYS` — the old `?: habit.scheduleMode` fallback false-rejected every weekday→quota switch save; test-pinned both directions).
+
+## Test evidence
+
+- **Final: `BUILD SUCCESSFUL in 11m 52s` — testDebugUnitTest 296/296 across 25 suites + lintDebug (0 errors, 28 warnings, 1 hint) + assembleDebug, all green** (+33 tests vs Prompt 7's 263: engine history/quota tests, CSV columns, backup v9 gates, repository mode-switch round trips, editor restoration, Today quota card, reminder eligibility).
+- Limits verified live: 2 workers, `--no-parallel --no-daemon`, pinned `-Xmx3g`, BelowNormal priority, free RAM 4.5–5.2 GB monitored; Robolectric suites ran at the full pinned heap as required.
+
+## Reviews (this session)
+
+- `ui-ux-specialist`: 11 findings, all applied — H1 (log editor bypassed the quota skip/missed exclusion with chain language), M1 (contradictory disabled-switch state), M2 (jargon "anchor" copy), M3 ("days to go" → "sessions to go"), M4 (missing year in next-date), M5 ("Missed" for arithmetically impossible weeks → "Started mid-week"), M6 (internal "quota" vocabulary), L1–L4 (live-region discipline, empty "0 of 0" register, past-week label, partial-days note).
+- `security-privacy-specialist`: **PASS, no High/Medium** — injection guard covers the new columns, no new PII class, backup validations reject-only, app-lock regression clean, reminder posture narrowed; 4 informational Lows (stale working logs, documented schedule-timeline sensitivity, corrupt-state cosmetics, tolerated unknown revision modes).
+- `independent-reviewer`: 2 High + 3 Medium **all fixed with tests** (foreign-pause quota contamination; dueCount interval off-by-one; rate >100% after switch; pre-quota weeks "Missed"; backdated-start dues) + 5 Lows documented as residuals; backup/history/quota contracts verified end-to-end; suite confirmed non-vacuous (296 declarations).
+
+## Residual / deferred (Prompt 9+/device QA)
+
+- Weekly week-walking streaks and a weekly nudge reminder: deliberately deferred in the engine KDoc — need product decisions with their UI (Prompt 9 candidate).
+- Independent-reviewer Lows: `claimReminder`/policy guard harmonized; `saveHabit` overwrites `intervalAnchor` on unrelated saves of revision-free interval habits (import-only corner); CSV schedule-change timeline is inferable (same sensitivity class as existing per-row goal data); unknown revision-mode strings tolerated by validation (fail-safe).
+- Device QA: TalkBack on the new selector/summary lines, large-font reflow of scheduleNote lines, celebration-free mode switching.
+- Known gap unchanged: README/UPGRADE refresh deferred to the release prompt.
 
 # Session 9 (Prompt 7/12) — Flexible Scheduling: domain engine, persistence, integration
 

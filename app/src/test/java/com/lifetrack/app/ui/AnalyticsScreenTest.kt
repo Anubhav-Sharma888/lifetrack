@@ -11,6 +11,9 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
 import com.lifetrack.app.data.Habit
+import com.lifetrack.app.data.HabitLog
+import com.lifetrack.app.data.LogStatus
+import com.lifetrack.app.data.ScheduleMode
 import java.time.LocalDate
 import org.junit.Rule
 import org.junit.Test
@@ -59,6 +62,25 @@ class AnalyticsScreenTest {
             }
         }
 
+        compose.onNodeWithContentDescription("Today: no unskipped habits due").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithContentDescription("This week: no unskipped habits due").assertExists()
+        compose.onAllNodesWithText("0%").assertCountEquals(0)
+    }
+
+    @Test fun quotaHabitsStayOutOfDailyRatesAndRenderWithoutCrash() {
+        val quota = Habit(id = 1, name = "Gym", scheduleMode = ScheduleMode.WEEKLY_QUOTA.name,
+            weeklyTarget = 3, startDate = today.minusDays(10))
+        val logs = listOf(HabitLog(id = 1, habitId = 1, date = today, status = LogStatus.COMPLETED))
+        compose.setContent {
+            MaterialTheme {
+                Surface {
+                    Box(Modifier.width(320.dp).height(600.dp)) { AnalyticsScreen(listOf(quota), logs, today) }
+                }
+            }
+        }
+
+        compose.onNodeWithText("Analytics").assertIsDisplayed()
+        // The quota completion never enters a daily ring: nothing is due on any fixed day.
         compose.onNodeWithContentDescription("Today: no unskipped habits due").performScrollTo().assertIsDisplayed()
         compose.onNodeWithContentDescription("This week: no unskipped habits due").assertExists()
         compose.onAllNodesWithText("0%").assertCountEquals(0)

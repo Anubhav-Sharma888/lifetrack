@@ -55,6 +55,52 @@ class ScheduleAnalyticsTest {
         assertEquals(expected, Analytics.dueCount(scheduled, start, end, listOf(pause)))
     }
 
+    @Test fun intervalDueCountsAreHalfOpenPerSegmentAndHonorPauses() {
+        val anchor = LocalDate.of(2026, 9, 1) // Tuesday
+        val interval = habit.copy(
+            startDate = anchor, scheduledDays = (1..7).toList(),
+            scheduleMode = ScheduleMode.EVERY_N_DAYS.name, intervalDays = 3, intervalAnchor = anchor,
+            scheduleHistory = listOf(ScheduleRevision(anchor, (1..7).toList(),
+                mode = ScheduleMode.EVERY_N_DAYS.name, intervalDays = 3)))
+        // Calendar reference over the window: the grid dates are Sep 1 and Sep 4 (Sep 7 lies outside).
+        val end = LocalDate.of(2026, 9, 6)
+        var expected = 0L; var date = anchor
+        while (date <= end) { if (Analytics.eligible(interval, date)) expected++; date = date.plusDays(1) }
+        assertEquals(expected, Analytics.dueCount(interval, anchor, end))
+        assertEquals(2L, Analytics.dueCount(interval, anchor, end))
+        // through is inclusive: Sep 4 counts; the phantom Sep 7 of the old open formula must not.
+        assertEquals(2L, Analytics.dueCount(interval, anchor, LocalDate.of(2026, 9, 4)))
+        // Sep 2..3 sits between grid dates: nothing due.
+        assertEquals(0L, Analytics.dueCount(interval, LocalDate.of(2026, 9, 2), LocalDate.of(2026, 9, 3)))
+        // A pause starting on the Sep 4 grid date removes it from the same window.
+        val pause = HabitPause(1, 1, LocalDate.of(2026, 9, 4))
+        assertEquals(1L, Analytics.dueCount(interval, anchor, end, listOf(pause)))
+    }
+
+    @Test fun quotaEraCompletionsOfASwitchedHabitStayOutOfDailyRates() {
+        val start = LocalDate.of(2026, 10, 1) // Thursday; quota era runs to Oct 9
+        val switched = habit.copy(
+            startDate = start, scheduledDays = listOf(1, 3, 5),
+            scheduleHistory = listOf(
+                ScheduleRevision(start, (1..7).toList(),
+                    mode = ScheduleMode.WEEKLY_QUOTA.name, weeklyTarget = 3),
+                ScheduleRevision(LocalDate.of(2026, 10, 10), listOf(1, 3, 5)))) // weekday era from Sat Oct 10
+        fun completed(date: LocalDate) = HabitLog(id = date.toEpochDay(), habitId = 1, date = date, status = LogStatus.COMPLETED)
+        val quotaEra = listOf(LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 3), LocalDate.of(2026, 10, 5),
+            LocalDate.of(2026, 10, 7), LocalDate.of(2026, 10, 9)).map(::completed)
+        val logs = quotaEra + listOf(completed(LocalDate.of(2026, 10, 12))) // Monday of the weekday era
+        val rate = Analytics.rate(listOf(switched), logs, start, LocalDate.of(2026, 10, 15))
+        // The weekday era dues are Mon Oct 12 and Wed Oct 14; only the Monday completion counts,
+        // so the five quota-era completions contribute zero completed and zero opportunities.
+        assertEquals(1L, rate.completed)
+        assertEquals(2L, rate.opportunities)
+        assertEquals(.5f, rate.fraction, .0001f)
+        // The pure quota window contributes nothing at all to daily rates.
+        val quotaWindow = Analytics.rate(listOf(switched), logs, start, LocalDate.of(2026, 10, 9))
+        assertEquals(0L, quotaWindow.completed)
+        assertEquals(0L, quotaWindow.opportunities)
+    }
+
     @Test(timeout = 1500) fun hundredYearHistoryCountsWithoutScanningEveryDay() {
         val old = habit.copy(startDate = LocalDate.of(1900, 1, 1))
         repeat(1000) { assertTrue(Analytics.dueCount(old, old.startDate, LocalDate.of(2026, 10, 26)) > 19_000) }

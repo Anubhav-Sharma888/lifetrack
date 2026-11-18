@@ -65,10 +65,10 @@ class DailyCheckInReminderWorker(context: Context, parameters: WorkerParameters)
         val habits = repository.habits.first()
         val logs = repository.logs.first()
         val pauses = repository.pauses.first()
-        val open = habits.filter { habit ->
-            !habit.isArchived && Analytics.eligible(habit, today, pauses) &&
-                logs.none { log -> log.habitId == habit.id && log.date == today }
-        }
+        // Analytics.unmarked is the canonical daily-due list (dueOn: eligible and not a weekly-quota
+        // habit), so quota habits never appear in the daily "still open" notification — they have no
+        // fixed due dates. Keep the same shape the notification copy expects.
+        val open = Analytics.unmarked(habits, logs, today, pauses)
         if (open.isEmpty()) {
             Result.success()
         } else if (Build.VERSION.SDK_INT >= 33 &&

@@ -1,5 +1,6 @@
 package com.lifetrack.app.data
 
+import com.lifetrack.app.domain.Scheduling
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.Serializable
@@ -82,14 +83,22 @@ object BackupValidator {
         require(
             when (scheduleMode) {
                 ScheduleMode.WEEKDAYS -> habit.intervalDays == null && habit.weeklyTarget == null
-                ScheduleMode.EVERY_N_DAYS -> habit.weeklyTarget == null && habit.intervalDays != null
-                ScheduleMode.WEEKLY_QUOTA -> habit.intervalDays == null && habit.weeklyTarget != null
+                ScheduleMode.EVERY_N_DAYS -> habit.weeklyTarget == null &&
+                    habit.intervalDays != null && habit.intervalDays in Scheduling.MIN_INTERVAL_DAYS..Scheduling.MAX_INTERVAL_DAYS
+                ScheduleMode.WEEKLY_QUOTA -> habit.intervalDays == null && habit.weeklyTarget != null && habit.weeklyTarget in 1..7
             }
         ) { "The schedule mode and its parameters do not match." }
         require(
             habit.scheduleHistory.all { revision ->
-                val revisionMode = ScheduleMode.fromStored(revision.mode ?: habit.scheduleMode)
-                revisionMode != ScheduleMode.WEEKLY_QUOTA || (revision.weeklyTarget != null && revision.weeklyTarget in 1..7)
+                // Null-mode revisions are weekday periods (weekday saves and pre-schema-10 rows never
+                // carry a mode), matching the engine's Scheduling.mode resolution; only mode-bearing
+                // flexible revisions carry parameters that need range checks.
+                when (ScheduleMode.fromStored(revision.mode ?: ScheduleMode.WEEKDAYS.name)) {
+                    ScheduleMode.WEEKLY_QUOTA -> revision.weeklyTarget != null && revision.weeklyTarget in 1..7
+                    ScheduleMode.EVERY_N_DAYS -> revision.intervalDays != null &&
+                        revision.intervalDays in Scheduling.MIN_INTERVAL_DAYS..Scheduling.MAX_INTERVAL_DAYS
+                    ScheduleMode.WEEKDAYS -> true
+                }
             }
         ) { "Invalid schedule revision parameters." }
     }

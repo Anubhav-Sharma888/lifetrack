@@ -7,6 +7,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -109,6 +110,120 @@ class BackupValidationTest {
         invalid(backup(logs = listOf(log.copy(isFrozen = true))).copy(freezes = listOf(FreezeUsage("2026-10", 123))))
         invalid(backup(habits = listOf(habit.copy(isArchived = true))))
         invalid(backup(habits = listOf(habit.copy(archivedOn = today))))
+    }
+
+    // ---- Flexible scheduling (backup v9) ----
+
+    @Test fun `flexible scheduling requires backup version 9 and decodes fully at version 9`() {
+        val flexible = habit.copy(
+            scheduleMode = ScheduleMode.EVERY_N_DAYS.name, intervalDays = 3, intervalAnchor = today)
+        val atV8 = backup(listOf(flexible), emptyList()).copy(formatVersion = 8)
+        val exception = assertThrows(IllegalArgumentException::class.java) { BackupValidator.validate(atV8, today) }
+        assertTrue(exception.message!!.contains("Flexible scheduling requires backup version 9"))
+        val atV9 = atV8.copy(formatVersion = 9)
+        BackupValidator.validate(atV9, today)
+        val decoded = BackupValidator.decode(BackupValidator.json.encodeToString(atV9), today)
+        assertEquals("EVERY_N_DAYS", decoded.habits.single().scheduleMode)
+        assertEquals(3, decoded.habits.single().intervalDays)
+        assertEquals(today, decoded.habits.single().intervalAnchor)
+        assertNull(decoded.habits.single().weeklyTarget)
+    }
+
+    @Test fun `schedule mode and its parameters must match on import`() {
+        invalid(backup(listOf(habit.copy(scheduleMode = ScheduleMode.EVERY_N_DAYS.name, weeklyTarget = 3)), emptyList()).copy(formatVersion = 9))
+        invalid(backup(listOf(habit.copy(scheduleMode = ScheduleMode.WEEKLY_QUOTA.name, intervalDays = 3, intervalAnchor = today)), emptyList()).copy(formatVersion = 9))
+        invalid(backup(listOf(habit.copy(scheduleMode = ScheduleMode.WEEKDAYS.name, intervalDays = 3, intervalAnchor = today)), emptyList()).copy(formatVersion = 9))
+        invalid(backup(listOf(habit.copy(scheduleMode = ScheduleMode.WEEKDAYS.name, weeklyTarget = 2)), emptyList()).copy(formatVersion = 9))
+    }
+
+    @Test fun `weekly quota revisions require a target between 1 and 7`() {
+        invalid(backup(listOf(habit.copy(
+            scheduleMode = ScheduleMode.WEEKLY_QUOTA.name, weeklyTarget = 3,
+            scheduleHistory = listOf(ScheduleRevision(today.minusDays(5), (1..7).toList(),
+                mode = ScheduleMode.WEEKLY_QUOTA.name, weeklyTarget = 0))
+        )), emptyList()).copy(formatVersion = 9))
+        invalid(backup(listOf(habit.copy(
+            scheduleMode = ScheduleMode.WEEKLY_QUOTA.name, weeklyTarget = 3,
+            scheduleHistory = listOf(ScheduleRevision(today.minusDays(5), (1..7).toList(),
+                mode = ScheduleMode.WEEKLY_QUOTA.name, weeklyTarget = 8))
+        )), emptyList()).copy(formatVersion = 9))
+    }
+
+    @Test fun `v8 backups without flexible schedule keys decode with weekday defaults`() {
+        val document = BackupValidator.json.parseToJsonElement(
+            BackupValidator.json.encodeToString(backup().copy(formatVersion = 8))).jsonObject
+        val keyFree = JsonObject(document + ("habits" to JsonArray(
+            (document.getValue("habits") as JsonArray).map { entry ->
+                JsonObject(entry.jsonObject - "scheduleMode" - "intervalDays" - "intervalAnchor" - "weeklyTarget")
+            })))
+        val decoded = BackupValidator.decode(keyFree.toString(), today)
+        assertEquals(8, decoded.formatVersion)
+        val restored = decoded.habits.single()
+        assertEquals("WEEKDAYS", restored.scheduleMode)
+        assertNull(restored.intervalDays)
+        assertNull(restored.intervalAnchor)
+        assertNull(restored.weeklyTarget)
+    }
+
+    @Test fun `interval and weekly target bounds are enforced on the habit itself`() {
+        invalid(backup(listOf(habit.copy(
+            scheduleMode = ScheduleMode.EVERY_N_DAYS.name, intervalDays = 1, intervalAnchor = today)), emptyList()).copy(formatVersion = 9))
+        invalid(backup(listOf(habit.copy(
+            scheduleMode = ScheduleMode.EVERY_N_DAYS.name, intervalDays = 366, intervalAnchor = today)), emptyList()).copy(formatVersion = 9))
+        invalid(backup(listOf(habit.copy(
+            scheduleMode = ScheduleMode.WEEKLY_QUOTA.name, weeklyTarget = 8)), emptyList()).copy(formatVersion = 9))
+        // The inclusive boundaries accept: 2..365-day intervals and 1..7 weekly sessions.
+        BackupValidator.validate(backup(listOf(
+            habit.copy(id = 2, scheduleMode = ScheduleMode.EVERY_N_DAYS.name, intervalDays = 2, intervalAnchor = today),
+            habit.copy(id = 3, scheduleMode = ScheduleMode.EVERY_N_DAYS.name, intervalDays = 365, intervalAnchor = today),
+            habit.copy(id = 4, scheduleMode = ScheduleMode.WEEKLY_QUOTA.name, weeklyTarget = 1),
+            habit.copy(id = 5, scheduleMode = ScheduleMode.WEEKLY_QUOTA.name, weeklyTarget = 7)
+        ), emptyList()).copy(formatVersion = 9), today)
+    }
+
+    @Test fun `flexible revisions must carry valid parameters`() {
+        val outOfRange = assertThrows(IllegalArgumentException::class.java) {
+            BackupValidator.validate(backup(listOf(habit.copy(
+                scheduleMode = ScheduleMode.EVERY_N_DAYS.name, intervalDays = 3, intervalAnchor = today,
+                scheduleHistory = listOf(ScheduleRevision(today, (1..7).toList(),
+                    mode = ScheduleMode.EVERY_N_DAYS.name, intervalDays = 366))
+            )), emptyList()).copy(formatVersion = 9), today)
+        }
+        assertTrue(outOfRange.message!!.contains("Invalid schedule revision parameters"))
+        invalid(backup(listOf(habit.copy(
+            scheduleMode = ScheduleMode.EVERY_N_DAYS.name, intervalDays = 3, intervalAnchor = today,
+            scheduleHistory = listOf(ScheduleRevision(today, (1..7).toList(), mode = ScheduleMode.EVERY_N_DAYS.name))
+        )), emptyList()).copy(formatVersion = 9))
+        // A valid mode-bearing revision at the inclusive boundary stays acceptable.
+        BackupValidator.validate(backup(listOf(habit.copy(
+            scheduleMode = ScheduleMode.EVERY_N_DAYS.name, intervalDays = 365, intervalAnchor = today,
+            scheduleHistory = listOf(ScheduleRevision(today, (1..7).toList(),
+                mode = ScheduleMode.EVERY_N_DAYS.name, intervalDays = 365))
+        )), emptyList()).copy(formatVersion = 9), today)
+    }
+
+    @Test fun `a weekday to quota switch history is accepted`() {
+        // Exactly the shape saveHabit produces: a seeded null-mode weekday era plus the quota revision.
+        val switched = habit.copy(
+            scheduleMode = ScheduleMode.WEEKLY_QUOTA.name, weeklyTarget = 3,
+            startDate = today.minusDays(30),
+            scheduleHistory = listOf(
+                ScheduleRevision(today.minusDays(30), (1..7).toList()),
+                ScheduleRevision(today, (1..7).toList(),
+                    mode = ScheduleMode.WEEKLY_QUOTA.name, weeklyTarget = 3)))
+        BackupValidator.validate(backup(listOf(switched), emptyList()).copy(formatVersion = 9), today)
+    }
+
+    @Test fun `a weekday to interval switch history is accepted`() {
+        // The interval-direction repair twin: the null-mode era must resolve WEEKDAYS, not the habit's stored mode.
+        val switched = habit.copy(
+            scheduleMode = ScheduleMode.EVERY_N_DAYS.name, intervalDays = 3, intervalAnchor = today,
+            startDate = today.minusDays(30),
+            scheduleHistory = listOf(
+                ScheduleRevision(today.minusDays(30), (1..7).toList()),
+                ScheduleRevision(today, (1..7).toList(),
+                    mode = ScheduleMode.EVERY_N_DAYS.name, intervalDays = 3)))
+        BackupValidator.validate(backup(listOf(switched), emptyList()).copy(formatVersion = 9), today)
     }
 }
 

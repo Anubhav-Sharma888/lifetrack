@@ -13,9 +13,12 @@ class CsvExportTest {
 
     private fun habit(id: Long = 1, name: String = "Read", startDate: LocalDate = start,
         goalHistory: List<GoalRevision> = emptyList(), scheduleHistory: List<ScheduleRevision> = emptyList(),
+        scheduleMode: ScheduleMode = ScheduleMode.WEEKDAYS, intervalDays: Int? = null,
+        intervalAnchor: LocalDate? = null, weeklyTarget: Int? = null,
         createdAt: Long = 1_000, updatedAt: Long = 2_000) = Habit(
         id = id, name = name, startDate = startDate, goalHistory = goalHistory,
-        scheduleHistory = scheduleHistory, createdAt = createdAt, updatedAt = updatedAt
+        scheduleHistory = scheduleHistory, scheduleMode = scheduleMode.name, intervalDays = intervalDays,
+        intervalAnchor = intervalAnchor, weeklyTarget = weeklyTarget, createdAt = createdAt, updatedAt = updatedAt
     )
 
     private fun log(habitId: Long = 1, date: LocalDate, status: LogStatus = LogStatus.COMPLETED,
@@ -83,9 +86,12 @@ class CsvExportTest {
         ))
         val early = fields(rows(text)[1])
         val late = fields(rows(text)[2])
-        assertEquals("1", early[8]); assertEquals("times", early[9])
         assertEquals("Mon Tue Wed Thu Fri Sat Sun", early[7])
-        assertEquals("5", late[8]); assertEquals("pages", late[9])
+        assertEquals("WEEKDAYS", early[8])
+        assertEquals("", early[9]); assertEquals("", early[10]); assertEquals("", early[11])
+        assertEquals("1", early[12]); assertEquals("times", early[13])
+        assertEquals("WEEKDAYS", late[8])
+        assertEquals("5", late[12]); assertEquals("pages", late[13])
         assertEquals("Mon", late[7])
     }
 
@@ -95,8 +101,10 @@ class CsvExportTest {
         assertEquals(CsvExport.COLUMNS.size, row.size)
         assertEquals("7", row[0])
         assertEquals("Solo", row[1])
-        assertEquals("FALSE", row[10])
-        assertEquals((13..19).all { row[it].isEmpty() }, true)
+        assertEquals("WEEKDAYS", row[8])
+        assertEquals("", row[9]); assertEquals("", row[10]); assertEquals("", row[11])
+        assertEquals("FALSE", row[14])
+        assertEquals((17..23).all { row[it].isEmpty() }, true)
     }
 
     @Test fun `rows are grouped by habit and each habit logs are sorted by date`() {
@@ -109,7 +117,7 @@ class CsvExportTest {
                 log(habitId = 1, date = start.plusDays(3))
             )
         )
-        val emitted = rows(text).drop(1).map { row -> val f = fields(row); f[0].toLong() to f[13] }
+        val emitted = rows(text).drop(1).map { row -> val f = fields(row); f[0].toLong() to f[17] }
         assertEquals(listOf(
             1L to start.plusDays(3).toString(),
             1L to start.plusDays(5).toString(),
@@ -135,8 +143,49 @@ class CsvExportTest {
         ))
         val row = fields(rows(text)[1])
         assertTrue(text.contains("\"Away, on holiday\""))
-        assertEquals("TRUE", row[16])
-        assertEquals("SKIPPED", row[14])
-        assertEquals("0", row[15])
+        assertEquals("TRUE", row[20])
+        assertEquals("SKIPPED", row[18])
+        assertEquals("0", row[19])
+    }
+
+    @Test fun `interval habit rows carry the grid parameters and an empty weekly target`() {
+        val habit = habit(scheduleMode = ScheduleMode.EVERY_N_DAYS, intervalDays = 3, intervalAnchor = start)
+        val text = export(listOf(habit), listOf(
+            log(date = start.plusDays(3), note = "Grid day, with a note"),
+            log(date = start.plusDays(4))
+        ))
+        val onGrid = fields(rows(text)[1])
+        val offGrid = fields(rows(text)[2])
+        listOf(onGrid, offGrid).forEach { row ->
+            assertEquals("EVERY_N_DAYS", row[8])
+            assertEquals("3", row[9])
+            assertEquals(start.toString(), row[10])
+            assertEquals("", row[11])
+        }
+        // The comma note keeps its RFC 4180 quoting through the new columns.
+        assertTrue(text.contains("\"Grid day, with a note\""))
+    }
+
+    @Test fun `quota habit rows carry the weekly target and empty interval columns`() {
+        val habit = habit(scheduleMode = ScheduleMode.WEEKLY_QUOTA, weeklyTarget = 3)
+        val text = export(listOf(habit), listOf(log(date = start)))
+        val row = fields(rows(text)[1])
+        assertEquals("WEEKLY_QUOTA", row[8])
+        assertEquals("", row[9])
+        assertEquals("", row[10])
+        assertEquals("3", row[11])
+    }
+
+    @Test fun `no-log detail rows mirror the stored schedule fields`() {
+        val interval = habit(id = 2, name = "Interval", scheduleMode = ScheduleMode.EVERY_N_DAYS,
+            intervalDays = 3, intervalAnchor = start)
+        val quota = habit(id = 3, name = "Quota", scheduleMode = ScheduleMode.WEEKLY_QUOTA, weeklyTarget = 3)
+        val text = export(listOf(interval, quota))
+        val intervalRow = fields(rows(text)[1])
+        val quotaRow = fields(rows(text)[2])
+        assertEquals("EVERY_N_DAYS", intervalRow[8]); assertEquals("3", intervalRow[9])
+        assertEquals(start.toString(), intervalRow[10]); assertEquals("", intervalRow[11])
+        assertEquals("WEEKLY_QUOTA", quotaRow[8]); assertEquals("", quotaRow[9])
+        assertEquals("", quotaRow[10]); assertEquals("3", quotaRow[11])
     }
 }

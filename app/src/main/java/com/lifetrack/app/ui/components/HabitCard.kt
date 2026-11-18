@@ -151,7 +151,8 @@ fun HabitCard(
     quickActions: (@Composable () -> Unit)? = null,
     checkInEnabled: Boolean = true,
     progress: Int = 0,
-    nudged: Boolean = false
+    nudged: Boolean = false,
+    scheduleNote: String? = null
 ) {
     val accent = habitColor(habit.colorHex)
     OutlinedCard(onClick = onOpen, modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp),
@@ -173,6 +174,7 @@ fun HabitCard(
                             maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                     Text("$dayLabel · ${habit.category}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    scheduleNote?.let { note -> Text(note, style = AlmanacType.monoData, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     if (habit.targetCount > 1) Text("$progress / ${habit.targetCount} ${habit.targetUnit}",
                         style = AlmanacType.monoData, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (!stackLabel.isNullOrBlank()) Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(5.dp)) {

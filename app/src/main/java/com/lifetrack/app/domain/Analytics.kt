@@ -40,9 +40,15 @@ object Analytics {
         else -> false
     }
 
+    /** A habit is *due* on [date] when it is eligible and not a WEEKLY_QUOTA habit: quota habits
+     *  are always check-in-eligible, but no specific day is ever required, so they never appear
+     *  in daily-due lists, overdue nudges or daily denominators. */
+    fun dueOn(habit: Habit, date: LocalDate, pauses: List<HabitPause> = emptyList()): Boolean =
+        eligible(habit, date, pauses) && Scheduling.mode(habit, date) != ScheduleMode.WEEKLY_QUOTA
+
     /** Habits that were due on a date but carry no check-in record at all. */
     fun unmarked(habits: List<Habit>, logs: List<HabitLog>, date: LocalDate, pauses: List<HabitPause> = emptyList()): List<Habit> =
-        habits.filter { habit -> !habit.isArchived && eligible(habit, date, pauses) && logs.none { log -> log.habitId == habit.id && log.date == date } }
+        habits.filter { habit -> !habit.isArchived && dueOn(habit, date, pauses) && logs.none { log -> log.habitId == habit.id && log.date == date } }
 
     fun weekStart(date: LocalDate): LocalDate = date.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
 
@@ -72,7 +78,8 @@ object Analytics {
                             ((segmentStart.toEpochDay() - anchor.toEpochDay()) + interval - 1) / interval * interval
                         )
                         if (first.isBefore(b)) {
-                            total += (b.toEpochDay() - first.toEpochDay()) / interval + 1
+                            // Segments are half-open [a, b) like the WEEKDAYS branch: a grid date landing exactly on b belongs to the next segment.
+                            total += (b.toEpochDay() - 1 - first.toEpochDay()) / interval + 1
                         }
                     }
                     ScheduleMode.WEEKLY_QUOTA -> { } // period-based: no daily dues
@@ -141,10 +148,13 @@ object Analytics {
         habits.forEach { habit ->
             // WEEKLY_QUOTA habits are excluded from daily completion-rate math entirely: their
             // consistency is period-based, and a daily ratio would be misleading or undefined.
+            // Quota-era completions of a habit that later switched are period-based too: each
+            // log samples the mode at its own date and is excluded with its zero-opportunity segment.
             if (Scheduling.mode(habit, through) == ScheduleMode.WEEKLY_QUOTA) return@forEach
             val ownPauses = groupedPauses[habit.id].orEmpty()
             opportunities += dueCount(habit, from, through, ownPauses)
-            grouped[habit.id].orEmpty().filter { it.date in from..through && eligible(habit, it.date, ownPauses) }.forEach { log ->
+            grouped[habit.id].orEmpty().filter { it.date in from..through && eligible(habit, it.date, ownPauses) &&
+                Scheduling.mode(habit, it.date) != ScheduleMode.WEEKLY_QUOTA }.forEach { log ->
                 when (log.status) {
                     LogStatus.COMPLETED -> completed++
                     LogStatus.SKIPPED -> { skipped++; opportunities-- }
@@ -155,9 +165,10 @@ object Analytics {
         return Rate(completed, opportunities, skipped)
     }
 
-    /** Density remains completions / all scheduled habits; rate denominators exclude skips. */
+    /** Density remains completions / all daily-due habits; rate denominators exclude skips.
+     *  WEEKLY_QUOTA habits are period-based and excluded entirely, mirroring rate(). */
     fun density(habits: List<Habit>, logs: List<HabitLog>, date: LocalDate, pauses: List<HabitPause> = emptyList()): Rate {
-        val eligibleIds = habits.filter { eligible(it, date, pauses) }.map { it.id }.toSet()
+        val eligibleIds = habits.filter { dueOn(it, date, pauses) }.map { it.id }.toSet()
         val completed = logs.count { it.date == date && it.habitId in eligibleIds && it.status == LogStatus.COMPLETED }
         return Rate(completed.toLong(), eligibleIds.size.toLong())
     }

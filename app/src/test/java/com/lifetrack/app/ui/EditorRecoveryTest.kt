@@ -163,4 +163,74 @@ class EditorRecoveryTest {
         compose.onNodeWithText("Edit schedule").performScrollTo().performClick()
         compose.runOnIdle { assertEquals(7L, edited) }
     }
+
+    @Test fun scheduleModeSelectionsAndParameterDraftsSurviveRestoration() {
+        val habit = Habit(id = 1, name = "Read", startDate = today)
+        val restoration = StateRestorationTester(compose)
+        restoration.setContent {
+            MaterialTheme { HabitEditorScreen(1, LifeTrackState(habits = listOf(habit), loaded = true), vm) {} }
+        }
+        compose.onNodeWithText("Every N days").performScrollTo().performClick()
+        compose.onNode(hasSetTextAction() and hasText("Interval · days (2–365)")).performScrollTo()
+            .performTextReplacement("3")
+        restoration.emulateSavedInstanceStateRestore()
+        compose.onNodeWithText("Every N days").assertIsSelected()
+        // The field's merged text carries the label plus the supporting sentence; the assertion
+        // targets the editable draft ("3") among the merged values.
+        compose.onNode(hasSetTextAction() and hasText("Interval · days (2–365)")).assertTextContains("3")
+
+        compose.onNodeWithText("X times per week").performScrollTo().performClick()
+        compose.onNodeWithText("Sessions per week (1–7)").assertExists()
+        compose.onNode(hasSetTextAction() and hasText("Sessions per week (1–7)")).performTextReplacement("5")
+        restoration.emulateSavedInstanceStateRestore()
+        compose.onNodeWithText("X times per week").assertIsSelected()
+        // Same merged-text caveat: the draft "5" sits among the label and supporting values.
+        compose.onNode(hasSetTextAction() and hasText("Sessions per week (1–7)")).assertTextContains("5")
+    }
+
+    @Test fun quotaHabitMenuNeverOffersSkipOrMissed() {
+        val now = LocalDate.of(2026, 10, 28) // Wednesday of a Monday-start week
+        val quota = Habit(id = 1, name = "Gym", startDate = now.minusDays(10),
+            scheduleMode = ScheduleMode.WEEKLY_QUOTA.name, weeklyTarget = 3)
+        val weekday = Habit(id = 2, name = "Read", startDate = now.minusDays(10))
+        val logs = listOf(
+            HabitLog(id = 1, habitId = 1, date = now.minusDays(2), status = LogStatus.COMPLETED),
+            HabitLog(id = 2, habitId = 1, date = now.minusDays(1), status = LogStatus.COMPLETED),
+            // The weekday completion keeps yesterday's unmarked nudge quiet for this test.
+            HabitLog(id = 3, habitId = 2, date = now.minusDays(1), status = LogStatus.COMPLETED)
+        )
+        compose.setContent {
+            MaterialTheme {
+                TodayScreen(LifeTrackState(habits = listOf(quota, weekday), logs = logs, today = now, loaded = true),
+                    vm, onAdd = {}, onOpen = {})
+            }
+        }
+        compose.onNode(hasScrollAction() and hasAnyDescendant(hasText("Gym")))
+            .performScrollToNode(hasText("This week: 2 of 3", substring = true))
+        compose.onNodeWithText("This week: 2 of 3", substring = true).assertExists()
+        // A quota habit never fabricates a daily overdue: no skip/missed quick actions, ever.
+        compose.onNode(hasScrollAction() and hasAnyDescendant(hasText("Gym")))
+            .performScrollToNode(hasContentDescription("More actions for Gym"))
+        compose.onNodeWithContentDescription("More actions for Gym").performClick()
+        compose.onNodeWithText("Skip this day").assertDoesNotExist()
+        compose.onNodeWithText("Mark as missed").assertDoesNotExist()
+        compose.onNodeWithText("Edit check-in…").assertExists() // the menu really is open and rendered
+    }
+
+    @Test fun weekdayHabitMenuKeepsSkipAndMissedActions() {
+        val now = LocalDate.of(2026, 10, 28) // Wednesday of a Monday-start week
+        val weekday = Habit(id = 1, name = "Read", startDate = now.minusDays(10))
+        compose.setContent {
+            MaterialTheme {
+                TodayScreen(LifeTrackState(habits = listOf(weekday), today = now, loaded = true),
+                    vm, onAdd = {}, onOpen = {})
+            }
+        }
+        compose.onNode(hasScrollAction() and hasAnyDescendant(hasText("Read")))
+            .performScrollToNode(hasContentDescription("More actions for Read"))
+        compose.onNodeWithContentDescription("More actions for Read").performClick()
+        // A weekday habit keeps its one-tap skip/missed quick actions.
+        compose.onNodeWithText("Skip this day").assertExists()
+        compose.onNodeWithText("Mark as missed").assertExists()
+    }
 }

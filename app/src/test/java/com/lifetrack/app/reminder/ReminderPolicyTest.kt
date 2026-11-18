@@ -29,4 +29,19 @@ class ReminderPolicyTest {
         val pause = HabitPause(id = 1, habitId = 1, startDate = monday.minusDays(1), endDate = monday.plusDays(1))
         assertFalse(ReminderPolicy.isDue(habit, null, monday, 600, listOf(pause)))
     }
+    @Test fun intervalHabitsNotifyOnlyOnTheirGridDates() {
+        val interval = habit.copy(scheduledDays = listOf(2), reminderMinutes = 9 * 60,
+            scheduleMode = ScheduleMode.EVERY_N_DAYS.name, intervalDays = 3, intervalAnchor = monday,
+            scheduleHistory = listOf(ScheduleRevision(monday, listOf(2),
+                mode = ScheduleMode.EVERY_N_DAYS.name, intervalDays = 3)))
+        assertTrue(ReminderPolicy.isDue(interval, null, monday, 600))               // anchor on the grid
+        assertTrue(ReminderPolicy.isDue(interval, null, monday.plusDays(3), 600))   // anchor + 3
+        assertFalse(ReminderPolicy.isDue(interval, null, monday.plusDays(1), 600))  // off-grid
+        assertFalse(ReminderPolicy.isDue(interval, null, monday.minusDays(3), 600)) // pre-anchor weekday era, not scheduled
+    }
+    @Test fun quotaHabitsNeverReceiveDailyReminders() {
+        val quota = habit.copy(scheduleMode = ScheduleMode.WEEKLY_QUOTA.name, weeklyTarget = 3, reminderMinutes = 9 * 60)
+        assertFalse(ReminderPolicy.isDue(quota, null, monday, 600))
+        assertFalse(ReminderPolicy.isDue(quota, null, monday.plusDays(3), 1200)) // any day, any minute
+    }
 }

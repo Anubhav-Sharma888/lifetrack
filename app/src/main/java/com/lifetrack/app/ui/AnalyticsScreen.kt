@@ -90,7 +90,7 @@ fun AnalyticsScreen(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate,
                 }
             }
             Spacer(Modifier.height(12.dp))
-            Text("Rates exclude skips, paused dates and unscheduled weekdays. Heatmap shows completed / all scheduled habits. Future days never count.",
+            Text("Rates exclude skips, paused dates and unscheduled weekdays. Weekly \"X times per week\" habits are measured per week, not per day, so they stay out of daily rates and the heatmap. Future days never count.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         ComparisonCard(habits, logs, today, pauses)

@@ -27,10 +27,14 @@ object Scheduling {
     const val MIN_INTERVAL_DAYS = 2
     const val MAX_INTERVAL_DAYS = 365
 
+    /** The schedule mode in force on [date]. Null-mode revisions are weekday periods: weekday
+     *  saves and pre-schema-10 revisions never carry a mode, and dates before the first revision
+     *  predate any schedule change, which was a weekday period too. Only revision-free habits
+     *  report their stored [Habit.scheduleMode]. This keeps weekday-era history intact across
+     *  weekday-to-flexible switches instead of leaking the current mode into the past. */
     fun mode(habit: Habit, date: LocalDate): ScheduleMode {
         val stored = habit.scheduleHistory.lastOrNull { it.effectiveFrom <= date }?.mode
-            ?: habit.scheduleHistory.firstOrNull()?.mode
-            ?: habit.scheduleMode
+            ?: if (habit.scheduleHistory.isEmpty()) habit.scheduleMode else ScheduleMode.WEEKDAYS.name
         return ScheduleMode.fromStored(stored)
     }
 
@@ -146,7 +150,7 @@ object Scheduling {
         val completed = logs.count {
             it.habitId == habit.id && it.status == LogStatus.COMPLETED &&
                 it.date >= weekStart && it.date <= weekEnd &&
-                pauses.none { p -> it.date >= p.startDate && (p.endDate == null || it.date < p.endDate) }
+                pauses.none { p -> p.habitId == habit.id && it.date >= p.startDate && (p.endDate == null || it.date < p.endDate) }
         }
         val required = weeklyTarget(habit, anyDayOfWeek) ?: 0
         val eligibleDays = (0..6).count { offset ->

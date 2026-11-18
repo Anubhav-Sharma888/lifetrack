@@ -3,6 +3,7 @@ package com.lifetrack.app.data
 import android.content.Context
 import android.net.Uri
 import androidx.room.withTransaction
+import com.lifetrack.app.domain.Scheduling
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -107,8 +108,9 @@ class HabitRepository @Inject constructor(
         require(
             when (scheduleMode) {
                 ScheduleMode.WEEKDAYS -> habit.intervalDays == null && habit.weeklyTarget == null
-                ScheduleMode.EVERY_N_DAYS -> habit.weeklyTarget == null && habit.intervalDays != null
-                ScheduleMode.WEEKLY_QUOTA -> habit.intervalDays == null
+                ScheduleMode.EVERY_N_DAYS -> habit.weeklyTarget == null && habit.intervalDays != null &&
+                    habit.intervalDays in Scheduling.MIN_INTERVAL_DAYS..Scheduling.MAX_INTERVAL_DAYS
+                ScheduleMode.WEEKLY_QUOTA -> habit.intervalDays == null && habit.weeklyTarget != null && habit.weeklyTarget in 1..7
             }
         ) { "The schedule mode and its parameters do not match." }
         val all = dao.allHabits()
@@ -130,7 +132,9 @@ class HabitRepository @Inject constructor(
                 ScheduleMode.WEEKDAYS -> ScheduleRevision(today, days)
             }
         } else if (existing == null && scheduleMode != ScheduleMode.WEEKDAYS) {
-            listOf(ScheduleRevision(today, days, mode = scheduleMode.name, intervalDays = habit.intervalDays, weeklyTarget = habit.weeklyTarget))
+            // A backdated new habit owns its whole visible history: seeding at startDate keeps
+            // [startDate, today) off the placeholder weekday grid instead of inventing daily dues.
+            listOf(ScheduleRevision(habit.startDate, days, mode = scheduleMode.name, intervalDays = habit.intervalDays, weeklyTarget = habit.weeklyTarget))
         } else existing?.scheduleHistory ?: habit.scheduleHistory
         val logs = existing?.let { dao.habitLogs(it.id) }.orEmpty()
         val unit = habit.targetUnit.trim()
@@ -141,13 +145,16 @@ class HabitRepository @Inject constructor(
             }
             earlier.filter { it.effectiveFrom < effective } + GoalRevision(effective, habit.targetCount, unit)
         } else existing?.goalHistory.orEmpty()
+        // The stored anchor mirrors the seed revision's effectiveFrom, which the resolvers prefer:
+        // a new habit anchors at its own start date, an existing habit's parameter change re-anchors today.
+        val anchor = if (existing == null) habit.startDate else today
         val normalized = habit.copy(
             name = habit.name.trim(), description = habit.description?.trim()?.takeIf { it.isNotEmpty() },
             category = habit.category.trim(), colorHex = habit.colorHex.uppercase(),
             targetUnit = unit, scheduledDays = days, scheduleHistory = history, goalHistory = goals,
             scheduleMode = scheduleMode.name,
             intervalDays = if (scheduleMode == ScheduleMode.EVERY_N_DAYS) habit.intervalDays else null,
-            intervalAnchor = if (scheduleMode == ScheduleMode.EVERY_N_DAYS) today else null,
+            intervalAnchor = if (scheduleMode == ScheduleMode.EVERY_N_DAYS) anchor else null,
             weeklyTarget = if (scheduleMode == ScheduleMode.WEEKLY_QUOTA) habit.weeklyTarget else null,
             // Archiving has its own operation so editing a form cannot change historical eligibility.
             isArchived = existing?.isArchived ?: false,
@@ -413,7 +420,7 @@ class HabitRepository @Inject constructor(
         if (expectedCreatedAt != null && habit.createdAt != expectedCreatedAt) return@withTransaction false
         if (habit.isArchived || habit.reminderMinutes == null) return@withTransaction false
         // Weekly-quota habits get no daily "overdue" reminder: the user picks the days (Prompt 8 UX).
-        if (com.lifetrack.app.data.ScheduleMode.fromStored(habit.scheduleMode) == com.lifetrack.app.data.ScheduleMode.WEEKLY_QUOTA) {
+        if (Scheduling.mode(habit, date) == ScheduleMode.WEEKLY_QUOTA) {
             return@withTransaction false
         }
         if (!com.lifetrack.app.domain.Analytics.eligible(habit, date, dao.habitPauses(habitId))) return@withTransaction false

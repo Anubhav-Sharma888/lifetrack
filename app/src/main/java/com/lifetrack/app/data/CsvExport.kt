@@ -1,6 +1,7 @@
 package com.lifetrack.app.data
 
 import com.lifetrack.app.domain.Analytics
+import com.lifetrack.app.domain.Scheduling
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.ZoneId
@@ -16,6 +17,11 @@ import java.util.Locale
  * stacking links, sort order, archive dates and reminder times.
  * Writing it must not touch `lastExportAt`, so the 30-day backup reminder stays accurate.
  *
+ * Schedule columns carry the schedule mode and its parameters (interval days, anchor, weekly
+ * target) effective on each row's date, honoring history the way the analytics rules do;
+ * `habit_scheduled_days` keeps the weekday names, meaningful under WEEKDAYS mode, and the
+ * mode column disambiguates the rest.
+ *
  * Excel compatibility: a UTF-8 BOM lets Excel detect UTF-8, and rows use the RFC 4180 CRLF
  * terminator. Cells containing commas, quotes or line breaks are quoted with inner quotes
  * doubled. A cell whose first non-whitespace character could start a spreadsheet formula
@@ -27,7 +33,9 @@ object CsvExport {
 
     internal val COLUMNS = listOf(
         "habit_id", "habit_name", "habit_description", "habit_category", "habit_icon",
-        "habit_color", "habit_start_date", "habit_scheduled_days", "habit_target", "habit_unit",
+        "habit_color", "habit_start_date", "habit_scheduled_days",
+        "habit_schedule_mode", "habit_interval_days", "habit_interval_anchor", "habit_weekly_target",
+        "habit_target", "habit_unit",
         "habit_archived", "habit_created_at", "habit_updated_at",
         "log_date", "log_status", "log_progress", "log_frozen", "log_note",
         "log_created_at", "log_updated_at"
@@ -56,11 +64,25 @@ object CsvExport {
     private fun cells(habit: Habit, zone: ZoneId, log: HabitLog?): List<String> {
         val asOf = log?.date
         val scheduled = asOf?.let { Analytics.scheduledDays(habit, it) } ?: habit.scheduledDays
+        // The no-log detail row has no effective date, so it renders the current stored values,
+        // with scheduleMode canonicalized so unknown stored values still fall back to WEEKDAYS.
+        val mode = asOf?.let { Scheduling.mode(habit, it).name } ?: ScheduleMode.fromStored(habit.scheduleMode).name
+        // On log rows a null engine result means the parameter was not in force on that date
+        // (e.g. a weekday-era row on a habit later switched to intervals): render empty rather
+        // than leaking the habit's current value into history. Only the no-log detail row,
+        // which has no effective date, falls back to the stored fields.
+        val interval = if (asOf == null) habit.intervalDays?.toString().orEmpty()
+            else Scheduling.intervalDays(habit, asOf)?.toString().orEmpty()
+        val anchor = if (asOf == null) habit.intervalAnchor?.toString().orEmpty()
+            else Scheduling.intervalAnchor(habit, asOf)?.toString().orEmpty()
+        val target = if (asOf == null) habit.weeklyTarget?.toString().orEmpty()
+            else Scheduling.weeklyTarget(habit, asOf)?.toString().orEmpty()
         val goal = asOf?.let { habit.goalOn(it) } ?: habit
         return listOf(
             habit.id.toString(), habit.name, habit.description.orEmpty(), habit.category, habit.icon,
             habit.colorHex, habit.startDate.toString(),
             scheduled.joinToString(" ") { WEEKDAYS.getOrElse(it - 1) { "?" } },
+            mode, interval, anchor, target,
             goal.targetCount.toString(), goal.targetUnit,
             if (habit.isArchived) "TRUE" else "FALSE",
             timestamp(habit.createdAt, zone), timestamp(habit.updatedAt, zone),

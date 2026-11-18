@@ -29,7 +29,13 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.lifetrack.app.data.Habit
+import com.lifetrack.app.data.HabitLog
+import com.lifetrack.app.data.HabitPause
+import com.lifetrack.app.data.ScheduleMode
+import com.lifetrack.app.domain.Scheduling
 import java.time.DayOfWeek
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 
@@ -91,7 +97,7 @@ internal fun SchedulesScreen(state: LifeTrackState, vm: HabitViewModel, onBack: 
             SettingsGroup { Text("Add a habit from Today to set its schedule and reminder.", Modifier.padding(16.dp)) }
         }
         items(habits, key = { it.id }) { habit ->
-            HabitScheduleCard(habit, onEdit = { onEdit(habit.id) })
+            HabitScheduleCard(habit, state.logs, state.pauses, onEdit = { onEdit(habit.id) })
         }
         item(key = "notification-timing") {
             Text("Android may deliver reminders later than the time you select.", style = MaterialTheme.typography.bodySmall,
@@ -137,11 +143,15 @@ internal fun SchedulesScreen(state: LifeTrackState, vm: HabitViewModel, onBack: 
 }
 
 @Composable
-private fun HabitScheduleCard(habit: Habit, onEdit: () -> Unit) {
+private fun HabitScheduleCard(habit: Habit, logs: List<HabitLog>, pauses: List<HabitPause>, onEdit: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val locale = Locale.getDefault()
     val days = DayOfWeek.values()
     val scheduledDays = days.filter { it.value in habit.scheduledDays }.joinToString { it.getDisplayName(TextStyle.FULL, locale) }
+    val today = LocalDate.now()
+    val dateFormat = DateTimeFormatter.ofPattern("EEE, d MMM yyyy", locale)
+    val mode = Scheduling.mode(habit, today)
+    val isQuota = mode == ScheduleMode.WEEKLY_QUOTA
     SettingsGroup {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -153,24 +163,55 @@ private fun HabitScheduleCard(habit: Habit, onEdit: () -> Unit) {
                     Text(habit.category, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
                 }
             }
-            Row(
-                Modifier.fillMaxWidth().clearAndSetSemantics { contentDescription = "Scheduled on $scheduledDays" },
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                days.forEach { day ->
-                    val selected = day.value in habit.scheduledDays
-                    Surface(Modifier.weight(1f), shape = RoundedCornerShape(8.dp),
-                        color = if (selected) colors.primary else colors.surfaceContainerHigh,
-                        contentColor = if (selected) colors.onPrimary else colors.onSurfaceVariant) {
-                        Box(Modifier.heightIn(min = 32.dp).padding(vertical = 4.dp), contentAlignment = Alignment.Center) {
-                            Text(day.getDisplayName(TextStyle.NARROW, locale), style = AlmanacType.monoData)
+            when (mode) {
+                ScheduleMode.WEEKDAYS -> Row(
+                    Modifier.fillMaxWidth().clearAndSetSemantics { contentDescription = "Scheduled on $scheduledDays" },
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    days.forEach { day ->
+                        val selected = day.value in habit.scheduledDays
+                        Surface(Modifier.weight(1f), shape = RoundedCornerShape(8.dp),
+                            color = if (selected) colors.primary else colors.surfaceContainerHigh,
+                            contentColor = if (selected) colors.onPrimary else colors.onSurfaceVariant) {
+                            Box(Modifier.heightIn(min = 32.dp).padding(vertical = 4.dp), contentAlignment = Alignment.Center) {
+                                Text(day.getDisplayName(TextStyle.NARROW, locale), style = AlmanacType.monoData)
+                            }
                         }
                     }
+                }
+                ScheduleMode.EVERY_N_DAYS -> {
+                    val n = Scheduling.intervalDays(habit, today)
+                    val anchor = Scheduling.intervalAnchor(habit, today)
+                    val next = Scheduling.nextScheduledOn(habit, today)
+                    // Malformed interval data renders nothing rather than an empty gap.
+                    if (n != null && anchor != null) {
+                        Text("Every $n days", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            next?.let { "From ${anchor.format(dateFormat)} · next scheduled ${it.format(dateFormat)}" }
+                                ?: "From ${anchor.format(dateFormat)}",
+                            style = AlmanacType.monoData, color = colors.onSurfaceVariant)
+                    }
+                }
+                ScheduleMode.WEEKLY_QUOTA -> {
+                    val quota = Scheduling.weeklyQuotaStatus(habit, logs, pauses, today, today)
+                    Text("${quota.requiredDays} sessions per week · Monday through Sunday", style = MaterialTheme.typography.bodyLarge)
+                    Text(when (quota.state) {
+                        Scheduling.WeeklyQuotaState.ACHIEVED -> "This week: ${quota.completedDays} of ${quota.requiredDays} · Achieved"
+                        Scheduling.WeeklyQuotaState.ONGOING ->
+                            "This week: ${quota.completedDays} of ${quota.requiredDays} · ${quota.requiredDays - quota.completedDays} session${if (quota.requiredDays - quota.completedDays == 1) "" else "s"} to go"
+                        Scheduling.WeeklyQuotaState.MISSED ->
+                            if (quota.eligibleDays < quota.requiredDays) "This week: ${quota.completedDays} of ${quota.requiredDays} · Started mid-week"
+                            else "This week: ${quota.completedDays} of ${quota.requiredDays} · Missed"
+                        Scheduling.WeeklyQuotaState.REST -> "This week: rest"
+                    }, style = AlmanacType.monoData)
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(Icons.Outlined.Schedule, null, Modifier.size(18.dp), tint = colors.onSurfaceVariant)
-                Text(habit.reminderMinutes?.let { "Reminder at ${reminderTime(it)}" } ?: "Reminder off",
+                Text(
+                    // Quota reminders never fire (claimReminder excludes them), whatever an older save stored.
+                    if (isQuota) "Flexible days · no daily reminder"
+                    else habit.reminderMinutes?.let { "Reminder at ${reminderTime(it)}" } ?: "Reminder off",
                     style = AlmanacType.monoData, color = colors.onSurfaceVariant)
             }
             OutlinedButton(onClick = onEdit, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Edit schedule") }
