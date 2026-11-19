@@ -49,6 +49,10 @@ object BackupValidator {
     }
     val earliestDate: LocalDate = LocalDate.of(1900, 1, 1)
 
+    /** Real backups nest a handful of levels (backups → habits → schedule history → weekday lists);
+     *  anything deeper is either corrupt or crafted to overflow the JSON parser's recursion. */
+    const val MAX_JSON_DEPTH = 64
+
     fun validateHabit(habit: Habit, today: LocalDate = LocalDate.now()) {
         require(habit.id >= 0 && habit.id < Long.MAX_VALUE) { "Invalid habit ID." }
         require(habit.name.isNotBlank() && habit.name.length <= 120) { "Habit names must contain 1–120 characters." }
@@ -258,7 +262,13 @@ object BackupValidator {
 
     /** Version 1 lacks schedules, progress and intervals; normalize before replacing any table. */
     fun decode(text: String, today: LocalDate = LocalDate.now()): LifeTrackBackup {
-        val document = json.parseToJsonElement(text.removePrefix("\uFEFF")).jsonObject
+        val stripped = text.removePrefix("\uFEFF")
+        // kotlinx-serialization walks JSON recursively with no depth bound: a crafted ~20 KB
+        // file nests deeply enough to overflow the stack, and StackOverflowError escapes every
+        // Exception handler on the import path. A linear character scan rejects over-nested
+        // documents before the parser touches them — real backups nest a handful of levels.
+        require(maxJsonDepth(stripped) <= MAX_JSON_DEPTH) { "This file nests data too deeply to be a LifeTrack backup." }
+        val document = json.parseToJsonElement(stripped).jsonObject
         val version = document["formatVersion"]?.jsonPrimitive?.intOrNull
         require(version != null && version in 1..9) { "This backup version is not supported by this app." }
         if (version >= 2) {
@@ -272,7 +282,7 @@ object BackupValidator {
         if (version >= 3) {
             require("activities" in document && "activityEntries" in document) { "This version 3 backup is missing its activity collections." }
         }
-        val decoded = json.decodeFromString<LifeTrackBackup>(text.removePrefix("\uFEFF"))
+        val decoded = json.decodeFromString<LifeTrackBackup>(stripped)
         val normalized = if (version == 1) {
             val byId = decoded.habits.associateBy { it.id }
             decoded.copy(
@@ -285,5 +295,25 @@ object BackupValidator {
         } else decoded.copy(formatVersion = maxOf(3, version))
         validate(normalized, today)
         return normalized
+    }
+
+    /** Deepest nesting of objects/arrays in [text], ignoring brackets inside JSON strings.
+     *  Linear scan — no recursion — so the depth check itself cannot overflow. Internal so
+     *  BackupCrypto can apply the same bound to encrypted envelopes before their parse. */
+    internal fun maxJsonDepth(text: String): Int {
+        var depth = 0
+        var max = 0
+        var inString = false
+        var escaped = false
+        for (character in text) {
+            when {
+                escaped -> escaped = false
+                character == '\\' && inString -> escaped = true
+                character == '"' -> inString = !inString
+                !inString && (character == '{' || character == '[') -> { depth += 1; if (depth > max) max = depth }
+                !inString && (character == '}' || character == ']') -> depth -= 1
+            }
+        }
+        return max
     }
 }

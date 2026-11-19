@@ -160,7 +160,7 @@ fun SettingsScreen(
             HorizontalDivider()
             SettingsAction("Export encrypted backup", "Protect the file with a password · AES-256-GCM", Icons.Outlined.Lock, enabled = !busy) { launchExport(true) }
             HorizontalDivider()
-            SettingsAction("Export CSV", "Habit details and check-in history for spreadsheets · analysis copy, not a backup",
+            SettingsAction("Export CSV", "Habit details and check-in history · contains your notes unencrypted · analysis copy, not a backup",
                 Icons.Outlined.TableView, enabled = !busy) { csvExport.launch("lifetrack-habits-${state.today}.csv") }
             HorizontalDivider()
             SettingsAction("Import data", "Restore a backup · replaces current data", Icons.Outlined.FileDownload, enabled = !busy, onClick = onImport)

@@ -1,8 +1,48 @@
-# LifeTrack — Work Progress (sessions 2026-11-15 → 2026-11-20: CSV export, directional tracking, app lock, Smart Streaks, Mood/Journal, Achievements, Flexible Scheduling engine + UI, UI/UX refinement phases 1-2)
+# LifeTrack — Work Progress (sessions 2026-11-15 → 2026-11-20: CSV export, directional tracking, app lock, Smart Streaks, Mood/Journal, Achievements, Flexible Scheduling engine + UI, UI/UX refinement phases 1-2, integration QA + release hardening)
 
 Branches: `develop/achievements` (current) · `main` (= `32c9bfa`, carries the v1.9.0-preview.1 tag) · Backup at `D:\LifeTracker-backup` (untouched)
 
 ---
+
+# Session 13 (Prompt 11/12) — Integration testing, release hardening, QA evidence
+
+## What was done (this session, uncommitted → committing at end)
+
+This stage proves correctness and release readiness — no new features. **QA matrix**: [`docs/QA-MATRIX.md`](docs/QA-MATRIX.md) maps every feature area → scenario → classification → environment → result → evidence, generated from the actual test inventory (310 `@Test` functions inventoried before hardening) and honestly separating AUTOMATED (Robolectric/JVM, PASS) from MANUAL device rows (NOT RUN — no device/emulator in this environment).
+
+## Defects found and fixed this session
+
+- **L-1 (security, crash)**: a crafted ~20 KB import file at JSON nesting depth 10,000 crashed the process — kotlinx-serialization 1.8.1 walks JSON recursively with no depth bound, `StackOverflowError` escapes every `Exception` handler on the import path (verified empirically against the pinned jar by the security auditor). **Fix**: `BackupValidator.MAX_JSON_DEPTH = 64` + a linear (non-recursive) character-scan pre-check in `decode` rejecting over-nested files before the parser runs; the same pre-check guards the **encrypted-envelope leg** (`BackupCrypto.decrypt` — the streaming Envelope decoder walks JSON recursively too), closing the crash class on both import legs; regression test pins the rejection message. Real backups nest a handful of levels — the bound cannot touch legitimate exports (entire backup suite re-verified green, including all 13 encrypted-backup tests).
+- **L-2 (disclosure)**: PRIVACY.md still said "1.1.0"/"format version 2" and omitted the app's most sensitive data category — daily reflections (mood + journal). Refreshed: current version, stored-data inventory (reflections, activities, acknowledgments, v3–v9 formats), manual-files list now names mood/journal text.
+- **L-3 (disclosure)**: CSV export copy did not state notes ship unencrypted (the JSON row did). Settings copy updated: "contains your notes unencrypted".
+- Deferred (documented, not fixed): CI actions pinned to major tags not SHAs (release-publishing supply-chain hardening → Prompt 12, needs verified SHAs); inline-emoji announcements and celebration snackbar emoji (device listening pass); SettingsAction disabled dimming; swatch 48dp target.
+
+## Migration hardening (release-critical, Stage 7)
+
+`DatabaseMigrationTest` grew from 1 test (full chain v1→10, already deep) to **7 tests**: every exported schema era **2..9 upgrades forward to v10** with era-faithful seeded rows (per-era habit columns validated against each exported JSON), Smart-Streak defaults minted at 6→7, `daily_reflections`/`achievement_acknowledgments` tables created by 7→8/8→9 with INSERT+read-back, schedule/goal history surviving 9→10 unchanged, and FK **declarations** asserted against the migrated DDL (cascades on the four child tables, SET NULL stacking self-reference, reflections/acks deliberately FK-free — the reason import/reset clear them explicitly). Evidence note: Room 2.7.1 never enables SQLite FK enforcement (verified by disassembly) — declarations are what open-time validation compares; enforcement is a connection setting. The PRAGMA-based first attempt was replaced by `sqlite_master` DDL assertions after `SupportSQLiteDatabase.query` returned empty cursors for PRAGMAs.
+
+## Backup compatibility hardening (Stage 8)
+
+Acknowledgment import contract pinned: unknown achievement IDs are **inert** (validator checks row shape only; `Achievements.evaluate` can never surface an unknown id as acknowledged; the repository prunes unknown ids before insert) — rejecting them would silently drop a retired achievement's seen-marker, a product decision deliberately not made here. Malformed rows (blank/oversized ids, negative timestamps, duplicates) rejected with pinned messages. v1-format → schema-10 engine defaults pinned. `AchievementIds.FIRST_COMPLETION` etc. confirmed against the catalogue.
+
+## Device QA — honest status
+
+**NOT RUN / BLOCKED** — no Android device or emulator was available in this environment, and none is claimed. The full manual checklist lives in [`docs/QA-MATRIX.md`](docs/QA-MATRIX.md): TalkBack traversal, fontScale 2, device contrast (dynamic color), both M3 DatePicker flows (the **day grid never composes under Robolectric** — header/buttons render, grid contributes zero semantics nodes; discovered while driving past-date navigation, so two picker-dependent tests were replaced by repository/engine coverage + a navigation-free smoke), dialog IME behavior, install/upgrade paths, WorkManager alarm timing, landscape/insets.
+
+## Security audit (Stage 12)
+
+Dedicated audit verdict: **READY WITH LOW FINDINGS** — no Critical/High. Verified clean: permissions (VIBRATE + POST_NOTIFICATIONS only), no connectivity primitives anywhere, no tracking/analytics dependencies, all four workers do Room/notification work only, widget/receiver hardening (lock re-check at action time, stale-date + expectedCreatedAt guards), BackupCrypto (AES-256-GCM, fresh salt/IV, PBKDF2 bounds checked before KDF, AAD-bound headers), no sensitive logging, import validation-before-write in one transaction, backup/extraction rules exclude everything, CI uses only the default token. Findings: L-1/L-2/L-3 fixed (above); L-4 (CI action pinning) deferred to Prompt 12; informational trade-offs documented (app lock not crypto-bound, launcher deep-link extras, String-held passwords).
+
+## Test evidence
+
+- Final gate this session (recorded after the hardening diff): **`BUILD SUCCESSFUL in 17m` — testDebugUnitTest 321/321 across 25 suites, 0 failures** + **lintDebug 0 errors, 27 warnings, 1 hint** (29→27: the two `ModifierParameter` findings cleared by Prompt 10's selector reorders; the remaining 27 are pre-existing dependency/style findings — 17 GradleDependency, 6 UseKtx, 2 UnusedAttribute, 1 VectorRaster, 1 ConstantLocale) + **assembleDebug** fresh APK. The executed count matches the source-level `@Test` inventory exactly (321).
+- Focused verifications during the session: DatabaseMigrationTest 7/7, BackupValidationTest 29/29 (+depth guard), backup/crypto suites 53/53, the five Prompt-10-affected suites 94/94.
+- Resource note: one gate launch was stopped safely (own process) at 1.5 GB free RAM and relaunched at ≥4 GB, per the resource policy.
+
+## Release readiness (lead assessment)
+
+- **Development readiness: GO** — automated evidence covers every feature area; migration/backup compatibility proven from every historical schema era; no unresolved Critical/High findings; security audit clean of Critical/High.
+- **Production release readiness: CONDITIONAL GO** — the manual device checklist (TalkBack, fontScale 2, device contrast, DatePicker flows, install/upgrade paths, alarm timing) has NOT RUN and must be executed on hardware before publishing, or shipped with the gaps marked. Prompt 12 owns that decision.
 
 # Session 12 (Prompt 10/12) — Final visual polish, responsiveness, cross-feature integration
 

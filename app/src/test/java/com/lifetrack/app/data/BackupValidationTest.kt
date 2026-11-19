@@ -5,6 +5,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -224,6 +225,98 @@ class BackupValidationTest {
                 ScheduleRevision(today, (1..7).toList(),
                     mode = ScheduleMode.EVERY_N_DAYS.name, intervalDays = 3)))
         BackupValidator.validate(backup(listOf(switched), emptyList()).copy(formatVersion = 9), today)
+    }
+
+    // ---- Achievement acknowledgments (backup v8): an id-only contract ----
+
+    @Test fun `unknown achievement ids import as inert rows`() {
+        // validateAchievementAcknowledgment checks only the row's shape — a non-blank id of at most
+        // 100 characters and a non-negative timestamp — and deliberately does not consult
+        // Achievements.catalogue. Unknown ids ride through import and stay inert at evaluation
+        // time: Achievements.evaluate walks the catalogue and marks `definition.id in
+        // acknowledgedIds`, so an id matching no definition can never surface as acknowledged
+        // state anywhere. This is the pinned import contract, not an oversight — rejecting unknown
+        // ids now would silently drop a retired achievement's seen-marker on restore (a
+        // business-rule change that needs product review, not a test change).
+        val unknown = AchievementAcknowledgment("habit.retired_after_removal", 400)
+        val imported = BackupValidator.decode(
+            BackupValidator.json.encodeToString(
+                backup().copy(formatVersion = 8, achievementAcknowledgments = listOf(
+                    AchievementAcknowledgment("habit.first_completion", 300), unknown))),
+            today)
+        assertEquals(2, imported.achievementAcknowledgments.size)
+        assertEquals("habit.first_completion", imported.achievementAcknowledgments[0].achievementId)
+        assertEquals("habit.retired_after_removal", imported.achievementAcknowledgments[1].achievementId)
+    }
+
+    @Test fun `malformed achievement acknowledgments are rejected before any write`() {
+        val withAcks = backup().copy(formatVersion = 8)
+        val blankId = assertThrows(IllegalArgumentException::class.java) {
+            BackupValidator.validate(withAcks.copy(achievementAcknowledgments =
+                listOf(AchievementAcknowledgment("   ", 400))))
+        }
+        assertTrue(blankId.message!!.contains("Invalid achievement identifier"))
+        val negativeTimestamp = assertThrows(IllegalArgumentException::class.java) {
+            BackupValidator.validate(withAcks.copy(achievementAcknowledgments =
+                listOf(AchievementAcknowledgment("habit.first_completion", -1))))
+        }
+        assertTrue(negativeTimestamp.message!!.contains("Invalid achievement acknowledgment timestamp"))
+        invalid(withAcks.copy(achievementAcknowledgments = listOf(AchievementAcknowledgment("", 400))))
+        invalid(withAcks.copy(achievementAcknowledgments =
+            listOf(AchievementAcknowledgment("x".repeat(101), 400))))
+        invalid(withAcks.copy(achievementAcknowledgments = listOf(
+            AchievementAcknowledgment("habit.first_completion", 300),
+            AchievementAcknowledgment("habit.first_completion", 301))))
+    }
+
+    @Test fun `deeply nested import files are rejected before the parser can overflow`() {
+        // kotlinx-serialization walks JSON recursively with no depth bound: a ~20 KB crafted
+        // file at nesting depth 10,000 throws StackOverflowError — an Error, which escapes every
+        // Exception handler on the import path and kills the process. The decode now pre-scans
+        // the text linearly and rejects over-nested documents; real backups nest a handful of
+        // levels, so the 64 bound cannot touch legitimate exports.
+        val crafted = "[".repeat(BackupValidator.MAX_JSON_DEPTH + 1) +
+            "{}" + "]".repeat(BackupValidator.MAX_JSON_DEPTH + 1)
+        val error = assertThrows(IllegalArgumentException::class.java) { BackupValidator.decode(crafted) }
+        assertEquals("This file nests data too deeply to be a LifeTrack backup.", error.message)
+    }
+
+    // ---- Version 1, the oldest supported format, feeds the schema-10 engine ----
+
+    @Test fun `a hand made version one backup imports with schema-10 engine defaults`() {
+        val document = BackupValidator.json.parseToJsonElement(
+            BackupValidator.json.encodeToString(backup())).jsonObject
+        // Simulate a genuine version 1 file: none of the later collections or per-habit era fields exist yet.
+        val habits = (document.getValue("habits") as JsonArray).map { entry ->
+            JsonObject(entry.jsonObject - "scheduledDays" - "targetCount" - "targetUnit" - "reminderMinutes" - "scheduleHistory")
+        }
+        val logs = (document.getValue("logs") as JsonArray).map { entry ->
+            JsonObject(entry.jsonObject - "progress")
+        }
+        val handMadeV1 = JsonObject(
+            document - "pauses" - "activities" - "activityEntries"
+                + ("formatVersion" to JsonPrimitive(1))
+                + ("habits" to JsonArray(habits))
+                + ("logs" to JsonArray(logs))
+                + ("settings" to JsonObject(document.getValue("settings").jsonObject - "hapticsEnabled" - "animationsEnabled"))
+        )
+        // The oldest file carries none of the Smart Streaks (v6) or flexible scheduling (v10) keys,
+        // so the current engine's defaults must come from the decoder, not from the document.
+        assertTrue(setOf(
+            "streakPolicy", "partialCreditPercent", "scheduleMode", "intervalDays", "intervalAnchor", "weeklyTarget"
+        ).none { it in habits.single() })
+        val restored = BackupValidator.decode(handMadeV1.toString(), today)
+        assertEquals(3, restored.formatVersion) // version 1 normalizes to version 3
+        val habit = restored.habits.single()
+        assertEquals("WEEKDAYS", habit.scheduleMode)
+        assertNull(habit.intervalDays)
+        assertNull(habit.intervalAnchor)
+        assertNull(habit.weeklyTarget)
+        assertEquals("STRICT", habit.streakPolicy)
+        assertEquals(75, habit.partialCreditPercent)
+        assertEquals((1..7).toList(), habit.scheduledDays)
+        // The v1 log also lands in engine shape: a COMPLETED day normalizes to the habit's default target.
+        assertEquals(1, restored.logs.single().progress)
     }
 }
 
