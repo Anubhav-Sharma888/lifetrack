@@ -20,6 +20,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -124,7 +125,7 @@ fun AnalyticsScreen(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate,
                         "${formatQuantityLabel(entry.quantity)} ${activity.unit} on ${entry.date}"
                     }
                 Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(activity.icon)
+                    Text(activity.icon, modifier = Modifier.clearAndSetSemantics {})
                     Column(Modifier.weight(1f)) {
                         Text(activity.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text("${activity.unit}${activity.target?.let { " · " + (if (directional) "goal ${formatQuantityLabel(it)}" else "target ${formatQuantityLabel(it)}/day") } ?: ""} · ${inWindow.size} day${if (inWindow.size == 1) "" else "s"} logged",
@@ -180,7 +181,7 @@ fun AnalyticsScreen(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate,
             leaderboard.forEachIndexed { index, (habit, streak) ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("${index + 1}", style = AlmanacType.monoData, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(habit.icon)
+                    Text(habit.icon, modifier = Modifier.clearAndSetSemantics {})
                     Text(habit.name, Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text("$streak ${if (streak == 1) "day" else "days"}", style = AlmanacType.monoData, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
                 }
@@ -272,7 +273,8 @@ private fun ComparisonRow(label: String, current: Analytics.Rate, previous: Anal
             Text(if (current.opportunities == 0L) "—" else "${current.percent}%", style = MaterialTheme.typography.titleMedium.copy(fontFamily = AlmanacFonts.mono, fontFeatureSettings = "tnum"), fontWeight = FontWeight.Bold)
             if (previous.opportunities > 0L && current.opportunities > 0L) Text(
                 when { difference > 0 -> "+$difference pp"; difference < 0 -> "−${abs(difference)} pp"; else -> "Steady" },
-                style = MaterialTheme.typography.labelSmall, color = if (difference >= 0) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant)
+                // onSecondaryContainer keeps the small "pp" delta at AA contrast in light mode.
+                style = MaterialTheme.typography.labelSmall, color = if (difference >= 0) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

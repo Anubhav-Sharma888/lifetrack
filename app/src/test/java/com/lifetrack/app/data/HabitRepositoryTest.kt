@@ -397,6 +397,43 @@ class HabitRepositoryTest {
     }
 
     @Test
+    fun weeklyQuotaDaysRejectStreakDecisionsWhileWeekdayPartialsStillProtect() = runBlocking {
+        // A v9 fixture mirroring importFlexibleHabits' quota habit, but with a real 3-unit goal so
+        // a genuine quota-era partial day (1 of 3) can be seeded through the public API: the guard
+        // must fire ahead of every later check, including the decision-shape requirement itself.
+        val quota = Habit(
+            id = 8, name = "Three times a week", startDate = today.minusDays(35), targetCount = 3,
+            scheduleMode = ScheduleMode.WEEKLY_QUOTA.name, weeklyTarget = 3,
+            scheduleHistory = listOf(ScheduleRevision(today.minusDays(6), (1..7).toList(),
+                mode = ScheduleMode.WEEKLY_QUOTA.name, weeklyTarget = 3)),
+            createdAt = 100, updatedAt = 200,
+        )
+        val backup = LifeTrackBackup(
+            formatVersion = 9, exportedAt = 300, habits = listOf(quota),
+            logs = emptyList(), settings = AppSettings(), freezes = emptyList(),
+        )
+        repository.importFrom(Uri.fromFile(backupFile(BackupValidator.json.encodeToString(backup))))
+        // Quota days are check-in-eligible every day, so the partial day is a real check-in shape.
+        // setProgress returns "newly completed", which a 1-of-3 partial deliberately is not.
+        repository.setProgress(quota.id, today.minusDays(2), 1)
+        val partial = repository.logs.first().single()
+        assertEquals(LogStatus.IN_PROGRESS, partial.status)
+        assertEquals(1, partial.progress)
+        try {
+            repository.setStreakProtection(quota.id, today.minusDays(2), true)
+            fail("Weekly-quota days have no chain to protect")
+        } catch (expected: IllegalArgumentException) {
+            assertEquals("Weekly-quota habits do not use day streaks.", expected.message)
+        }
+        assertTrue(repository.streakProtections.first().isEmpty())
+        // The guard is quota-only: an ordinary weekday habit's partial day still protects.
+        val weekday = repository.saveHabit(Habit(name = "Read", startDate = today.minusDays(35), targetCount = 4))
+        repository.setProgress(weekday, today.minusDays(1), 3)
+        repository.setStreakProtection(weekday, today.minusDays(1), true)
+        assertEquals(listOf(weekday), repository.streakProtections.first().map { it.habitId })
+    }
+
+    @Test
     fun claimReminderSkipsQuotaHabitsAndNudgesDueWeekdayHabits() = runBlocking {
         val (interval, quota, weekday) = importFlexibleHabits()
         // reminderMinutes = 0 is always in the past, so LocalTime.now() never blocks the claim.

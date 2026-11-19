@@ -1,6 +1,38 @@
-# LifeTrack — Work Progress (sessions 2026-11-15 → 2026-11-19: CSV export, directional tracking, app lock, Smart Streaks, Mood/Journal, Achievements, Flexible Scheduling engine + UI, UI/UX refinement phase 1)
+# LifeTrack — Work Progress (sessions 2026-11-15 → 2026-11-20: CSV export, directional tracking, app lock, Smart Streaks, Mood/Journal, Achievements, Flexible Scheduling engine + UI, UI/UX refinement phases 1-2)
 
 Branches: `develop/achievements` (current) · `main` (= `32c9bfa`, carries the v1.9.0-preview.1 tag) · Backup at `D:\LifeTracker-backup` (untouched)
+
+---
+
+# Session 12 (Prompt 10/12) — Final visual polish, responsiveness, cross-feature integration
+
+## What was built (this session, uncommitted → committing at end)
+
+- **Final polish audit** (ui-ux-specialist, verified Prompt 9 fixes hold) → 12-file pass, all implemented: hairline two-tier convention documented (`rule` = register wells, `outlineVariant` = cards/dividers/inputs) + the check-in well gained its missing rule border; radius ladder 4/6/8/10 completed (dialog shells 16→10, FreshStart 12→10, reminder pill 16→10); decorative emoji cleared from TalkBack at six sites (HabitCard both layouts, HabitDetail stamp, ActivityDialogs, Analytics rows ×2, Today empty-state); RecordingStrip cells expose `Role.Button`; AA-contrast swaps computed from token math (Achieved "✓", Analytics "+X pp", ANCHOR caps, Reset confirmation → onSecondary/onTertiaryContainer — raw secondary read 3.6:1 and tertiary 3.0:1 in light); Today date-row seal grows with wrapped text (`IntrinsicSize.Min` + `fillMaxHeight` — fontScale-2 fix); per-recomposition `DateTimeFormatter` construction hoisted; Schedules quota walk remembered; heatmap's two competing scroll effects merged (snap once on first layout, animate on selection/range changes — no flicker path); `MoodSelector`/`TrackingModeSelector` modifier-parameter reorders clear the last Compose lint style findings.
+- **Cross-feature verification** (integration-engineer, 10 pairs traced): 8 CONSISTENT; 2 Low issues found and **fixed**:
+  - **Issue A** — Smart-Streaks decision block was reachable for weekly-quota habits (a chain-less habit showed "keeps the chain alive"; decisions sat inert and would apply retroactively on a switch back). Fixed with the freeze-path pattern: block hides at mode-at-date == WEEKLY_QUOTA (UI) and `setStreakProtection` throws "Weekly-quota habits do not use day streaks." (repository mirror).
+  - **Issue B** — celebration-driver race: a stale achieved-but-unacknowledged milestone in a reset/import transition could celebrate and re-persist its ack row. Fixed: `celebrationSuppressed` (@Volatile) set BEFORE the transactions — reset suppresses with celebrate-mode-after (fresh journey re-celebrates re-earnings), import seeds flags before the restore (silent acks) — driver skips while suppressed, `finally` clears on failure, and the ack/emit loop re-checks the flag mid-flight.
+- **Responsiveness**: fontScale-2 seal fix; the 85% `LocalWindowInfo` viewport caps (Prompt 9) verified compatible with landscape-relevant dialog sizing; remaining responsive checks are device-QA (Prompt 11).
+- **Known Robolectric limitation recorded**: the M3 DatePicker **day grid never composes under Robolectric** (header + buttons render; the grid contributes zero semantics nodes) — calendar-driven past-date navigation is untestable in CI. The two picker-driven UI tests were replaced: the quota guard is pinned at the repository (rejection test) and engine (era-resolution pins) levels plus a navigation-free smoke (quota partial-day well renders without chain language). Device QA must cover both pickers (Prompt 11).
+
+## Test evidence
+
+- **Final: `BUILD SUCCESSFUL in 16m 30s` — testDebugUnitTest 311/311 across 25 suites + lintDebug 0 errors + assembleDebug, all green** (+7 tests vs Prompt 9's 304: quota streak-protection rejection, engine era-resolution pin, achievements quota pin, celebration race guard + fresh-journey re-celebration, icon semantics, RecordingStrip role contract, quota-well smoke).
+- One gate launch was stopped safely by the lead (own process) when free RAM dipped to 1.5 GB mid-run; relaunched at 4.7 GB — resource policy followed, no unrelated processes touched.
+- Limits verified live: 2 workers, `--no-parallel --no-daemon`, pinned `-Xmx3g`, BelowNormal priority verified on the build JVMs, RAM monitored throughout.
+
+## Reviews (this session)
+
+- `ui-ux-specialist` audit: backlog verified item-by-item with exact specs; contrast computed from tokens (4 failing small-text sites fixed; skip-dash icon and unmarked-ring noted as intentional quiet treatments for device measurement); fresh sweep found the formatter hoists and confirmed celebration restraint, empty states and edge-to-edge coverage.
+- `integration-engineer`: 10 cross-feature pairs traced — 8 CONSISTENT, 2 Low issues fixed (above); also verified the polish diff introduced no cross-feature regressions and flagged the two coverage gaps that became tests.
+- `independent-reviewer` (+ security-privacy lens): PASS WITH FINDINGS — 2 actionable items fixed pre-commit (celebration suppression cleared in `finally` on reset failure; mid-emission re-check before each ack/emit) and the debug dump artifact removed; security clean (no logging, no permissions/workers, no secrets in fixtures); radius ladder and remember-key completeness verified across all of `ui/`.
+
+## Deferred to Prompt 11 (device QA + integration)
+
+- Physical-device verification (NOT performed — no device was touched): TalkBack traversal (merged toggleable rows, single-node heatmap + auto-scroll, emoji-cleared name-only announcements), large-font reflow at fontScale 2 (IntrinsicSize seal, dialog viewport caps), contrast measurement on device (dynamic-color tokens especially; skip-dash icon and unmarked ring are intentional quiet treatments), both DatePicker flows (grid untestable under Robolectric), M3 dialog IME behavior on the two custom shells.
+- Inline-emoji announcements inside labeled strings and celebratory snackbar emoji: P11 listening pass.
+- SettingsAction disabled-row dimming, color-swatch 48dp target enlargement, spacing-rhythm documentation: recorded, low priority.
+- Prompt 11 = integration and device QA; Prompt 12 = release versioning, signing, publication.
 
 ---
 

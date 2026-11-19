@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -77,7 +78,7 @@ fun HabitDetailScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
         })
     }) { padding ->
         Column(Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-            Text(habit.icon, style = MaterialTheme.typography.displayMedium)
+            Text(habit.icon, style = MaterialTheme.typography.displayMedium, modifier = Modifier.clearAndSetSemantics {})
             Text(habit.name, style = MaterialTheme.typography.headlineLarge)
             Text("${habit.category} · Started ${habit.startDate.format(scheduleDateFormat)}", style = AlmanacType.monoData, color = MaterialTheme.colorScheme.onSurfaceVariant)
             habit.description?.let { Text(it) }
@@ -145,8 +146,10 @@ fun HabitDetailScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
             OutlinedButton(onClick = { showDate = true }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Outlined.DateRange, null); Spacer(Modifier.width(8.dp)); Text("${date.format(scheduleDateFormat)} · ${Analytics.dayNumber(habit, date)?.let { "Day $it" } ?: "Not started"}")
             }
-            // Almanac check-in well: sunken parchment inset instead of an elevated card.
-            Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+            // Almanac check-in well: sunken parchment inset with the register-well rule border,
+            // matching Today's register and the reflection card.
+            Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceVariant,
+                border = androidx.compose.foundation.BorderStroke(1.dp, almanacColors().rule)) {
                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(log?.let { if (it.isFrozen) "❄ Streak frozen" else when (it.status) { LogStatus.COMPLETED -> "✓ Completed"; LogStatus.SKIPPED -> "↪ Skipped"; LogStatus.FAILED -> "Missed"; LogStatus.IN_PROGRESS -> "In progress" } } ?: "No check-in yet", style = MaterialTheme.typography.titleLarge)
                     if (goal.targetCount > 1) {
@@ -165,7 +168,11 @@ fun HabitDetailScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
                     // Smart Streaks: per-day decisions for past partial days. Decisions persist across
                     // policy changes, so the block also appears under Strict whenever a decision exists.
                     val streakPolicy = StreakPolicy.fromStored(habit.streakPolicy)
-                    val partialDay = eligible && date < state.today && log != null && log.status == LogStatus.IN_PROGRESS && log.progress > 0
+                    // Chain decisions apply only to day-scheduled eras: a weekly-quota day has no
+                    // chain, so the block hides exactly when the freeze button does — mode AT THE
+                    // VIEWED DATE, matching the repository's setStreakProtection guard.
+                    val partialDay = eligible && date < state.today && log != null && log.status == LogStatus.IN_PROGRESS && log.progress > 0 &&
+                        Scheduling.mode(habit, date) != ScheduleMode.WEEKLY_QUOTA
                     val existingDecision = state.streakProtections.firstOrNull { it.habitId == habit.id && it.date == date }
                     if ((streakPolicy != StreakPolicy.STRICT || existingDecision != null) && partialDay) {
                         HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
@@ -325,7 +332,7 @@ fun LogEditorDialog(habit: Habit, date: LocalDate, current: HabitLog?, vm: Habit
         (LocalWindowInfo.current.containerSize.height * 0.85f).toDp()
     }
     Dialog(onDismissRequest = { if (!busy) onDismiss() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface,
+        Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surface,
             border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
             modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth().padding(20.dp)) {
             Column(Modifier.heightIn(max = maxDialogHeight).padding(24.dp)) {

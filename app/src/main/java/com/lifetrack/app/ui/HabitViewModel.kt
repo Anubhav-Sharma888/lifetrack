@@ -262,8 +262,13 @@ class HabitViewModel @Inject constructor(
 
     // Session state for the celebration flow: the first evaluation silently marks milestones that
     // predate the celebrations feature as seen; everything earned afterwards celebrates once.
-    private var achievementsSeeded = false
+    // Both flags are written from perform (main) and read from the Default-dispatcher driver.
+    @Volatile private var achievementsSeeded = false
     private val celebratedThisSession = mutableSetOf<String>()
+    /** True while a reset/import transaction is mid-flight and flows are re-emitting transitional
+     *  data: the driver skips entirely, because a stale achieved-but-unacknowledged milestone in
+     *  those emissions must never celebrate or re-persist its acknowledgment row. */
+    @Volatile private var celebrationSuppressed = false
     private val _achievementCelebration = MutableSharedFlow<Achievements.Progress>(extraBufferCapacity = 4)
     val achievementCelebration = _achievementCelebration.asSharedFlow()
 
@@ -273,6 +278,7 @@ class HabitViewModel @Inject constructor(
         // are marked seen quietly on the first evaluation (no fabricated unlock events).
         viewModelScope.launch(Dispatchers.Default) {
             achievements.collect { list ->
+                if (celebrationSuppressed) return@collect
                 val newlyEarned = list.filter {
                     it.achieved && !it.acknowledged && celebratedThisSession.add(it.definition.id)
                 }
@@ -282,6 +288,10 @@ class HabitViewModel @Inject constructor(
                     newlyEarned.forEach { repository.acknowledgeAchievement(it.definition.id) }
                 } else {
                     newlyEarned.forEach { progress ->
+                        // A reset may have begun while this emission was in flight: the
+                        // mid-emission re-check keeps a wiped journey from celebrating or
+                        // re-persisting an acknowledgment row into the fresh database.
+                        if (celebrationSuppressed) return@forEach
                         repository.acknowledgeAchievement(progress.definition.id)
                         _achievementCelebration.tryEmit(progress)
                     }
@@ -337,13 +347,15 @@ class HabitViewModel @Inject constructor(
         } finally { password?.fill('\u0000') }
     }
     fun import(uri: Uri, password: CharArray? = null, onSaved: () -> Unit = {}) = perform {
+        // Seed flags move BEFORE the restore: the post-commit flow re-emission must run in
+        // seed mode (silent acknowledgments), never in celebrate mode, or a restored earned
+        // milestone whose ack row is missing could celebrate as if newly earned.
+        achievementsSeeded = false
+        celebratedThisSession.clear()
         try {
             repository.importFrom(uri, password)
             undoHistory.clear()
             _wasReset.value = false
-            // Restored milestones were earned historically: mark them seen silently, no celebration.
-            achievementsSeeded = false
-            celebratedThisSession.clear()
             _events.emit(UiEvent.Message("Backup restored successfully"))
             onSaved()
         } finally { password?.fill('\u0000') }
@@ -356,22 +368,34 @@ class HabitViewModel @Inject constructor(
 
     /** Room flows re-emit when the transaction commits, so LifeTrackApplication refreshes the widgets without an explicit call. */
     fun resetAllData() = perform {
-        val habitIds = repository.resetAllData()
-        // The erase is committed at this point, so DataReset fires first and post-commit
-        // cleanup trouble must not report the erase itself as failed.
-        _events.emit(UiEvent.DataReset)
-        val cleanupFailed = try {
-            dailyReminderStore.set(null)
-            DailyCheckInReminderScheduler.sync(appContext, null)
-            BackupReminderScheduler.sync(appContext, false)
-            HabitReminderScheduler.cancelNotifications(appContext, habitIds)
-            false
-        } catch (cancelled: CancellationException) { throw cancelled }
-        catch (_: Exception) { true }
-        undoHistory.clear()
-        // A reset restarts the achievement journey: previously celebrated ids may be earned again.
+        // Suppress the celebration driver BEFORE the erase: the flows re-emit transitional data
+        // as the tables commit, and a stale achieved-but-unacknowledged milestone in those
+        // emissions must never celebrate or re-persist its acknowledgment row. Celebrate mode
+        // stays on (a reset restarts the journey — re-earned milestones celebrate again), and
+        // the driver resumes once the erase block completes: the only post-commit emission of a
+        // reset is the settled fresh state, where nothing is achieved.
+        celebrationSuppressed = true
+        achievementsSeeded = true
         celebratedThisSession.clear()
-        _events.emit(UiEvent.Message(if (cleanupFailed) "Your data was erased, but reminder cleanup failed. Restart the app to finish it." else "LifeTrack was reset"))
-        _wasReset.value = true
+        try {
+            val habitIds = repository.resetAllData()
+            // The erase is committed at this point, so DataReset fires first and post-commit
+            // cleanup trouble must not report the erase itself as failed.
+            _events.emit(UiEvent.DataReset)
+            val cleanupFailed = try {
+                dailyReminderStore.set(null)
+                DailyCheckInReminderScheduler.sync(appContext, null)
+                BackupReminderScheduler.sync(appContext, false)
+                HabitReminderScheduler.cancelNotifications(appContext, habitIds)
+                false
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { true }
+            undoHistory.clear()
+            _events.emit(UiEvent.Message(if (cleanupFailed) "Your data was erased, but reminder cleanup failed. Restart the app to finish it." else "LifeTrack was reset"))
+            _wasReset.value = true
+        } finally {
+            // A failed reset must not leave the driver suppressed for the whole session.
+            celebrationSuppressed = false
+        }
     }
 }

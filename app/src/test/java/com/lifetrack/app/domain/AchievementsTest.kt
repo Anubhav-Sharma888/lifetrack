@@ -9,6 +9,8 @@ import com.lifetrack.app.data.Habit
 import com.lifetrack.app.data.HabitLog
 import com.lifetrack.app.data.HabitPause
 import com.lifetrack.app.data.LogStatus
+import com.lifetrack.app.data.ScheduleMode
+import com.lifetrack.app.data.ScheduleRevision
 import com.lifetrack.app.data.StreakProtection
 import com.lifetrack.app.data.WorkoutActivity
 import java.time.LocalDate
@@ -91,6 +93,25 @@ class AchievementsTest {
         assertEquals(Achievements.catalogue.size, result.size)
         assertTrue(result.none { it.achieved })
         assertTrue(result.all { it.current == 0L })
+    }
+
+    @Test fun `weekly quota completions count toward milestones while day streaks stay zero`() {
+        // Three full completions on any days of the week: the quota counts distinct completed days.
+        val quota = habit().copy(
+            scheduleMode = ScheduleMode.WEEKLY_QUOTA.name, weeklyTarget = 3,
+            scheduleHistory = listOf(ScheduleRevision(start, (1..7).toList(),
+                mode = ScheduleMode.WEEKLY_QUOTA.name, weeklyTarget = 3))
+        )
+        val logs = listOf(
+            log(start), log(start.plusDays(1)), log(start.plusDays(2))
+        )
+        val inputs = inputs(habits = listOf(quota), logs = logs)
+        // Quota days are full completions on eligible dates: completion milestones count them.
+        assertTrue(achieved(AchievementIds.FIRST_COMPLETION, inputs))
+        assertEquals(3, current(AchievementIds.COMPLETIONS_7, inputs))
+        // But quota habits have no day-based streak: the consistency milestone stays unearned.
+        assertEquals(0, current(AchievementIds.STREAK_DAYS_7, inputs))
+        assertFalse(achieved(AchievementIds.STREAK_DAYS_7, inputs))
     }
 
     // ---- Qualifying streaks ----

@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -98,6 +99,12 @@ fun TodayScreen(
     val completedDates = remember(state.logs) { state.logs.filter { it.status == LogStatus.COMPLETED }.map { it.date }.toSet() }
     val categories = remember(active) { active.map { it.category }.distinct().sorted() }
     val dayFormat = remember { DateTimeFormatter.ofPattern("d MMM yyyy", Locale.getDefault()) }
+    // Formatters hoisted out of the header and item builders: construction is per-recomposition otherwise.
+    val displayDateFormat = remember { DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.getDefault()) }
+    val monthYearFormat = remember { DateTimeFormatter.ofPattern("MMM yyyy", Locale.getDefault()) }
+    val nudgeDateFormat = remember { DateTimeFormatter.ofPattern("EEE, d MMM", Locale.getDefault()) }
+    val nextDateFormat = remember { DateTimeFormatter.ofPattern("EEE, d MMM yyyy", Locale.getDefault()) }
+    val weekStartFormat = remember { DateTimeFormatter.ofPattern("d MMM", Locale.getDefault()) }
     val unmarkedYesterday = remember(state.habits, state.logs, state.pauses, state.today) {
         Analytics.unmarked(state.habits, state.logs, state.today.minusDays(1), state.pauses)
     }
@@ -129,22 +136,23 @@ fun TodayScreen(
                 Spacer(Modifier.height(12.dp))
                 // Almanac: oversized Newsreader date with a vertical-rule day/month seal lockup.
                 // Prev/next chevrons flank the date; the date text itself opens the calendar picker.
-                Row(Modifier.padding(top = 2.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                // IntrinsicSize lets the rule grow with the wrapped date at large font scales.
+                Row(Modifier.height(IntrinsicSize.Min).padding(top = 2.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(enabled = date > minimum, onClick = { selected = date.minusDays(1).toString() }) {
                         Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, "Previous day")
                     }
                     Text(
-                        date.format(DateTimeFormatter.ofPattern("EEEE d MMMM")),
+                        date.format(displayDateFormat),
                         style = MaterialTheme.typography.displayLarge.copy(fontFeatureSettings = "tnum"),
                         modifier = Modifier.weight(1f).clickable(onClickLabel = "Open calendar", role = Role.Button) { showDate = true }
                     )
                     IconButton(enabled = date < state.today, onClick = { selected = date.plusDays(1).toString() }) {
                         Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, "Next day")
                     }
-                    Box(Modifier.padding(start = 12.dp).width(1.dp).height(44.dp).background(MaterialTheme.colorScheme.outlineVariant))
+                    Box(Modifier.padding(start = 12.dp).width(1.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outlineVariant))
                     Column(Modifier.padding(start = 10.dp), horizontalAlignment = Alignment.End) {
                         Text(date.dayOfMonth.toString().padStart(2, '0'), style = AlmanacType.monoData, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(date.format(DateTimeFormatter.ofPattern("MMM yyyy")).uppercase(), style = AlmanacType.labelCaps, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(date.format(monthYearFormat).uppercase(), style = AlmanacType.labelCaps, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
@@ -174,7 +182,7 @@ fun TodayScreen(
                     Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.tertiaryContainer,
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = .35f)), modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("${if (unmarkedYesterday.size == 1) "One habit was" else "${unmarkedYesterday.size} habits were"} left unmarked on ${state.today.minusDays(1).format(DateTimeFormatter.ofPattern("EEE, d MMM"))}", style = MaterialTheme.typography.titleSmall)
+                            Text("${if (unmarkedYesterday.size == 1) "One habit was" else "${unmarkedYesterday.size} habits were"} left unmarked on ${state.today.minusDays(1).format(nudgeDateFormat)}", style = MaterialTheme.typography.titleSmall)
                             Text(unmarkedYesterday.take(3).joinToString(" · ") { it.name }, style = MaterialTheme.typography.bodySmall, maxLines = 2)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Button(onClick = { selected = state.today.minusDays(1).toString(); focusUnmarked = true }) { Text("Mark them now") }
@@ -208,7 +216,7 @@ fun TodayScreen(
             }
         } else if (active.isEmpty()) {
             item(key = "empty-habits") { Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("🌱", style = MaterialTheme.typography.displayLarge)
+                Text("🌱", style = MaterialTheme.typography.displayLarge, modifier = Modifier.clearAndSetSemantics {})
                 Spacer(Modifier.height(16.dp)); Text("Start with something small", style = MaterialTheme.typography.headlineSmall)
                 Text("A page. A walk. A quiet minute. Pick a suggestion or create your own habit. Choose the days and pace that work for you.", Modifier.padding(vertical = 16.dp))
                 Button(onClick = onAdd) { Text("Create your first habit") }
@@ -232,13 +240,13 @@ fun TodayScreen(
                 val scheduleNote = when {
                     facts.mode == ScheduleMode.EVERY_N_DAYS && !facts.eligible ->
                         facts.next?.let { next ->
-                            "Next scheduled ${next.format(DateTimeFormatter.ofPattern("EEE, d MMM yyyy", Locale.getDefault()))}"
+                            "Next scheduled ${next.format(nextDateFormat)}"
                         }
                     facts.quota != null -> {
                         val quota = facts.quota
                         // Past weeks are labeled by their Monday, matching the analytics week bars.
                         val weekLabel = if (Analytics.weekStart(date) == Analytics.weekStart(state.today)) "This week"
-                            else "Week of ${Analytics.weekStart(date).format(DateTimeFormatter.ofPattern("d MMM", Locale.getDefault()))}"
+                            else "Week of ${Analytics.weekStart(date).format(weekStartFormat)}"
                         when (quota.state) {
                             Scheduling.WeeklyQuotaState.ACHIEVED -> "$weekLabel: ${quota.completedDays} of ${quota.requiredDays} · Achieved"
                             Scheduling.WeeklyQuotaState.ONGOING ->
@@ -363,7 +371,7 @@ private fun FreshStartCard(onAdd: () -> Unit, onRestore: () -> Unit) {
             Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Surface(shape = RoundedCornerShape(12.dp), color = colors.surfaceContainerHigh) {
+            Surface(shape = RoundedCornerShape(10.dp), color = colors.surfaceContainerHigh) {
                 Box(Modifier.size(64.dp), contentAlignment = Alignment.Center) {
                     Icon(Icons.Outlined.MenuBook, null, Modifier.size(32.dp))
                 }

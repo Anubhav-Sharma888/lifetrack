@@ -360,6 +360,11 @@ class HabitRepository @Inject constructor(
     suspend fun setStreakProtection(habitId: Long, date: LocalDate, protectChain: Boolean) = db.withTransaction {
         val habit = dao.habit(habitId) ?: throw IllegalArgumentException("This habit no longer exists.")
         require(!habit.isArchived) { "Restore this archived habit before changing its check-ins." }
+        // Weekly-quota days have no chain to protect; a decision made there would sit inert
+        // and apply retroactively if the habit were switched back to weekdays.
+        if (com.lifetrack.app.domain.Scheduling.mode(habit, date) == com.lifetrack.app.data.ScheduleMode.WEEKLY_QUOTA) {
+            throw IllegalArgumentException("Weekly-quota habits do not use day streaks.")
+        }
         require(date < LocalDate.now()) { "Streak decisions apply to past days. Today's check-in is still available." }
         require(date >= habit.startDate) { "Check-ins cannot be before this habit's start date." }
         val weekdays = habit.scheduleHistory.lastOrNull { it.effectiveFrom <= date }?.days ?: habit.scheduleHistory.firstOrNull()?.days ?: habit.scheduledDays

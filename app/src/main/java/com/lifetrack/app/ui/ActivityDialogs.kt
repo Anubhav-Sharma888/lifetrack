@@ -28,6 +28,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -79,7 +81,7 @@ fun RecordingStrip(selected: LocalDate, today: LocalDate, completedDates: Set<Lo
             val dayLabel = day.format(DateTimeFormatter.ofPattern("EEEE, d MMMM", Locale.getDefault()))
             Column(
                 modifier = Modifier.widthIn(min = 52.dp).clip(RoundedCornerShape(4.dp))
-                    .clickable(enabled = day <= today, onClick = { onSelect(day) })
+                    .clickable(enabled = day <= today, role = Role.Button, onClick = { onSelect(day) })
                     .semantics {
                         contentDescription = "$dayLabel · " + when {
                             hasLogs && isSelected -> "has recordings · selected day"
@@ -307,7 +309,8 @@ fun ActivitySection(state: LifeTrackState, vm: HabitViewModel, date: LocalDate, 
                             Column(Modifier.padding(12.dp)) {
                                 Row(Modifier.padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    Box(Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
+                                    Box(Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceVariant)
+                                        .clearAndSetSemantics {}, contentAlignment = Alignment.Center) {
                                         Text(activity.icon, fontSize = 20.sp)
                                     }
                                     Column(Modifier.weight(1f)) {
@@ -453,7 +456,7 @@ fun ActivityLogDialog(activityId: Long, date: LocalDate, state: LifeTrackState, 
         onDismissRequest = { if (!busy) onDismiss() },
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface,
+        Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surface,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
             modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth().padding(20.dp)) {
             // Window-sized cap from LocalWindowInfo (pixels, density-converted) per the Compose

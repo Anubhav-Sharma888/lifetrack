@@ -86,7 +86,7 @@ internal fun SchedulesScreen(state: LifeTrackState, vm: HabitViewModel, onBack: 
             item(key = "habits-heading") {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Habit schedules", Modifier.weight(1f), style = AlmanacType.labelCaps, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                    Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
                         Text("${habits.count { it.reminderMinutes != null }} reminders on", Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = AlmanacType.monoCaption)
                     }
                 }
@@ -191,7 +191,8 @@ private fun HabitScheduleCard(habit: Habit, logs: List<HabitLog>, pauses: List<H
                     }
                 }
                 ScheduleMode.WEEKLY_QUOTA -> {
-                    val quota = Scheduling.weeklyQuotaStatus(habit, logs, pauses, today, today)
+                    // Full log walk per quota card — cached per card recomposition scope.
+                    val quota = remember(habit, logs, pauses, today) { Scheduling.weeklyQuotaStatus(habit, logs, pauses, today, today) }
                     Text("${quota.requiredDays} sessions per week · Monday through Sunday", style = MaterialTheme.typography.bodyLarge)
                     Text(when (quota.state) {
                         Scheduling.WeeklyQuotaState.ACHIEVED -> "This week: ${quota.completedDays} of ${quota.requiredDays} · Achieved"

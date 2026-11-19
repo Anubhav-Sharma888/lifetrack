@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
@@ -26,6 +28,7 @@ import java.time.LocalDate
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -210,5 +213,28 @@ class AnalyticsScreenTest {
         compose.onNodeWithText("Confirm clear").assertDoesNotExist()
         compose.onNodeWithText("Clear entry").assertDoesNotExist() // the log dialog closed with the save
         assertNull(runBlocking { db.dao().activityEntry(1L, today) })
+    }
+
+    @Test fun recordingStripCellsExposeButtonRoleAndTheirDay() {
+        // Component-contract render (same isolation as EditorRecoveryTest's NextMilestoneCard):
+        // the strip's day cells are Role.Button toggles that announce the full date, the
+        // selection and the recording state — today is the fixture's selected-and-empty day.
+        var chosen: LocalDate? = null
+        compose.setContent {
+            MaterialTheme {
+                RecordingStrip(selected = today, today = today, completedDates = emptySet(),
+                    onSelect = { chosen = it })
+            }
+        }
+        val selectedCell = compose.onNodeWithContentDescription("Monday, 26 October · selected day · no recordings yet")
+        selectedCell.assertExists().assertHasClickAction()
+        assertEquals(Role.Button, selectedCell.fetchSemanticsNode().config[SemanticsProperties.Role])
+        // The earliest cell announces the same contract without the selection.
+        val earliestCell = compose.onNodeWithContentDescription("Tuesday, 20 October · no recordings yet")
+        earliestCell.assertExists().assertHasClickAction()
+        assertEquals(Role.Button, earliestCell.fetchSemanticsNode().config[SemanticsProperties.Role])
+        // Tapping a day switches the selected date (TodayScreen's date-selection contract).
+        earliestCell.performClick()
+        compose.runOnIdle { assertEquals(LocalDate.of(2026, 10, 20), chosen) }
     }
 }

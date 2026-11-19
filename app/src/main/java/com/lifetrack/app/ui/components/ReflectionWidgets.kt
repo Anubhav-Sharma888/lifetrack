@@ -81,8 +81,8 @@ internal fun moodLabel(mood: Int): String = when (mood) {
 fun MoodSelector(
     selected: Int?,
     onSelect: (Int) -> Unit,
-    enabled: Boolean = true,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
 ) {
     val hairline = MaterialTheme.colorScheme.outlineVariant
     Row(

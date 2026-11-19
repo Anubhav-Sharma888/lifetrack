@@ -43,14 +43,23 @@ fun HeatmapWidget(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate, m
         (0..370).associate { offset -> start.plusDays(offset.toLong()).let { it to Analytics.density(habits, logsByDate[it].orEmpty(), it, pauses) } }
     }
     val scroll = rememberScrollState()
-    LaunchedEffect(today, scroll.maxValue) { scroll.scrollTo(scroll.maxValue) }
     // Make the step-through claim true: every selection change brings that day's week column
-    // into view (18dp cell + 4dp column spacing = one column per week). Re-run on maxValue so
-    // the positioning also applies once layout has produced a real scroll range.
+    // into view (18dp cell + 4dp column spacing = one column per week). One effect owns the
+    // scroll: it snaps once on the first real layout (selected == today, the old end-state)
+    // and animates on every later selection or range change — two competing effects on the
+    // same scroll state flickered on relayout.
     val perWeekPx = with(LocalDensity.current) { 18.dp.toPx() + 4.dp.toPx() }
+    var positioned by remember { mutableStateOf(false) }
     LaunchedEffect(selected, scroll.maxValue) {
+        if (scroll.maxValue == 0) return@LaunchedEffect
         val index = ((selected.toEpochDay() - start.toEpochDay()) / 7).toInt().coerceIn(0, 52)
-        scroll.animateScrollTo((index * perWeekPx).toInt().coerceAtMost(scroll.maxValue))
+        val target = (index * perWeekPx).toInt().coerceAtMost(scroll.maxValue)
+        if (!positioned) {
+            scroll.scrollTo(target)
+            positioned = true
+        } else {
+            scroll.animateScrollTo(target)
+        }
     }
     val primary = MaterialTheme.colorScheme.secondary
     val empty = MaterialTheme.colorScheme.surfaceContainerHighest

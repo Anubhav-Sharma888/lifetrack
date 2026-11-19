@@ -332,7 +332,8 @@ private fun AchievementStateLine(progress: Achievements.Progress) {
         Text(
             "✓ Achieved",
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.secondary,
+            // onSecondaryContainer keeps 12sp text at AA contrast in light mode (raw secondary is 3.6:1).
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
             modifier = Modifier.semantics { contentDescription = "Achieved" }
         )
     } else {

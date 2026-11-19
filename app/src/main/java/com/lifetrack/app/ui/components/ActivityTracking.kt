@@ -239,7 +239,7 @@ fun ActivityTrend(activity: WorkoutActivity, entries: List<ActivityEntry>, modif
 /** The four tracking modes with example-led titles and supporting text, one selectable row each.
  *  Rows use selectable() with a RadioButton role so TalkBack reads one focusable, selected-aware stop per mode. */
 @Composable
-fun TrackingModeSelector(selected: ActivityMode, onSelect: (ActivityMode) -> Unit, enabled: Boolean = true, modifier: Modifier = Modifier) {
+fun TrackingModeSelector(selected: ActivityMode, onSelect: (ActivityMode) -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text("Tracking mode", style = MaterialTheme.typography.titleSmall)
         listOf(

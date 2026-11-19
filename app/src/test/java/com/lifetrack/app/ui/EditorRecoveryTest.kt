@@ -18,9 +18,16 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewModelScope
 import androidx.room.Room
 import com.lifetrack.app.data.*
+import com.lifetrack.app.domain.AchievementIds
 import com.lifetrack.app.domain.Achievements
 import java.time.LocalDate
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Before
@@ -361,6 +368,121 @@ class EditorRecoveryTest {
             .assertExists().assertHasNoClickAction()
         assertEquals(1, compose.onAllNodes(hasContentDescription("Year of daily completion squares", substring = true))
             .fetchSemanticsNodes().size)
+    }
+
+    @Test fun weeklyQuotaPartialDayWellHasNoChainLanguage() {
+        // The M3 DatePicker day grid never composes under Robolectric (header and buttons
+        // render; the grid contributes zero semantics nodes), so past-date navigation cannot
+        // be driven here — the quota guard itself is pinned by the repository rejection test
+        // and the era-resolution engine tests. This smoke pins what a user checking in sees:
+        // a quota partial day's well renders progress and quota copy with no chain language.
+        val now = LocalDate.of(2026, 10, 26) // Monday of a Monday-start week
+        val quota = Habit(id = 1, name = "Gym", startDate = now.minusDays(10), targetCount = 3,
+            scheduleMode = ScheduleMode.WEEKLY_QUOTA.name, weeklyTarget = 3, streakPolicy = StreakPolicy.MANUAL.name)
+        val partial = HabitLog(id = 1, habitId = 1, date = now, status = LogStatus.IN_PROGRESS, progress = 1)
+        compose.setContent {
+            MaterialTheme {
+                HabitDetailScreen(1, LifeTrackState(habits = listOf(quota), logs = listOf(partial), today = now, loaded = true),
+                    vm, onBack = {}, onEdit = {})
+            }
+        }
+        compose.onNodeWithText("In progress").assertExists()
+        compose.onNodeWithText("1 / 3 times").assertExists()
+        compose.onNodeWithText("3 sessions per week · Monday through Sunday, any day counts").assertExists()
+        // A quota day has no chain to protect or break — no per-day decision controls, ever.
+        compose.onNodeWithText("Smart Streaks").assertDoesNotExist()
+        compose.onNodeWithText("Protect chain").assertDoesNotExist()
+        compose.onNodeWithText("Break chain").assertDoesNotExist()
+        compose.onNodeWithText("Protect this partial day").assertDoesNotExist()
+    }
+
+    @Test fun resetSuppressesTheCelebrationRaceAndTheFreshJourneyCelebratesAgain() {
+        // A completed day earns the first-completion milestone through the real vm + db harness.
+        runBlocking {
+            db.dao().insertHabit(Habit(id = 1, name = "Read", startDate = today.minusDays(1)))
+            db.dao().insertLog(HabitLog(id = 1, habitId = 1, date = today, status = LogStatus.COMPLETED))
+        }
+        compose.waitUntil(timeoutMillis = 5000) {
+            shadowOf(Looper.getMainLooper()).idle()
+            vm.achievements.value.any { it.achieved }
+        }
+        // The first evaluation seeds its acknowledgment silently (pre-feature milestones never
+        // celebrate); committing the row proves the pre-reset state is fully evaluated before
+        // the reset begins, so nothing but transitional emissions can race the erase.
+        val earnedId = vm.achievements.value.first { it.achieved }.definition.id
+        vm.acknowledgeAchievement(earnedId)
+        compose.waitUntil(timeoutMillis = 5000) {
+            shadowOf(Looper.getMainLooper()).idle()
+            runBlocking { db.dao().achievementAcknowledgment(earnedId) != null }
+        }
+        // The collector must subscribe before the reset: the celebration flow has no replay,
+        // so a collector started after the emissions would never see them either way.
+        // Readiness barrier: `busy` is a StateFlow that emits immediately, so completing the
+        // deferred proves the collector coroutine actually ran and subscribed.
+        val celebrations = mutableListOf<Achievements.Progress>()
+        val collectorScope = CoroutineScope(Dispatchers.Default + Job())
+        val collectorReady = CompletableDeferred<Unit>()
+        try {
+            collectorScope.launch {
+                vm.busy.first()
+                collectorReady.complete(Unit)
+                vm.achievementCelebration.collect { celebrations.add(it) }
+            }
+            runBlocking { collectorReady.await() }
+
+            vm.resetAllData()
+            compose.waitUntil(timeoutMillis = 5000) {
+                shadowOf(Looper.getMainLooper()).idle()
+                vm.wasReset.value
+            }
+            // The settled fresh evaluation (full catalogue, nothing achieved) is the only
+            // post-commit emission; wait for it so the driver's queue has drained past the
+            // erase's transitional data before the no-celebration assertions run.
+            compose.waitUntil(timeoutMillis = 5000) {
+                shadowOf(Looper.getMainLooper()).idle()
+                vm.achievements.value.size == Achievements.catalogue.size && vm.achievements.value.none { it.achieved }
+            }
+            compose.waitForIdle()
+            // A stale achieved-but-unacknowledged milestone in the transitional emissions must
+            // neither celebrate nor re-persist its acknowledgment row.
+            assertTrue("A celebration fired during the reset transition", celebrations.isEmpty())
+            assertTrue(runBlocking { db.dao().allAchievementAcknowledgments().isEmpty() })
+
+            // A reset restarts the journey: celebrate mode survives the reset, so re-earning
+            // the milestone CELEBRATES once and its acknowledgment row is re-created.
+            runBlocking {
+                db.dao().insertHabit(Habit(id = 1, name = "Read", startDate = today.minusDays(1)))
+                db.dao().insertLog(HabitLog(id = 2, habitId = 1, date = today, status = LogStatus.COMPLETED))
+            }
+            compose.waitUntil(timeoutMillis = 5000) {
+                shadowOf(Looper.getMainLooper()).idle()
+                celebrations.isNotEmpty()
+            }
+            compose.runOnIdle {
+                assertEquals(1, celebrations.size)
+                assertEquals(AchievementIds.FIRST_COMPLETION, celebrations.single().definition.id)
+            }
+            assertNotNull(runBlocking { db.dao().achievementAcknowledgment(AchievementIds.FIRST_COMPLETION) })
+        } finally {
+            collectorScope.cancel()
+        }
+    }
+
+    @Test fun habitIconIsPaintedButNoLongerAnnounced() {
+        // Yesterday is completed so the unmarked-nudge card (which repeats the habit's name)
+        // stays hidden and the name occurs exactly once on the screen.
+        val habit = Habit(id = 1, name = "Read", icon = "🧠", startDate = today.minusDays(1))
+        val yesterdayLog = HabitLog(id = 1, habitId = 1, date = today.minusDays(1), status = LogStatus.COMPLETED)
+        compose.setContent {
+            MaterialTheme {
+                TodayScreen(LifeTrackState(habits = listOf(habit), logs = listOf(yesterdayLog), today = today, loaded = true),
+                    vm, onAdd = {}, onOpen = {})
+            }
+        }
+        // The name still announces; the emoji is painted but cleared from the semantics tree
+        // (clearAndSetSemantics), so TalkBack reads the habit once without the decoration.
+        compose.onNodeWithText("Read").assertExists()
+        compose.onNodeWithText("🧠").assertDoesNotExist()
     }
 
     @Test fun editorReminderRowTogglesFromTheRow() {
