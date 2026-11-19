@@ -15,6 +15,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -24,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import com.lifetrack.app.data.*
 import com.lifetrack.app.domain.Analytics
 import com.lifetrack.app.domain.Scheduling
+import com.lifetrack.app.ui.components.AlmanacStat
 import com.lifetrack.app.ui.components.CompletionTrend
 import com.lifetrack.app.ui.components.HeatmapWidget
 import java.time.DayOfWeek
@@ -52,14 +55,21 @@ fun HabitDetailScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
     var deleteText by rememberSaveable { mutableStateOf("") }
     val busy by vm.busy.collectAsState()
     val operationError by vm.operationError.collectAsState()
-    val ownLogs = state.logs.filter { it.habitId == id }
+    val ownLogs = remember(id, state.logs) { state.logs.filter { it.habitId == id } }
     val log = ownLogs.firstOrNull { it.date == date }
     val goal = habit.goalOn(date)
     val eligible = !habit.isArchived && Analytics.eligible(habit, date, state.pauses) && date <= state.today
     // Mode and quota status resolve once in composable scope; the schedule block, stat row and
     // weekly rhythm all read the same engine state so their figures can never disagree.
     val mode = Scheduling.mode(habit, state.today)
-    val quota = if (mode == ScheduleMode.WEEKLY_QUOTA) Scheduling.weeklyQuotaStatus(habit, ownLogs, state.pauses, state.today, state.today) else null
+    val quota = if (mode == ScheduleMode.WEEKLY_QUOTA) remember(habit, ownLogs, state.pauses, state.today) { Scheduling.weeklyQuotaStatus(habit, ownLogs, state.pauses, state.today, state.today) } else null
+    // Streak engines walk the whole log list; remembered so the stat row recomputes only on
+    // real input changes, not on every unrelated recomposition of the screen. Quota habits
+    // have no day chain, so the streak walk is skipped entirely for them.
+    val streaks = if (mode == ScheduleMode.WEEKLY_QUOTA) null else remember(habit, ownLogs, state.today, state.pauses, state.streakProtections) {
+        Analytics.currentStreak(habit, ownLogs, state.today, state.pauses, state.streakProtections) to
+            Analytics.bestStreak(habit, ownLogs, state.today, state.pauses, state.streakProtections)
+    }
     val spent = state.freezes.any { it.month == YearMonth.from(date).toString() }
     Scaffold(topBar = {
         TopAppBar(title = { Text("Your journey") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } }, actions = {
@@ -69,7 +79,7 @@ fun HabitDetailScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
         Column(Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
             Text(habit.icon, style = MaterialTheme.typography.displayMedium)
             Text(habit.name, style = MaterialTheme.typography.headlineLarge)
-            Text("${habit.category} · Started ${habit.startDate}", style = AlmanacType.monoData, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("${habit.category} · Started ${habit.startDate.format(scheduleDateFormat)}", style = AlmanacType.monoData, color = MaterialTheme.colorScheme.onSurfaceVariant)
             habit.description?.let { Text(it) }
             habit.afterHabitId?.let { parent -> state.habits.firstOrNull { it.id == parent }?.let { Text("After I ${it.name}, I will ${habit.name}.", color = MaterialTheme.colorScheme.primary) } }
             if (habit.isArchived) Text("Archived · History preserved", color = MaterialTheme.colorScheme.primary)
@@ -115,24 +125,25 @@ fun HabitDetailScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (mode == ScheduleMode.WEEKLY_QUOTA && quota != null) {
                     // Period-based habits are never presented as a failed daily streak.
-                    StatCard("This week", "${quota.completedDays} of ${quota.requiredDays}", Modifier.weight(1f))
-                    StatCard("Completions", ownLogs.count { it.status == LogStatus.COMPLETED }.toString(), Modifier.weight(1f))
+                    AlmanacStat("${quota.completedDays} of ${quota.requiredDays}", "This week", Modifier.weight(1f))
+                    AlmanacStat(ownLogs.count { it.status == LogStatus.COMPLETED }.toString(), "Completions", Modifier.weight(1f))
                     // Same fairness rule as the status lines: a week with too few eligible days
                     // to ever reach the target is "Started mid-week", never a failure.
-                    StatCard("Week status", when (quota.state) {
+                    AlmanacStat(when (quota.state) {
                         Scheduling.WeeklyQuotaState.ACHIEVED -> "Achieved"
                         Scheduling.WeeklyQuotaState.ONGOING -> "Ongoing"
                         Scheduling.WeeklyQuotaState.MISSED -> if (quota.eligibleDays < quota.requiredDays) "Started mid-week" else "Missed"
                         Scheduling.WeeklyQuotaState.REST -> "Rest"
-                    }, Modifier.weight(1f))
+                    }, "Week status", Modifier.weight(1f))
                 } else {
-                    StatCard("Current streak", Analytics.currentStreak(habit, ownLogs, state.today, state.pauses, state.streakProtections).toString(), Modifier.weight(1f))
-                    StatCard("Completions", ownLogs.count { it.status == LogStatus.COMPLETED }.toString(), Modifier.weight(1f))
-                    StatCard("Best streak", Analytics.bestStreak(habit, ownLogs, state.today, state.pauses, state.streakProtections).toString(), Modifier.weight(1f))
+                    // Non-quota by construction, so streaks is non-null in this branch.
+                    AlmanacStat(streaks!!.first.toString(), "Current streak", Modifier.weight(1f))
+                    AlmanacStat(ownLogs.count { it.status == LogStatus.COMPLETED }.toString(), "Completions", Modifier.weight(1f))
+                    AlmanacStat(streaks!!.second.toString(), "Best streak", Modifier.weight(1f))
                 }
             }
             OutlinedButton(onClick = { showDate = true }, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Outlined.DateRange, null); Spacer(Modifier.width(8.dp)); Text("$date · ${Analytics.dayNumber(habit, date)?.let { "Day $it" } ?: "Not started"}")
+                Icon(Icons.Outlined.DateRange, null); Spacer(Modifier.width(8.dp)); Text("${date.format(scheduleDateFormat)} · ${Analytics.dayNumber(habit, date)?.let { "Day $it" } ?: "Not started"}")
             }
             // Almanac check-in well: sunken parchment inset instead of an elevated card.
             Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
@@ -204,7 +215,7 @@ fun HabitDetailScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
                         }
                     }
                     if (habit.isArchived) Text("Restore this habit to change check-ins.", style = MaterialTheme.typography.bodySmall)
-                    if (date < habit.startDate) Text("Check-ins begin on ${habit.startDate}.", style = MaterialTheme.typography.bodySmall)
+                    if (date < habit.startDate) Text("Check-ins begin on ${habit.startDate.format(scheduleDateFormat)}.", style = MaterialTheme.typography.bodySmall)
                     else if (!eligible && !habit.isArchived) Text(
                         if (mode == ScheduleMode.EVERY_N_DAYS)
                             Scheduling.nextScheduledOn(habit, state.today)?.let { "This is a rest day — next scheduled ${it.format(scheduleDateFormat)}." }
@@ -236,7 +247,7 @@ fun HabitDetailScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
     if (freezeDialog) {
         var note by rememberSaveable(id, date) { mutableStateOf(log?.note ?: "") }
         LaunchedEffect(id, date) { vm.clearOperationError() }
-        AlertDialog(onDismissRequest = { freezeDialog = false }, title = { Text("Protect $date?") }, text = {
+        AlertDialog(onDismissRequest = { freezeDialog = false }, title = { Text("Protect ${date.format(scheduleDateFormat)}?") }, text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("This uses the app's one freeze for ${YearMonth.from(date)}. It stays spent if you later edit or delete this check-in.")
                 OutlinedTextField(note, { if (it.length <= 4000) note = it }, label = { Text("Note · optional") }, colors = almanacFieldColors())
@@ -257,13 +268,16 @@ private fun WeeklyRhythm(habit: Habit, logs: List<HabitLog>, pauses: List<HabitP
     val weekFormat = DateTimeFormatter.ofPattern("d MMM", Locale.getDefault())
     // Only weeks already governed by the weekly schedule render, matching TodayScreen's
     // per-viewed-date gating: a habit switched to quota today has weekday-era weeks that are
-    // not failed weekly attempts.
-    val weeks = (5 downTo 0).mapNotNull { i ->
-        val week = Analytics.weekStart(today).minusWeeks(i.toLong())
-        val weekEnd = week.plusDays(6)
-        if (weekEnd.isBefore(habit.startDate)) return@mapNotNull null
-        if (Scheduling.mode(habit, week.plusDays(3)) != ScheduleMode.WEEKLY_QUOTA) return@mapNotNull null
-        Triple(week, weekEnd, Scheduling.weeklyQuotaStatus(habit, logs, pauses, week.plusDays(3), today))
+    // not failed weekly attempts. Each week runs a full quota walk over the log list, so the
+    // six weeks are resolved once per input change, not on every recomposition.
+    val weeks = remember(habit, logs, pauses, today) {
+        (5 downTo 0).mapNotNull { i ->
+            val week = Analytics.weekStart(today).minusWeeks(i.toLong())
+            val weekEnd = week.plusDays(6)
+            if (weekEnd.isBefore(habit.startDate)) return@mapNotNull null
+            if (Scheduling.mode(habit, week.plusDays(3)) != ScheduleMode.WEEKLY_QUOTA) return@mapNotNull null
+            Triple(week, weekEnd, Scheduling.weeklyQuotaStatus(habit, logs, pauses, week.plusDays(3), today))
+        }
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Weekly rhythm", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -287,18 +301,6 @@ private fun WeeklyRhythm(habit: Habit, logs: List<HabitLog>, pauses: List<HabitP
 }
 
 @Composable
-private fun StatCard(label: String, value: String, modifier: Modifier) {
-    // Almanac stat well: sunken parchment with a mono metric figure and caps label.
-    Surface(modifier, shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
-        Column(Modifier.padding(12.dp)) {
-            Text(value, style = AlmanacType.monoMetric, color = MaterialTheme.colorScheme.onSurface)
-            Spacer(Modifier.height(4.dp))
-            Text(label, style = AlmanacType.labelCaps, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
 fun LogEditorDialog(habit: Habit, date: LocalDate, current: HabitLog?, vm: HabitViewModel, onDismiss: () -> Unit,
                     // Quota days have no chain: a new check-in must not default to a chain status the list hides.
                     initialStatus: LogStatus = current?.status
@@ -312,28 +314,37 @@ fun LogEditorDialog(habit: Habit, date: LocalDate, current: HabitLog?, vm: Habit
     var progress by rememberSaveable(habit.id, date) { mutableStateOf((if (current?.status == LogStatus.COMPLETED) maxOf(goal.targetCount, current.progress) else current?.progress ?: 0).toString()) }
     val busy by vm.busy.collectAsState()
     val operationError by vm.operationError.collectAsState()
+    // Clearing a day erases its note and Smart Streaks decision, so it asks first.
+    var clearConfirm by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(habit.id, date) { vm.clearOperationError() }
     // A finite content viewport avoids intrinsic-height feedback between a platform dialog,
-    // growing text fields and the scroll container, including with large accessibility fonts.
+    // growing text fields and the scroll container, including with large accessibility fonts
+    // and short viewports (85% of the window's container height). Read from LocalWindowInfo
+    // (pixels, converted via density) per the Compose lint guidance for window-sized caps.
+    val maxDialogHeight = with(LocalDensity.current) {
+        (LocalWindowInfo.current.containerSize.height * 0.85f).toDp()
+    }
     Dialog(onDismissRequest = { if (!busy) onDismiss() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface,
             border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
             modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth().padding(20.dp)) {
-            Column(Modifier.heightIn(max = 620.dp).padding(24.dp)) {
+            Column(Modifier.heightIn(max = maxDialogHeight).padding(24.dp)) {
                 Text("${habit.icon} ${habit.name}", style = MaterialTheme.typography.headlineSmall, maxLines = 2)
                 Spacer(Modifier.height(12.dp))
                 Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(date.toString(), style = MaterialTheme.typography.labelLarge)
-                    Text("Tap a status to save it instantly.", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(date.format(DateTimeFormatter.ofPattern("EEEE, d MMMM", Locale.getDefault())), style = MaterialTheme.typography.labelLarge)
+                    Text(if (current == null) "Tap a status to save it instantly." else "Choose a status, then save to replace the recorded one.", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     val statusOptions = if (quotaMode) listOf(LogStatus.COMPLETED, LogStatus.IN_PROGRESS) else LogStatus.entries
                     statusOptions.forEach { option ->
                         Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
                             .selectable(selected = status == option, enabled = !busy,
                                 role = androidx.compose.ui.semantics.Role.RadioButton, onClick = {
                                     statusName = option.name
-                                    // One-tap save for whole-day statuses; IN_PROGRESS keeps the Save
-                                    // button because its progress field needs a deliberate value.
-                                    if (option != current?.status && option != LogStatus.IN_PROGRESS) {
+                                    // One-tap save only creates a new check-in; replacing an existing
+                                    // day's status goes through the Save button so the change is
+                                    // deliberate. IN_PROGRESS keeps the Save button either way because
+                                    // its progress field needs a deliberate value.
+                                    if (current == null && option != LogStatus.IN_PROGRESS) {
                                         vm.setLog(habit.id, date, option, note.ifBlank { null }, onSaved = onDismiss)
                                     }
                                 })
@@ -357,7 +368,7 @@ fun LogEditorDialog(habit: Habit, date: LocalDate, current: HabitLog?, vm: Habit
                     OutlinedTextField(note, { if (it.length <= 4000) note = it }, label = { Text("Note · optional") }, minLines = 2,
                         colors = almanacFieldColors(), modifier = Modifier.fillMaxWidth())
                     operationError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
-                    if (current != null) TextButton(enabled = !busy, onClick = { vm.clearLog(habit.id, date, onSaved = onDismiss) }) { Text("Clear check-in", color = MaterialTheme.colorScheme.error) }
+                    if (current != null) TextButton(enabled = !busy, onClick = { clearConfirm = true }) { Text("Clear check-in", color = MaterialTheme.colorScheme.error) }
                 }
                 Spacer(Modifier.height(16.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -370,4 +381,17 @@ fun LogEditorDialog(habit: Habit, date: LocalDate, current: HabitLog?, vm: Habit
             }
         }
     }
+    if (clearConfirm) AlertDialog(
+        onDismissRequest = { if (!busy) clearConfirm = false },
+        title = { Text("Clear this check-in?") },
+        text = { Text("Its note and any Smart Streaks decision for this day are removed. This cannot be undone.") },
+        confirmButton = {
+            TextButton(enabled = !busy, onClick = { clearConfirm = false; vm.clearLog(habit.id, date, onSaved = onDismiss) }) {
+                // "Clear it" keeps the confirm button distinct from the editor's trigger button,
+                // so TalkBack never announces two identically-named destructive buttons at once.
+                Text("Clear it", color = MaterialTheme.colorScheme.error)
+            }
+        },
+        dismissButton = { TextButton(enabled = !busy, onClick = { clearConfirm = false }) { Text("Keep it") } }
+    )
 }

@@ -118,7 +118,8 @@ fun CheckInButton(
                 enabled = enabled, role = Role.Button,
                 hapticFeedbackEnabled = false,
                 onClickLabel = actionLabel ?: if (status == LogStatus.COMPLETED) "Undo completion" else "Complete habit",
-                onLongClickLabel = "Skip with an optional note",
+                // Long-press opens the full log editor (any status + note), not just a skip.
+                onLongClickLabel = "Edit check-in and note",
                 onClick = { if (preferences.hapticsEnabled) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); onClick() },
                 onLongClick = { if (preferences.hapticsEnabled) haptic.performHapticFeedback(HapticFeedbackType.LongPress); onLongClick() }
             ), contentAlignment = Alignment.Center

@@ -2,6 +2,7 @@ package com.lifetrack.app.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,9 +20,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifetrack.app.data.*
 import com.lifetrack.app.domain.Analytics
 import com.lifetrack.app.domain.Scheduling
@@ -40,7 +43,8 @@ fun TodayScreen(
     onAdd: () -> Unit,
     onOpen: (Long) -> Unit,
     onRestoreBackup: () -> Unit = {},
-    onSchedules: () -> Unit = {}
+    onSchedules: () -> Unit = {},
+    onAchievements: () -> Unit = {}
 ) {
     val busy by vm.busy.collectAsState()
     val wasReset by vm.wasReset.collectAsState()
@@ -60,25 +64,47 @@ fun TodayScreen(
     var order by remember { mutableStateOf(emptyList<Long>()) }
     val active = state.habits.filterNot { it.isArchived }
     val showFreshStart = wasReset && state.habits.isEmpty() && state.activities.isEmpty() && state.activityEntries.isEmpty()
-    val byId = active.associateBy { it.id }
+    val byId = remember(active) { active.associateBy { it.id } }
     val dayLogs = remember(state.logs, date) { state.logs.filter { it.date == date }.associateBy { it.habitId } }
     LaunchedEffect(active.map { it.id to it.sortOrder }) { order = active.sortedBy { it.sortOrder }.map { it.id } }
-    val habits = order.mapNotNull(byId::get).filter { habit ->
-        val eligible = Analytics.eligible(habit, date, state.pauses)
-        val dueToday = Analytics.dueOn(habit, date, state.pauses)
-        val completedToday = dayLogs[habit.id]?.status == LogStatus.COMPLETED
-        (query.isBlank() || listOf(habit.name, habit.description.orEmpty(), habit.category).any { it.contains(query.trim(), true) }) &&
-            (category == null || habit.category == category) && when (filter) { "Due" -> dueToday && !completedToday; "Completed" -> completedToday; "Rest / planned" -> !eligible; else -> true }
+    val habits = remember(order, dayLogs, query, category, filter, date, state.pauses, active, byId) {
+        order.mapNotNull(byId::get).filter { habit ->
+            val eligible = Analytics.eligible(habit, date, state.pauses)
+            val dueToday = Analytics.dueOn(habit, date, state.pauses)
+            val completedToday = dayLogs[habit.id]?.status == LogStatus.COMPLETED
+            (query.isBlank() || listOf(habit.name, habit.description.orEmpty(), habit.category).any { it.contains(query.trim(), true) }) &&
+                (category == null || habit.category == category) && when (filter) { "Due" -> dueToday && !completedToday; "Completed" -> completedToday; "Rest / planned" -> !eligible; else -> true }
+        }
     }
-    val due = active.filter { Analytics.dueOn(it, date, state.pauses) }
+    // Per-habit scheduling facts resolved once per state emission, not per item recomposition:
+    // the engine walks pauses, schedule history and (for quotas) the whole log list, which is
+    // wasteful to repeat per visible item on every recomposition (drag, check-in, typing).
+    // Facts read schedule/config fields only, which goalOn(date) never overrides, so deriving
+    // them from the stored habits is behavior-identical to the previous per-item reads.
+    val scheduleFacts = remember(habits, date, state.logs, state.pauses, state.today) {
+        habits.associate { habit ->
+            val mode = Scheduling.mode(habit, date)
+            val eligible = Analytics.eligible(habit, date, state.pauses)
+            val dueToday = Analytics.dueOn(habit, date, state.pauses)
+            val quota = if (mode == ScheduleMode.WEEKLY_QUOTA)
+                Scheduling.weeklyQuotaStatus(habit, state.logs, state.pauses, date, state.today) else null
+            val next = if (mode == ScheduleMode.EVERY_N_DAYS && !eligible) Scheduling.nextScheduledOn(habit, date) else null
+            habit.id to HabitScheduleFacts(eligible, dueToday, mode, quota, next)
+        }
+    }
+    val due = remember(active, date, state.pauses) { active.filter { Analytics.dueOn(it, date, state.pauses) } }
     val completed = due.count { dayLogs[it.id]?.status == LogStatus.COMPLETED }
+    // Derived collections cached in composable scope so the LazyColumn rebuilds stay cheap.
+    val completedDates = remember(state.logs) { state.logs.filter { it.status == LogStatus.COMPLETED }.map { it.date }.toSet() }
+    val categories = remember(active) { active.map { it.category }.distinct().sorted() }
+    val dayFormat = remember { DateTimeFormatter.ofPattern("d MMM yyyy", Locale.getDefault()) }
     val unmarkedYesterday = remember(state.habits, state.logs, state.pauses, state.today) {
         Analytics.unmarked(state.habits, state.logs, state.today.minusDays(1), state.pauses)
     }
     val showNudge = date == state.today && unmarkedYesterday.isNotEmpty() && nudgeDismissed != state.today.minusDays(1).toString()
     // Milestone hint: the locked achievement closest to completion, derived above the LazyColumn
     // (state reads must stay in composable scope, never inside the builder lambda).
-    val achievementList by vm.achievements.collectAsState()
+    val achievementList by vm.achievements.collectAsStateWithLifecycle()
     val nextMilestone = achievementList.filterNot { it.achieved }
         .minByOrNull { progress -> (progress.definition.target - progress.current).coerceAtLeast(0) }
     val listState = rememberLazyListState()
@@ -101,20 +127,20 @@ fun TodayScreen(
                     FilledTonalIconButton(onClick = onAdd) { Icon(Icons.Outlined.Add, "Add habit") }
                 }
                 Spacer(Modifier.height(12.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(enabled = date > minimum, onClick = { selected = date.minusDays(1).toString() }) { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, "Previous day") }
-                    TextButton(onClick = { showDate = true }, modifier = Modifier.weight(1f)) {
-                        Text(if (date == state.today) "Today · ${date.format(DateTimeFormatter.ofPattern("EEE, d MMM"))}" else date.format(DateTimeFormatter.ofPattern("EEE, d MMM yyyy")))
-                    }
-                    IconButton(enabled = date < state.today, onClick = { selected = date.plusDays(1).toString() }) { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, "Next day") }
-                }
                 // Almanac: oversized Newsreader date with a vertical-rule day/month seal lockup.
+                // Prev/next chevrons flank the date; the date text itself opens the calendar picker.
                 Row(Modifier.padding(top = 2.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(enabled = date > minimum, onClick = { selected = date.minusDays(1).toString() }) {
+                        Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft, "Previous day")
+                    }
                     Text(
                         date.format(DateTimeFormatter.ofPattern("EEEE d MMMM")),
                         style = MaterialTheme.typography.displayLarge.copy(fontFeatureSettings = "tnum"),
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f).clickable(onClickLabel = "Open calendar", role = Role.Button) { showDate = true }
                     )
+                    IconButton(enabled = date < state.today, onClick = { selected = date.plusDays(1).toString() }) {
+                        Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, "Next day")
+                    }
                     Box(Modifier.padding(start = 12.dp).width(1.dp).height(44.dp).background(MaterialTheme.colorScheme.outlineVariant))
                     Column(Modifier.padding(start = 10.dp), horizontalAlignment = Alignment.End) {
                         Text(date.dayOfMonth.toString().padStart(2, '0'), style = AlmanacType.monoData, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -124,7 +150,7 @@ fun TodayScreen(
                 HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
                 // Flight Recorder: seven-day recording strip over the measurement rule.
                 RecordingStrip(selected = date, today = state.today,
-                    completedDates = state.logs.filter { it.status == LogStatus.COMPLETED }.map { it.date }.toSet(),
+                    completedDates = completedDates,
                     onSelect = { selected = it.toString(); focusUnmarked = false })
                 HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
                 if (date != state.today) TextButton(onClick = { selected = null; focusUnmarked = false }) { Text("Back to today") }
@@ -165,29 +191,13 @@ fun TodayScreen(
                         trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Outlined.Close, "Clear search") } }, modifier = Modifier.fillMaxWidth())
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         FilterChip(category == null, { category = null }, label = { Text("All categories") })
-                        active.map { it.category }.distinct().sorted().forEach { name -> FilterChip(category == name, { category = name }, label = { Text(name) }) }
+                        categories.forEach { name -> FilterChip(category == name, { category = name }, label = { Text(name) }) }
                     }
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf("All", "Due", "Completed", "Rest / planned").forEach { choice -> FilterChip(filter == choice, { filter = choice }, label = { Text(choice) }) }
                     }
                 }
             }
-        }
-        // Daily reflection: mood and/or journal for the selected day — today or any past date.
-        item(key = "reflection") {
-            ReflectionEditorCard(
-                date = date,
-                today = state.today,
-                reflection = state.reflections.firstOrNull { it.date == date },
-                onSave = { mood, journal -> vm.setReflection(date, mood, journal) },
-                onRemove = { vm.clearReflection(date) },
-                enabled = !busy
-            )
-        }
-        // Small next-milestone hint: never displacing the habit cards or the reflection card above
-        // it, and hidden during the fresh-start onboarding (nothing to measure yet).
-        if (!showFreshStart) {
-            nextMilestone?.let { milestone -> item(key = "next-milestone") { NextMilestoneCard(progress = milestone) } }
         }
         if (showFreshStart) {
             item(key = "fresh-start") { FreshStartCard(onAdd, onRestoreBackup) }
@@ -216,18 +226,16 @@ fun TodayScreen(
             items(habits, key = { it.id }) { savedHabit ->
                 val habit = savedHabit.goalOn(date)
                 val log = dayLogs[habit.id]
-                val eligible = Analytics.eligible(habit, date, state.pauses)
-                val mode = Scheduling.mode(habit, date)
-                val isQuota = mode == ScheduleMode.WEEKLY_QUOTA
-                // Pure engine reads stay in the item composable scope, never inside builder lambdas.
-                val dueToday = Analytics.dueOn(habit, date, state.pauses)
-                val quota = if (isQuota) Scheduling.weeklyQuotaStatus(habit, state.logs, state.pauses, date, state.today) else null
+                // Facts come from the hoisted per-habit map; every id iterated here is present
+                // because the map is keyed on exactly the habits list being items'd.
+                val facts = scheduleFacts.getValue(habit.id)
                 val scheduleNote = when {
-                    mode == ScheduleMode.EVERY_N_DAYS && !eligible ->
-                        Scheduling.nextScheduledOn(habit, date)?.let { next ->
+                    facts.mode == ScheduleMode.EVERY_N_DAYS && !facts.eligible ->
+                        facts.next?.let { next ->
                             "Next scheduled ${next.format(DateTimeFormatter.ofPattern("EEE, d MMM yyyy", Locale.getDefault()))}"
                         }
-                    quota != null -> {
+                    facts.quota != null -> {
+                        val quota = facts.quota
                         // Past weeks are labeled by their Monday, matching the analytics week bars.
                         val weekLabel = if (Analytics.weekStart(date) == Analytics.weekStart(state.today)) "This week"
                             else "Week of ${Analytics.weekStart(date).format(DateTimeFormatter.ofPattern("d MMM", Locale.getDefault()))}"
@@ -251,7 +259,7 @@ fun TodayScreen(
                         else -> MaterialTheme.colorScheme.onSurfaceVariant
                     }) {
                     HabitCard(habit = habit,
-                        dayLabel = Analytics.dayNumber(habit, date)?.let { "Day $it${if (!eligible) " · Rest day" else ""}" } ?: "Starts ${habit.startDate}",
+                        dayLabel = Analytics.dayNumber(habit, date)?.let { "Day $it${if (!facts.eligible) " · Rest day" else ""}" } ?: "Starts ${habit.startDate.format(dayFormat)}",
                         scheduleNote = scheduleNote,
                         status = log?.status,
                         stackLabel = habit.afterHabitId?.let { id -> state.habits.firstOrNull { it.id == id }?.name },
@@ -261,16 +269,16 @@ fun TodayScreen(
                             else vm.quickCheckIn(habit.id, date)
                         },
                         onLongCheckIn = { editingLogId = habit.id },
-                        checkInEnabled = eligible && !busy,
+                        checkInEnabled = facts.eligible && !busy,
                         progress = log?.progress ?: 0,
                         // The highlight mirrors the unmarked banner, which lists daily-due habits only
                         // (Analytics.unmarked): quota habits are never overdue, so they never highlight.
-                        nudged = focusUnmarked && dueToday && log == null,
+                        nudged = focusUnmarked && facts.dueToday && log == null,
                         quickActions = {
                             Box {
                                 IconButton(onClick = { quickMenuId = habit.id }) { Icon(Icons.Outlined.MoreVert, "More actions for ${habit.name}") }
                                 DropdownMenu(quickMenuId == habit.id, onDismissRequest = { quickMenuId = null }) {
-                                    if (habit.targetCount > 1 && eligible && log?.status != LogStatus.COMPLETED) {
+                                    if (habit.targetCount > 1 && facts.eligible && log?.status != LogStatus.COMPLETED) {
                                         DropdownMenuItem(text = { Text("+1 " + habit.targetUnit) }, enabled = !busy, onClick = { vm.incrementProgress(habit.id, date); quickMenuId = null })
                                         DropdownMenuItem(text = { Text("+25% of goal") }, enabled = !busy, onClick = { vm.incrementProgress(habit.id, date, 25); quickMenuId = null })
                                         DropdownMenuItem(text = { Text("+50% of goal") }, enabled = !busy, onClick = { vm.incrementProgress(habit.id, date, 50); quickMenuId = null })
@@ -279,15 +287,15 @@ fun TodayScreen(
                                     }
                                     // A quota habit is never due on a fixed day, so a visible
                                     // skip/missed affordance would fabricate a daily overdue.
-                                    if (!isQuota) {
-                                        DropdownMenuItem(text = { Text("Skip this day") }, enabled = eligible && log?.status != LogStatus.SKIPPED, onClick = {
+                                    if (facts.mode != ScheduleMode.WEEKLY_QUOTA) {
+                                        DropdownMenuItem(text = { Text("Skip this day") }, enabled = facts.eligible && log?.status != LogStatus.SKIPPED, onClick = {
                                             vm.setLog(habit.id, date, LogStatus.SKIPPED, log?.note); quickMenuId = null
                                         })
-                                        DropdownMenuItem(text = { Text("Mark as missed") }, enabled = eligible && log?.status != LogStatus.FAILED, onClick = {
+                                        DropdownMenuItem(text = { Text("Mark as missed") }, enabled = facts.eligible && log?.status != LogStatus.FAILED, onClick = {
                                             vm.setLog(habit.id, date, LogStatus.FAILED, log?.note); quickMenuId = null
                                         })
                                     }
-                                    DropdownMenuItem(text = { Text("Edit check-in…") }, enabled = eligible, onClick = { editingLogId = habit.id; quickMenuId = null })
+                                    DropdownMenuItem(text = { Text("Edit check-in…") }, enabled = facts.eligible, onClick = { editingLogId = habit.id; quickMenuId = null })
                                 }
                             }
                         },
@@ -320,6 +328,22 @@ fun TodayScreen(
                 }
             }
             item { Text("Tap to check in, use the ··· menu for one-tap skip or missed, or hold to set a count or note. Rest days protect your chain.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(4.dp)) }
+        }
+        // Daily reflection: mood and/or journal for the selected day — today or any past date.
+        item(key = "reflection") {
+            ReflectionEditorCard(
+                date = date,
+                today = state.today,
+                reflection = state.reflections.firstOrNull { it.date == date },
+                onSave = { mood, journal -> vm.setReflection(date, mood, journal) },
+                onRemove = { vm.clearReflection(date) },
+                enabled = !busy
+            )
+        }
+        // Small next-milestone hint: never displacing the habit cards or the reflection card above
+        // it, and hidden during the fresh-start onboarding (nothing to measure yet).
+        if (!showFreshStart) {
+            nextMilestone?.let { milestone -> item(key = "next-milestone") { NextMilestoneCard(progress = milestone, onClick = onAchievements) } }
         }
         item(key = "activity-section") {
             ActivitySection(state, vm, date)
@@ -362,3 +386,13 @@ private fun FreshStartCard(onAdd: () -> Unit, onRestore: () -> Unit) {
         }
     }
 }
+
+/** Scheduling facts for one habit on the viewed date, resolved once per state emission in
+ *  composable scope (see scheduleFacts) so habit items never re-run the engine per recomposition. */
+private data class HabitScheduleFacts(
+    val eligible: Boolean,
+    val dueToday: Boolean,
+    val mode: ScheduleMode,
+    val quota: Scheduling.WeeklyQuotaStatus?,
+    val next: LocalDate?
+)

@@ -56,52 +56,51 @@ internal fun SchedulesScreen(state: LifeTrackState, vm: HabitViewModel, onBack: 
         if (!granted) permissionMessage = "Notifications are off. Enable them in Android settings, then set a reminder here."
     }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        item(key = "heading") {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                TextButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Outlined.ArrowBack, null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Back")
-                }
-                Text("Schedules & Reminders", style = MaterialTheme.typography.headlineLarge)
-                Text("Choose when your habits are due and when you get a notification.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-        item(key = "daily-reminder") {
-            SettingsSection("Daily reminder") {
-                SettingsAction(
-                    "Daily check-in reminder",
-                    dailyMinutes?.let { "Daily at ${reminderTime(it)}" } ?: "Off · choose a time",
-                    Icons.Outlined.Notifications, enabled = !busy, onClick = { editingDaily = true }
-                )
-                permissionMessage?.let {
-                    Text(it, Modifier.padding(horizontal = 16.dp, vertical = 10.dp).semantics { liveRegion = LiveRegionMode.Polite },
-                        style = MaterialTheme.typography.bodySmall)
+    Scaffold(topBar = { TopAppBar(title = { Text("Schedules & Reminders") }, navigationIcon = {
+        IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") }
+    }) }) { padding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item(key = "heading") {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // The TopAppBar carries the screen title; the body keeps only the explaining subline.
+                    Text("Choose when your habits are due and when you get a notification.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-        }
-        item(key = "habits-heading") {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Habit schedules", Modifier.weight(1f), style = AlmanacType.labelCaps, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
-                    Text("${habits.count { it.reminderMinutes != null }} reminders on", Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = AlmanacType.monoCaption)
+            item(key = "daily-reminder") {
+                SettingsSection("Daily reminder") {
+                    SettingsAction(
+                        "Daily check-in reminder",
+                        dailyMinutes?.let { "Daily at ${reminderTime(it)}" } ?: "Off · choose a time",
+                        Icons.Outlined.Notifications, enabled = !busy, onClick = { editingDaily = true }
+                    )
+                    permissionMessage?.let {
+                        Text(it, Modifier.padding(horizontal = 16.dp, vertical = 10.dp).semantics { liveRegion = LiveRegionMode.Polite },
+                            style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             }
-        }
-        if (habits.isEmpty()) item(key = "no-habits") {
-            SettingsGroup { Text("Add a habit from Today to set its schedule and reminder.", Modifier.padding(16.dp)) }
-        }
-        items(habits, key = { it.id }) { habit ->
-            HabitScheduleCard(habit, state.logs, state.pauses, onEdit = { onEdit(habit.id) })
-        }
-        item(key = "notification-timing") {
-            Text("Android may deliver reminders later than the time you select.", style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            item(key = "habits-heading") {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Habit schedules", Modifier.weight(1f), style = AlmanacType.labelCaps, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                        Text("${habits.count { it.reminderMinutes != null }} reminders on", Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = AlmanacType.monoCaption)
+                    }
+                }
+            }
+            if (habits.isEmpty()) item(key = "no-habits") {
+                SettingsGroup { Text("Add a habit from Today to set its schedule and reminder.", Modifier.padding(16.dp)) }
+            }
+            items(habits, key = { it.id }) { habit ->
+                HabitScheduleCard(habit, state.logs, state.pauses, state.today, onEdit = { onEdit(habit.id) })
+            }
+            item(key = "notification-timing") {
+                Text("Android may deliver reminders later than the time you select.", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 
@@ -143,12 +142,11 @@ internal fun SchedulesScreen(state: LifeTrackState, vm: HabitViewModel, onBack: 
 }
 
 @Composable
-private fun HabitScheduleCard(habit: Habit, logs: List<HabitLog>, pauses: List<HabitPause>, onEdit: () -> Unit) {
+private fun HabitScheduleCard(habit: Habit, logs: List<HabitLog>, pauses: List<HabitPause>, today: LocalDate, onEdit: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val locale = Locale.getDefault()
     val days = DayOfWeek.values()
     val scheduledDays = days.filter { it.value in habit.scheduledDays }.joinToString { it.getDisplayName(TextStyle.FULL, locale) }
-    val today = LocalDate.now()
     val dateFormat = DateTimeFormatter.ofPattern("EEE, d MMM yyyy", locale)
     val mode = Scheduling.mode(habit, today)
     val isQuota = mode == ScheduleMode.WEEKLY_QUOTA

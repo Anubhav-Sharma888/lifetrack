@@ -119,7 +119,7 @@ fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, vm: HabitView
                                         launchSingleTop = true
                                         restoreState = true
                                     } },
-                                    icon = { Icon(icon, label) }, label = { Text(label) }
+                                    icon = { Icon(icon, contentDescription = null) }, label = { Text(label) }
                                 )
                             }
                         }
@@ -138,9 +138,9 @@ fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, vm: HabitView
                     }
                 } else NavHost(nav, "today", Modifier.padding(padding).consumeWindowInsets(padding)) {
                     composable("today") { TodayScreen(state, vm, onAdd = { nav.navigate("edit/0") }, onOpen = { nav.navigate("habit/$it") }, onRestoreBackup = launchImport,
-                        onSchedules = { nav.navigate("schedules") }) }
+                        onSchedules = { nav.navigate("schedules") }, onAchievements = { nav.navigate("achievements") { launchSingleTop = true } }) }
                     composable("activities") { ActivitiesScreen(state, vm) }
-                    composable("analytics") { AnalyticsScreen(state.habits, state.logs, state.today, state.pauses, state.activities, state.activityEntries, state.streakProtections, state.reflections, vm.achievements.collectAsStateWithLifecycle().value, onAchievements = { nav.navigate("achievements") }) }
+                    composable("analytics") { AnalyticsScreen(state.habits, state.logs, state.today, state.pauses, state.activities, state.activityEntries, state.streakProtections, state.reflections, vm.achievements.collectAsStateWithLifecycle().value, onAchievements = { nav.navigate("achievements") { launchSingleTop = true } }) }
                     composable("achievements") { AchievementsScreen(state, vm.achievements.collectAsStateWithLifecycle().value, vm.achievementAcknowledgments.collectAsStateWithLifecycle().value, onBack = { nav.popBackStack() }) }
                     composable("settings") { SettingsScreen(state, vm, onOpen = { nav.navigate("habit/$it") }, onImport = launchImport,
                         onSchedules = { nav.navigate("schedules") }) }

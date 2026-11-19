@@ -1,6 +1,46 @@
-# LifeTrack — Work Progress (sessions 2026-11-15 → 2026-11-19: CSV export, directional tracking, app lock, Smart Streaks, Mood/Journal, Achievements, Flexible Scheduling engine + UI)
+# LifeTrack — Work Progress (sessions 2026-11-15 → 2026-11-19: CSV export, directional tracking, app lock, Smart Streaks, Mood/Journal, Achievements, Flexible Scheduling engine + UI, UI/UX refinement phase 1)
 
 Branches: `develop/achievements` (current) · `main` (= `32c9bfa`, carries the v1.9.0-preview.1 tag) · Backup at `D:\LifeTracker-backup` (untouched)
+
+---
+
+# Session 11 (Prompt 9/12) — UI/UX Refinement Phase 1: consistency, navigation, accessibility, performance
+
+## What was built (this session, uncommitted → committing at end)
+
+- **Comprehensive audit first**: ui-ux-specialist reviewed every screen against ten criteria → 1 Critical + 5 High + ~10 Medium findings with an implementation plan; architecture-specialist then reviewed the implemented diff (PASS WITH FINDINGS — two perf gaps it caught were fixed the same session).
+- **Design system**: shared `ui/components/AlmanacStat.kt` replaces three near-duplicate private "stat well" composables (HabitDetail StatCard, ActivityDialogs Stat; AnalyticsScreen's ruled-panel MetricCard kept, documented); version no longer hardcoded — Settings reads the package version (About row + dialog).
+- **Navigation**: Today's milestone card navigates to Achievements (`NextMilestoneCard` gained `onClick`, wired through LifeTrackApp; a WORK_PROGRESS session-8 claim that this existed was a regression — re-applied); Analytics "View all" gets a chevron + `launchSingleTop` parity; Schedules got a real `TopAppBar` + `state.today` (no more `LocalDate.now()` in screens); Activities' center date-tap now opens the date picker with a "Back to today" reset — same semantics as Today.
+- **Today restructure**: one merged date row (the displayLarge date itself opens the calendar, prev/next chevrons flank it); reflection + next-milestone cards moved BELOW the habit cards (tasks before context); per-habit scheduling facts hoisted into a remembered map (`HabitScheduleFacts`) so the engine runs once per state emission, not per item recomposition; derived collections (`completedDates`, `categories`, `due`, `habits` filter) remembered.
+- **Forms and destructive actions**: one-tap status save only CREATES a check-in — overwriting an existing day's status requires the Save button; "Clear check-in" confirms (two-step, distinct "Clear it" label) and warns it removes notes + Smart Streaks decisions; "Clear entry" arms an in-place two-step confirm inside the same dialog window; the editor surfaces `operationError` inline with a live region; ActivityEditorDialog Cancel busy-gated.
+- **Accessibility**: heatmap grid collapsed from ~371 TalkBack stops to ONE `clearAndSetSemantics` node with an auto-scroll-to-selected effect (touch unchanged); bottom-bar icons stop double-announcing; `PreferenceSwitch` + editor reminder rows are row-wide `toggleable` (Role.Switch, enabled forwarded); theme dialog rows carry radio roles; color swatches announce names ("Selected: Amber") instead of hex; app-lock failure text is a live region with a prompt-in-flight spinner; long-press label corrected to "Edit check-in and note"; remaining ISO date leaks formatted (Started/Starts/next-scheduled/freeze dialog).
+- **Performance**: Analytics `rate()` calls remembered (rings + ComparisonCard); HabitDetail streaks/quota/weekly-rhythm remembered (quota habits skip streak walks entirely); Activities converted to a LazyColumn with hoisted per-activity entry lookups; achievements collection is lifecycle-aware.
+- **Dialog architecture**: `ActivityLogDialog` converted to the app's custom dialog shell (LogEditorDialog idiom) with a viewport cap from `LocalWindowInfo.containerSize` (density-converted, 85%) — replacing `LocalConfiguration.screenHeightDp` per Compose lint guidance; HabitDetail's LogEditorDialog got the same cap conversion.
+
+## Dialog measure/idle-loop root cause (recorded for future sessions)
+
+Robolectric UI tests hung on `AppNotIdleException` ("infinite composition") whenever a `Material3 AlertDialog` opened on the Activities screen, regardless of what was stacked on top (platform or custom overlay). Systematic elimination (dialog inventory → stacked-window matrix → viewport capping → final fix) traced it to the **platform-default-width derivation measure loop**: `AlertDialog` deriving its width from the platform window measure-loops inside narrow test windows. The fix that works: custom `Dialog(properties = DialogProperties(usePlatformDefaultWidth = false))` + explicit Surface shell (the LogEditorDialog idiom), with content height capped from `LocalWindowInfo`. Two stacked windows on a platform AlertDialog never settle; stacked on the custom shell they do (HabitDetail's confirm does exactly that and passes). Test-side, `performScrollToNode` on long LazyLists proved nondeterministic in a 320dp viewport — the reflection/milestone tests use bounded gentle swipe probes with center-in-viewport gates instead.
+
+## Test evidence
+
+- **Final: `BUILD SUCCESSFUL` — testDebugUnitTest 304/304 across 25 suites + lintDebug 0 errors + assembleDebug, all green** (+8 tests vs Prompt 8's 296: heatmap single-node a11y, milestone tap-through, editor mode/parameter draft restoration, Today quota card, clear-confirmation flows, status-overwrite guard, reminder-row toggle, reminder-policy grid/quota, Settings switch semantics).
+- Two Robolectric suites first ran against drifted expectations (5 failures) — all repaired, plus 3 debug rounds on the dialog idle loop; focused suites re-verified green (EditorRecoveryTest 18/18, AnalyticsScreenTest 6/6) before the full gate.
+- Limits verified live: 2 workers, `--no-parallel --no-daemon`, pinned `-Xmx3g` (≥4 GB free at gate time), BelowNormal, RAM monitored throughout.
+
+## Reviews (this session)
+
+- `ui-ux-specialist`: the audit itself (above) — its own High findings (stat-well duplication, milestone dead-UI regression, version hardcoding, date-row merge, viewport cap, instant-save overwrite, editor error surface, heatmap flood, app-lock live region, rate recomputation) all implemented.
+- `architecture-specialist` on the implemented diff: PASS WITH FINDINGS — 2 perf gaps fixed (per-item engine reads → `HabitScheduleFacts`; WeeklyRhythm remembered), streak walk skipped for quota habits, `AlmanacStat` padding parameter dropped (YAGNI), argument-order warning KDoc on MetricCard, navigation-option parity, editor toggleable `enabled` forwarded.
+- `independent-reviewer` (+ security-privacy checklist): PASS WITH FINDINGS, all Low/Info — stale invariant comment reworded, two ungated Cancels busy-gated, Schedules quota walk + heatmap double-LaunchedEffect noted as deferred polish; security clean (no logging, no new permissions/workers, passwords still non-saveable, CSV/backup untouched); remember keys verified complete; test assertions verified non-vacuous.
+- New lint warnings from this diff resolved: `ConfigurationScreenWidthHeight` ×2 fixed via `LocalWindowInfo`; the two `ModifierParameter` warnings are pre-existing style findings in untouched files (deferred — reordering public parameters is churn without value this phase).
+
+## Deferred to Prompt 10 (final polish)
+
+- Color/hierarchy polish: hairline border token unification (`outlineVariant` vs `rule`), non-token radii (12/16dp stragglers), decorative emoji cleared from TalkBack (HabitCard/Detail/Activity icon boxes), recording-strip cells missing `Role.Button`.
+- `LocalWindowInfo`-era cleanup: SchedulesScreen quota walk remember; heatmap snap-to-end vs animate-to-selected flicker on relayout.
+- Dynamic-color terracotta contrast (needs device measurement); today displayLarge date-row 44dp fixed seal at fontScale 2.
+- `AnimationSpec`/skeleton loading states, responsive behavior across device sizes, final integrated visual QA.
+- Device QA (NOT performed — no real device was touched): TalkBack traversal on merged toggleable rows + the single-node heatmap, large-font reflow on short viewports, contrast measurements.
 
 ---
 

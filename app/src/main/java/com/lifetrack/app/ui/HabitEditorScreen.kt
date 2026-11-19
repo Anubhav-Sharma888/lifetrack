@@ -12,6 +12,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -78,6 +79,9 @@ fun HabitEditorScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
         if (!granted) permissionNote = "The habit will be saved. Enable notifications in Android settings to receive its reminder."
     }
     val busy by vm.busy.collectAsState()
+    val operationError by vm.operationError.collectAsState()
+    // A save failure leaves the editor open; a fresh entry starts without a stale error.
+    LaunchedEffect(id) { vm.clearOperationError() }
     val hasCheckInToday = state.logs.any { it.habitId == id && it.date == state.today }
     val selectedDays = days.split(',').mapNotNull(String::toIntOrNull).sorted()
     val targetNumber = target.toIntOrNull()
@@ -302,13 +306,17 @@ fun HabitEditorScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
             )
             HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
             val reminderApplicable = selectedMode != ScheduleMode.WEEKLY_QUOTA
-            Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    .toggleable(value = reminder && reminderApplicable, enabled = reminderApplicable, role = Role.Switch, onValueChange = { enabled ->
+                        if (reminderApplicable) {
+                            reminder = enabled
+                            if (enabled && Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+                                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                    }),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 Text("Habit reminder", Modifier.weight(1f), style = AlmanacType.labelCaps, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Switch(reminder && reminderApplicable, onCheckedChange = { enabled ->
-                    reminder = enabled
-                    if (enabled && Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
-                        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                }, enabled = reminderApplicable,
+                Switch(reminder && reminderApplicable, onCheckedChange = null, enabled = reminderApplicable,
                     modifier = Modifier.semantics { contentDescription = "Habit reminder"; stateDescription = when {
                         !reminderApplicable -> "Not available for weekly-target habits"
                         reminder -> "Enabled"
@@ -328,11 +336,14 @@ fun HabitEditorScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
             HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
             Text("Color", style = AlmanacType.labelCaps, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("#D97706", "#C2410C", "#059669", "#2563EB", "#4F46E5", "#9333EA", "#475569", "#B45309").forEach { hex ->
+                listOf("Amber" to "#D97706", "Rust" to "#C2410C", "Emerald" to "#059669", "Blue" to "#2563EB",
+                    "Indigo" to "#4F46E5", "Violet" to "#9333EA", "Slate" to "#475569", "Bronze" to "#B45309").forEach { (name, hex) ->
                     Box(Modifier.size(48.dp), contentAlignment = androidx.compose.ui.Alignment.Center) {
                         Surface(color = Color(android.graphics.Color.parseColor(hex)), shape = CircleShape,
                             border = if (hex.equals(color, true)) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
-                            modifier = Modifier.size(44.dp).clickable(onClickLabel = "Use color $hex") { color = hex }) {}
+                            modifier = Modifier.size(44.dp)
+                                .semantics { stateDescription = if (hex.equals(color, true)) "Selected: $name" else "Not selected: $name" }
+                                .clickable(onClickLabel = "Use $name color", role = Role.Button) { color = hex }) {}
                     }
                 }
             }
@@ -350,6 +361,8 @@ fun HabitEditorScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
                     }
                 }
             }
+            operationError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }.fillMaxWidth()) }
             Button(enabled = valid && !busy, onClick = {
                 vm.saveHabit((original ?: Habit(name = name)).copy(
                     name = name.trim(), description = description.trim().ifBlank { null }, icon = icon.trim(), colorHex = color.uppercase(),

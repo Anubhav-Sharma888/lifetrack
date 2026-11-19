@@ -449,14 +449,18 @@ fun AchievementDetailDialog(progress: Achievements.Progress, onDismiss: () -> Un
 /**
  * Compact one-line preview of the next locked milestone for Today: title, current/target in
  * mono, and the thin sage line. The caller hides it when no milestone is outstanding.
+ * When [onClick] is supplied the whole card is one button (TalkBack label "View all
+ * achievements"); when null the card stays a plain, non-interactive preview.
  */
 @Composable
-fun NextMilestoneCard(progress: Achievements.Progress, modifier: Modifier = Modifier) {
+fun NextMilestoneCard(progress: Achievements.Progress, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
     val definition = progress.definition
     val target = definition.target
     val fraction = if (target > 0L) (progress.current.toFloat() / target).coerceIn(0f, 1f) else 0f
     Surface(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().then(
+            if (onClick != null) Modifier.clickable(onClickLabel = "View all achievements", role = Role.Button) { onClick() } else Modifier
+        ),
         shape = RoundedCornerShape(10.dp),
         color = MaterialTheme.colorScheme.surfaceVariant,
         border = BorderStroke(1.dp, almanacColors().rule)

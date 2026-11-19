@@ -19,10 +19,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lifetrack.app.data.Habit
@@ -44,13 +44,26 @@ fun HeatmapWidget(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate, m
     }
     val scroll = rememberScrollState()
     LaunchedEffect(today, scroll.maxValue) { scroll.scrollTo(scroll.maxValue) }
+    // Make the step-through claim true: every selection change brings that day's week column
+    // into view (18dp cell + 4dp column spacing = one column per week). Re-run on maxValue so
+    // the positioning also applies once layout has produced a real scroll range.
+    val perWeekPx = with(LocalDensity.current) { 18.dp.toPx() + 4.dp.toPx() }
+    LaunchedEffect(selected, scroll.maxValue) {
+        val index = ((selected.toEpochDay() - start.toEpochDay()) / 7).toInt().coerceIn(0, 52)
+        scroll.animateScrollTo((index * perWeekPx).toInt().coerceAtMost(scroll.maxValue))
+    }
     val primary = MaterialTheme.colorScheme.secondary
     val empty = MaterialTheme.colorScheme.surfaceContainerHighest
     val selection = daily[selected] ?: Analytics.Rate(0, 0)
     Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Your consistency", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         Text("Every small square is a step forward.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Row(Modifier.fillMaxWidth().horizontalScroll(scroll), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        // E1: one accessibility node for the whole 53x7 grid — the per-cell descriptions and
+        // buttons flooded TalkBack with ~370 stops. Touch behaviour is unchanged; TalkBack users
+        // step through days with the prev/next buttons and readout below.
+        Row(Modifier.fillMaxWidth().horizontalScroll(scroll).clearAndSetSemantics {
+            contentDescription = "Year of daily completion squares. Use the buttons below to step through days."
+        }, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             repeat(53) { week ->
                 val monday = start.plusWeeks(week.toLong())
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -69,10 +82,6 @@ fun HeatmapWidget(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate, m
                         Box(Modifier.size(18.dp).clip(RoundedCornerShape(2.dp))
                             .background(if (date > today) Color.Transparent else if (alpha == 0f) empty else primary.copy(alpha = alpha))
                             .border(if (date == selected) 2.dp else 0.dp, if (date == selected) MaterialTheme.colorScheme.tertiary else Color.Transparent, RoundedCornerShape(2.dp))
-                            .semantics {
-                                contentDescription = "$date, ${density.completed} of ${density.opportunities} habits completed, ${density.percent} percent"
-                                this.selected = date == selected
-                            }
                             .clickable(enabled = date <= today, role = Role.Button) { selected = date })
                     }
                 }
