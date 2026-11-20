@@ -450,8 +450,16 @@ class HabitRepository @Inject constructor(
             val streakProtections = dao.allStreakProtections()
             val reflections = dao.allReflections()
             val acknowledgments = dao.allAchievementAcknowledgments()
+            val goalDao = db.goalDao()
+            val goals = goalDao.allGoals()
+            val goalPhases = goalDao.allPhases()
+            val goalMilestones = goalDao.allMilestones()
+            val goalTasks = goalDao.allTasks()
+            val goalTaskDependencies = goalDao.allDependencies()
             LifeTrackBackup(
                 formatVersion = when {
+                    goals.isNotEmpty() || goalPhases.isNotEmpty() || goalMilestones.isNotEmpty() ||
+                        goalTasks.isNotEmpty() || goalTaskDependencies.isNotEmpty() -> 10
                     habits.any { com.lifetrack.app.domain.Scheduling.isConfigured(it) } -> 9
                     acknowledgments.isNotEmpty() -> 8
                     reflections.isNotEmpty() -> 7
@@ -465,7 +473,9 @@ class HabitRepository @Inject constructor(
                 freezes = dao.allFreezes(), pauses = dao.allPauses(),
                 activities = activities, activityEntries = dao.allActivityEntries(),
                 streakProtections = streakProtections, dailyReflections = reflections,
-                achievementAcknowledgments = acknowledgments
+                achievementAcknowledgments = acknowledgments,
+                goals = goals, goalPhases = goalPhases, goalMilestones = goalMilestones,
+                goalTasks = goalTasks, goalTaskDependencies = goalTaskDependencies
             )
         }
         BackupValidator.validate(snapshot)
@@ -529,10 +539,17 @@ class HabitRepository @Inject constructor(
         } catch (exception: Exception) {
             throw IllegalArgumentException("This is not a valid LifeTrack JSON backup.", exception)
         }
-        // Imported journals normalize like saved ones: trimmed, blank-turned-null before validation.
-        val normalized = backup.copy(dailyReflections = backup.dailyReflections.map { reflection ->
-            reflection.copy(journal = reflection.journal?.trim()?.takeIf { it.isNotEmpty() })
-        })
+        // Imported journals and goal records normalize like saved ones: trimmed, blank-turned-null
+        // before validation.
+        val normalized = backup.copy(
+            dailyReflections = backup.dailyReflections.map { reflection ->
+                reflection.copy(journal = reflection.journal?.trim()?.takeIf { it.isNotEmpty() })
+            },
+            goals = backup.goals.map(GoalValidator::normalizeForImport),
+            goalPhases = backup.goalPhases.map(GoalValidator::normalizeForImport),
+            goalMilestones = backup.goalMilestones.map(GoalValidator::normalizeForImport),
+            goalTasks = backup.goalTasks.map(GoalValidator::normalizeForImport)
+        )
         BackupValidator.validate(normalized)
         db.withTransaction {
             // Restoring must never silently weaken the local lock: the local flag survives every import.
@@ -549,6 +566,14 @@ class HabitRepository @Inject constructor(
             dao.deleteReflections()
             // Acknowledgments are device-state with no FK either; a restore replaces them wholesale.
             dao.deleteAchievementAcknowledgments()
+            // Goal roadmaps are part of the replace-all too: edges first, then tasks, milestones,
+            // phases, goals — every child is cleared before its parent.
+            val goalDao = db.goalDao()
+            goalDao.deleteDependencies()
+            goalDao.deleteTasks()
+            goalDao.deleteMilestones()
+            goalDao.deletePhases()
+            goalDao.deleteGoals()
             // Unknown ids (older/newer catalogue versions) are pruned — they could never display.
             val knownAchievementIds = com.lifetrack.app.domain.Achievements.catalogue.map { it.id }.toSet()
             val acknowledgmentsToRestore = backup.achievementAcknowledgments.filter { it.achievementId in knownAchievementIds }
@@ -561,6 +586,12 @@ class HabitRepository @Inject constructor(
             dao.insertStreakProtections(backup.streakProtections)
             dao.insertReflections(normalized.dailyReflections)
             dao.insertAchievementAcknowledgments(acknowledgmentsToRestore)
+            // Parents restore before dependents: goals, then phases, milestones, tasks, edges.
+            goalDao.insertGoals(normalized.goals)
+            goalDao.insertPhases(normalized.goalPhases)
+            goalDao.insertMilestones(normalized.goalMilestones)
+            goalDao.insertTasks(normalized.goalTasks)
+            goalDao.insertDependencies(normalized.goalTaskDependencies)
             dao.saveSettings(backup.settings.copy(appLockEnabled = keepAppLock))
         }
     } }
@@ -582,6 +613,13 @@ class HabitRepository @Inject constructor(
             dao.deleteReflections()
             // A reset restarts the achievement journey too: acknowledgments start fresh.
             dao.deleteAchievementAcknowledgments()
+            // Goal roadmaps start fresh with everything else (children before parents).
+            val goalDao = db.goalDao()
+            goalDao.deleteDependencies()
+            goalDao.deleteTasks()
+            goalDao.deleteMilestones()
+            goalDao.deletePhases()
+            goalDao.deleteGoals()
             dao.saveSettings(AppSettings().copy(appLockEnabled = keepAppLock))
             habitIds
         }

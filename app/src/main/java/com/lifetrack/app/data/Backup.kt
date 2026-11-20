@@ -36,7 +36,24 @@ data class LifeTrackBackup(
     // Achievement acknowledgments: present only in v8 exports that carry them.
     @OptIn(ExperimentalSerializationApi::class)
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val achievementAcknowledgments: List<AchievementAcknowledgment> = emptyList()
+    val achievementAcknowledgments: List<AchievementAcknowledgment> = emptyList(),
+    // Goal Roadmaps: present only in v10 exports that carry them, so every plain v3–v9 export
+    // stays key-free and decodable by older app versions.
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val goals: List<Goal> = emptyList(),
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val goalPhases: List<GoalPhase> = emptyList(),
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val goalMilestones: List<GoalMilestone> = emptyList(),
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val goalTasks: List<GoalTask> = emptyList(),
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val goalTaskDependencies: List<GoalTaskDependency> = emptyList()
 )
 
 /** Validation is independent of Android/Room so corrupt imports can be rejected before writes. */
@@ -155,7 +172,7 @@ object BackupValidator {
     }
 
     fun validate(backup: LifeTrackBackup, today: LocalDate = LocalDate.now()) {
-        require(backup.formatVersion in 1..9) { "This backup version is not supported by this app." }
+        require(backup.formatVersion in 1..10) { "This backup version is not supported by this app." }
         require(backup.formatVersion >= 4 || backup.habits.none { it.goalHistory.isNotEmpty() }) { "Goal revisions require backup version 4." }
         require(backup.formatVersion >= 5 || backup.activities.none { it.isDirectional() }) { "Directional activity tracking requires backup version 5." }
         require(backup.formatVersion >= 6 || (backup.habits.none { com.lifetrack.app.domain.StreakPolicy.isConfigured(it) } &&
@@ -163,6 +180,10 @@ object BackupValidator {
         require(backup.formatVersion >= 7 || backup.dailyReflections.isEmpty()) { "Daily reflections require backup version 7." }
         require(backup.formatVersion >= 8 || backup.achievementAcknowledgments.isEmpty()) { "Achievement acknowledgments require backup version 8." }
         require(backup.formatVersion >= 9 || backup.habits.none { com.lifetrack.app.domain.Scheduling.isConfigured(it) }) { "Flexible scheduling requires backup version 9." }
+        require(backup.formatVersion >= 10 || (
+            backup.goals.isEmpty() && backup.goalPhases.isEmpty() && backup.goalMilestones.isEmpty() &&
+                backup.goalTasks.isEmpty() && backup.goalTaskDependencies.isEmpty()
+            )) { "Goal roadmaps require backup version 10." }
         require(backup.exportedAt >= 0) { "Invalid export timestamp." }
         validateSettings(backup.settings)
         // App lock is a local-only security choice and never roams through backups, plain or encrypted.
@@ -258,6 +279,51 @@ object BackupValidator {
         // Acknowledgments: no user content, no duplicates, sane timestamps.
         require(backup.achievementAcknowledgments.map { it.achievementId }.toSet().size == backup.achievementAcknowledgments.size) { "Duplicate achievement acknowledgments in backup." }
         backup.achievementAcknowledgments.forEach { validateAchievementAcknowledgment(it) }
+        validateGoalRoadmaps(backup, today)
+    }
+
+    /**
+     * Goal Roadmaps (v10): count caps keep an import bounded, every child resolves inside its own
+     * goal, row ids are saved ids, and all record UUIDs are globally unique — the future partial
+     * Goal Plan import matches records by these identifiers, so collisions are rejected outright.
+     */
+    private fun validateGoalRoadmaps(backup: LifeTrackBackup, today: LocalDate) {
+        require(backup.goals.size <= GoalValidator.MAX_GOALS) { "This backup carries too many goals." }
+        require(backup.goalPhases.size <= GoalValidator.MAX_PHASES) { "This backup carries too many goal phases." }
+        require(backup.goalMilestones.size <= GoalValidator.MAX_MILESTONES) { "This backup carries too many goal milestones." }
+        require(backup.goalTasks.size <= GoalValidator.MAX_TASKS) { "This backup carries too many goal tasks." }
+        require(backup.goalTaskDependencies.size <= GoalValidator.MAX_DEPENDENCIES) { "This backup carries too many task dependencies." }
+        val goalIds = backup.goals.map { it.id }.toSet()
+        val phaseGoalIds = backup.goalPhases.associate { it.id to it.goalId }
+        val milestoneGoalIds = backup.goalMilestones.associate { it.id to it.goalId }
+        val allRecordUuids = backup.goals.map(Goal::uuid) + backup.goalPhases.map(GoalPhase::uuid) +
+            backup.goalMilestones.map(GoalMilestone::uuid) + backup.goalTasks.map(GoalTask::uuid)
+        require(allRecordUuids.size == allRecordUuids.toSet().size) { "Duplicate goal record identifiers in backup." }
+        require(backup.goals.map { it.id }.toSet().size == backup.goals.size) { "Duplicate goal IDs in backup." }
+        backup.goals.forEach { goal ->
+            require(goal.id > 0) { "Backed-up goals must have saved IDs." }
+            GoalValidator.validateGoal(goal, today)
+        }
+        require(backup.goalPhases.map { it.id }.toSet().size == backup.goalPhases.size) { "Duplicate goal phase IDs in backup." }
+        backup.goalPhases.forEach { phase ->
+            require(phase.id > 0) { "Backed-up goal phases must have saved IDs." }
+            GoalValidator.validatePhase(phase, goalIds, today)
+        }
+        require(backup.goalMilestones.map { it.id }.toSet().size == backup.goalMilestones.size) { "Duplicate goal milestone IDs in backup." }
+        backup.goalMilestones.forEach { milestone ->
+            require(milestone.id > 0) { "Backed-up goal milestones must have saved IDs." }
+            GoalValidator.validateMilestone(milestone, goalIds, phaseGoalIds, today)
+        }
+        require(backup.goalTasks.map { it.id }.toSet().size == backup.goalTasks.size) { "Duplicate goal task IDs in backup." }
+        backup.goalTasks.forEach { task ->
+            require(task.id > 0) { "Backed-up goal tasks must have saved IDs." }
+            GoalValidator.validateTask(task, goalIds, phaseGoalIds, milestoneGoalIds, today)
+        }
+        require(
+            backup.goalTaskDependencies.map { it.dependentTaskId to it.prerequisiteTaskId }.toSet().size ==
+                backup.goalTaskDependencies.size
+        ) { "Duplicate task dependencies in backup." }
+        GoalValidator.validateDependencyGraph(backup.goalTasks, backup.goalTaskDependencies)
     }
 
     /** Version 1 lacks schedules, progress and intervals; normalize before replacing any table. */
@@ -270,7 +336,7 @@ object BackupValidator {
         require(maxJsonDepth(stripped) <= MAX_JSON_DEPTH) { "This file nests data too deeply to be a LifeTrack backup." }
         val document = json.parseToJsonElement(stripped).jsonObject
         val version = document["formatVersion"]?.jsonPrimitive?.intOrNull
-        require(version != null && version in 1..9) { "This backup version is not supported by this app." }
+        require(version != null && version in 1..10) { "This backup version is not supported by this app." }
         if (version >= 2) {
             require("pauses" in document) { "This version 2 backup is missing its pause history." }
             (document["habits"] as? JsonArray)?.forEach { entry ->

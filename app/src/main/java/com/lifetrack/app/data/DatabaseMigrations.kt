@@ -91,4 +91,30 @@ object DatabaseMigrations {
             db.execSQL("ALTER TABLE habits ADD COLUMN weeklyTarget INTEGER DEFAULT NULL")
         }
     }
+
+    /** Goal Roadmaps arrive in version 11 as five new tables: goals, phases, milestones, tasks and
+     *  task-dependency edges. Purely additive — no existing table is touched, and the new tables
+     *  start empty. The declared foreign keys are enforced by Room at runtime; the repository
+     *  still deletes children explicitly for deterministic ordering, and the declarations are
+     *  the schema contract Room validates at open time. */
+    val MIGRATION_10_11 = object : Migration(10, 11) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `goals` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `uuid` TEXT NOT NULL, `title` TEXT NOT NULL, `description` TEXT, `category` TEXT NOT NULL, `priority` TEXT NOT NULL, `plannedStartDate` INTEGER, `targetDate` INTEGER, `status` TEXT NOT NULL, `isArchived` INTEGER NOT NULL, `archivedOn` INTEGER, `completedAt` INTEGER, `sortOrder` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL)")
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_goals_uuid` ON `goals` (`uuid`)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS `goal_phases` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `uuid` TEXT NOT NULL, `goalId` INTEGER NOT NULL, `name` TEXT NOT NULL, `description` TEXT, `sortOrder` INTEGER NOT NULL, `plannedStartDate` INTEGER, `plannedEndDate` INTEGER, `status` TEXT NOT NULL, `completedAt` INTEGER, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, FOREIGN KEY(`goalId`) REFERENCES `goals`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)")
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_goal_phases_uuid` ON `goal_phases` (`uuid`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_goal_phases_goalId` ON `goal_phases` (`goalId`)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS `goal_milestones` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `uuid` TEXT NOT NULL, `goalId` INTEGER NOT NULL, `phaseId` INTEGER, `title` TEXT NOT NULL, `description` TEXT, `targetDate` INTEGER, `status` TEXT NOT NULL, `achievedAt` INTEGER, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, FOREIGN KEY(`goalId`) REFERENCES `goals`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE, FOREIGN KEY(`phaseId`) REFERENCES `goal_phases`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL)")
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_goal_milestones_uuid` ON `goal_milestones` (`uuid`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_goal_milestones_goalId` ON `goal_milestones` (`goalId`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_goal_milestones_phaseId` ON `goal_milestones` (`phaseId`)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS `goal_tasks` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `uuid` TEXT NOT NULL, `goalId` INTEGER NOT NULL, `phaseId` INTEGER, `milestoneId` INTEGER, `title` TEXT NOT NULL, `description` TEXT, `sortOrder` INTEGER NOT NULL, `plannedDate` INTEGER, `deadline` INTEGER, `estimatedMinutes` INTEGER, `status` TEXT NOT NULL, `completedAt` INTEGER, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, FOREIGN KEY(`goalId`) REFERENCES `goals`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE, FOREIGN KEY(`phaseId`) REFERENCES `goal_phases`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL, FOREIGN KEY(`milestoneId`) REFERENCES `goal_milestones`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL)")
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_goal_tasks_uuid` ON `goal_tasks` (`uuid`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_goal_tasks_goalId` ON `goal_tasks` (`goalId`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_goal_tasks_phaseId` ON `goal_tasks` (`phaseId`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_goal_tasks_milestoneId` ON `goal_tasks` (`milestoneId`)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS `goal_task_dependencies` (`dependentTaskId` INTEGER NOT NULL, `prerequisiteTaskId` INTEGER NOT NULL, PRIMARY KEY(`dependentTaskId`, `prerequisiteTaskId`), FOREIGN KEY(`dependentTaskId`) REFERENCES `goal_tasks`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE, FOREIGN KEY(`prerequisiteTaskId`) REFERENCES `goal_tasks`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_goal_task_dependencies_prerequisiteTaskId` ON `goal_task_dependencies` (`prerequisiteTaskId`)")
+        }
+    }
 }

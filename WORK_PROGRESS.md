@@ -1,6 +1,60 @@
-# LifeTrack — Work Progress (sessions 2026-11-15 → 2026-11-20: CSV export, directional tracking, app lock, Smart Streaks, Mood/Journal, Achievements, Flexible Scheduling engine + UI, UI/UX refinement phases 1-2, integration QA + release hardening)
+# LifeTrack — Work Progress
 
-Branches: `develop/achievements` (current) · `main` (= `32c9bfa`, carries the v1.9.0-preview.1 tag) · Backup at `D:\LifeTracker-backup` (untouched)
+**Version 2 line (current):** branch `version-2` (from `main` tip `e97c8b9653303efb5a026f03c482c61e40c1fd33`), target release 2.1.0, eight-prompt roadmap in [`docs/V2_ROADMAP.md`](docs/V2_ROADMAP.md).
+**Version 1 line (archived):** sessions 1–13 (2026-11-15 → 2026-11-20) shipped v1.6.0 → v1.11.0-preview.1 on `develop/achievements`/`main` — CSV export, directional tracking, app lock, Smart Streaks, mood/journal, achievements, flexible scheduling, UI/UX refinement ×2, integration QA + release hardening. Session logs preserved below. Backup at `D:\LifeTracker-backup` (untouched).
+
+---
+
+# Session 14 (Version 2, Prompt 1/8) — Requirements, architecture, Goal Roadmaps data foundation
+
+## What was built (this session, uncommitted → committing at end)
+
+- **Docs**: [`docs/V2_PRODUCT_REQUIREMENTS.md`](docs/V2_PRODUCT_REQUIREMENTS.md) (complete PRD: vocabulary, principles, functional/non-functional requirements, state machines, edge-case policies, validation limits, Prompt-1 acceptance criteria), [`docs/V2_ARCHITECTURE.md`](docs/V2_ARCHITECTURE.md) (v1 baseline invariants, V2 boundaries, persistence/backup/migration strategy, transaction boundaries, habit-link decision, security, future session/import contracts), [`docs/V2_DATA_MODEL.md`](docs/V2_DATA_MODEL.md) (entity/identity/deletion/migration/backup mapping), [`docs/V2_ROADMAP.md`](docs/V2_ROADMAP.md) (8-prompt plan + fixed cross-prompt contracts).
+- **Schema 11** (additive `MIGRATION_10_11`, `11.json` exported): `goals`, `goal_phases`, `goal_milestones`, `goal_tasks`, `goal_task_dependencies`. Every row carries a stable canonical UUID (unique index) as external identity; row ids stay local. Statuses persist as strings with the established `fromStored` pattern; transitions enforced by `GoalTransitions` in the repository; completion instants (`completedAt`/`achievedAt`) reconcile with statuses on every save. Planning = LocalDate; actuals = epoch millis. FKs declared (goal-owned children CASCADE, phase/milestone attachments SET NULL, dependency edges CASCADE ×2) and **executed explicitly by the repository** (Room never enforces FKs at runtime).
+- **`GoalRepository`** (`data/GoalRepository.kt`): transactional CRUD for all five record types, goal/phase/milestone/task state machines (create-in-initial-state, legal transitions only, reopen clears the instant), same-goal parent validation, dependency graph checks (self/cross-goal/duplicate/cycle via linear BFS proof, diamond accepted), explicit delete orders (phase/milestone deletion detaches children; goal deletion clears the tree; task deletion removes its edges), goal-scoped reorders, per-goal count caps shared with backup validation. UI never touches Room directly.
+- **`GoalValidator`** (`data/GoalModels.kt`): one validation source used by both repository saves and backup import — field limits (title 1–120, description ≤2,000, estimated ≤10,080 min), date range 1900…today+100y (past dates legal — delays stay visible), count caps (100/500/1,000/5,000/10,000), status/completedAt invariants, archive invariant, canonical-UUID checks, graph integrity, import normalizers (trim like saves).
+- **Backup v10** (`data/Backup.kt` + `HabitRepository`): five `@EncodeDefault(NEVER)` goal lists — plain v3–v9 exports stay key-free; `formatVersion` → 10 only when goal data exists; gates `formatVersion >= 10 || goal collections empty` in `validate` and `decode` (1..10); `validateGoalRoadmaps` (row-id + global-UUID uniqueness, parent resolution maps, duplicate edges, cycle check, caps); replace-all import clears goal tables edges→tasks→milestones→phases→goals and reinserts parents-first inside the existing single transaction; `resetAllData` clears them identically; encrypted envelopes untouched; app lock still never travels.
+- **Migration tests** (`DatabaseMigrationTest` 9 tests): era chain 1→11 deepened (goal-table insert/read-back after migration), every-era loop extended to 2..10 → 11 with new-table-emptiness assertions, new era-10 leg (goal graph usable post-migration, explicit tree delete leaves habits intact), FK DDL + all 11 new indexes asserted against migrated `sqlite_master`.
+- **New tests**: `GoalBackupTest` (21 tests, pure JVM — round trip, key-free plain exports, version gates incl. v9-file-with-goals-key rejection, referential/dependency/cycle rejections, caps, normalization contract, app-lock absence), `GoalRepositoryTest` (18 tests, Robolectric — identity/lifecycle, state machines incl. illegal transitions, detach-not-destroy deletions, cross-goal/dangling rejection, cannot-move-between-goals, dependency constraints + diamond, caps via bulk seeds, export version computation, transactional damaged-import isolation, import normalization).
+
+## Design decisions (lead, informed by product-requirements-analyst)
+
+- **No habit↔goal link table in schema 11** — no consumer exists before Prompt 3 and link semantics are undecided; the additive-12 path is documented (V2_ARCHITECTURE §3) with the read-only/no-double-count invariant fixed now.
+- **Phase CANCELLED state retained** (analyst suggested dropping it): an abandoned sub-effort inside an active goal must stay visible, not be deleted — planning principle 2. Goal keeps all five states; priority lives on goals (master brief §6.A) not tasks.
+- **Task reopen is one concept** (→NOT_STARTED), stricter than the analyst's permissive matrix; two taps keep the ledger legible.
+- **Tighter caps adopted** from the analyst (goals ≤100, phases ≤500, tasks ≤5,000, deps ≤10,000, estimated ≤10,080 min, titles ≤120, descriptions ≤2,000) — ~25× a real 24-week AI roadmap.
+- **CANCELLED→PLANNED revive only** (not →ACTIVE): reactivation stays a deliberate PLANNED→ACTIVE event.
+- **Milestones have no sort column** — checkpoints are chronological (createdAt); an additive column can follow if Prompt 2 needs explicit ordering.
+
+## Test evidence
+
+- `compileDebugKotlin` (capped heap, BelowNormal): **BUILD SUCCESSFUL in 14m 19s**; `11.json` generated and verified field-by-field against `MIGRATION_10_11` DDL.
+- First focused run surfaced 8 failures — 1 real production bug (repository passed empty parent-ownership maps to `GoalValidator` for milestone/task saves, rejecting every child-bearing save) + 7 test defects (stale-entity transition walk, leftover `assertEquals(10, …)`, v1 test missing `MIGRATION_10_11` in its explicit chain, thousands-separator message expectations, `saveHabit` returns `Long` not entity, duplicate `finally` block from an edit). All fixed; **re-run: `BUILD SUCCESSFUL in 9m 43s` — GoalBackupTest 34/34, GoalRepositoryTest 23/23, DatabaseMigrationTest 8/8** at pinned `-Xmx3g`, 2 workers, `--no-parallel --no-daemon`, BelowNormal, RAM monitored.
+- Full gate baseline (pre-review): `BUILD SUCCESSFUL in 11m 39s` — 384/384 + lint 0 errors/27 warnings + assembleDebug. One stale v1 expectation caught and updated (`DailyReflectionBackupTest` asserted formatVersion 10 was rejected — this branch now supports v10; gate moved to 11).
+- **Final gate (after review fixes): `BUILD SUCCESSFUL in 19m 20s` — testDebugUnitTest 391/391 across 27 suites, 0 failures, 0 skipped + lintDebug 0 errors / 27 warnings (identical to the v1.11 baseline — no new findings) + assembleDebug APK.** Limits verified live: 2 workers, `--no-parallel --no-daemon`, pinned `-Xmx3g`, BelowNormal priority, RAM monitored throughout (one compile was launched at 2.0 GB free with the capped `-Xmx1200m` in-process profile per the resource policy; Robolectric gates ran only at ≥4.4 GB).
+
+## Reviews (this session)
+
+- `product-requirements-analyst`: decision matrix + edge-case policies + acceptance criteria — merged into the PRD (divergences recorded in the design decisions above with rationale).
+- `independent-reviewer` (strictly read-only, post-implementation): **1 High + 2 Medium + 3 Low + 1 informational, plus an explicit verified-clean list** (migration DDL vs 11.json column-by-column, import/reset orders, backup compatibility, v1 regression surface, cycle detection, state machines, import validation airtightness, date representation). All actionable findings fixed and re-gated:
+  - **H-1**: goal caps were per-goal while backup caps are totals — 101 goals (or aggregate totals) could permanently break `exportTo`. Fixed: repository creates now enforce the **total** caps (`allGoals/allPhases/allMilestones/allTasks`), so the database can never outgrow what an export accepts; cap tests extended (milestones, dependency edges at both layers).
+  - **M-1**: an update draft could silently rewrite a record's UUID. Fixed: uuid pinned to the stored row on update — minted once on create, never re-identified (the Prompt 4 import matches by uuid).
+  - **M-2**: the session's "Room does not enforce FKs at runtime" premise (inherited from a v1.11 note) was **wrong** — `deleteHabit`'s orphan-free tests prove Room 2.7.1 enforces declared FKs. Docs (`V2_ARCHITECTURE`, `V2_DATA_MODEL`, PRD §11), KDoc comments and the migration test name corrected; explicit child deletes retained (deterministic ordering, observable semantics). Session 13's historical log above is left untouched as a record of what was believed then.
+  - **L-2**: writes coerced unknown status strings via `fromStored`; now strictly rejected like saves of habits and like imports.
+  - **L-3**: coverage gaps closed — replace-all import over a seeded tree, old-format restore clearing goal tables, goal reorder, milestone/dependency caps, phase/milestone/task completion-invariant rejections.
+  - **L-1 + informational (documented, not changed)**: decode validates raw text before import normalization (mirrors the journal behavior since v7 — documented in `V2_ARCHITECTURE` §2.4); imported completion instants keep v1's timestamp laxity (≥0, status-bound only).
+
+## Deferred (later prompts, deliberately)
+
+## Reviews (this session)
+
+- `product-requirements-analyst`: decision matrix + edge-case policies + acceptance criteria — merged into the PRD (divergences recorded above with rationale).
+- `independent-reviewer`: *dispatched after tests settle; findings to be recorded.*
+
+## Deferred (later prompts, deliberately)
+
+- Goal UI/timeline (Prompt 2), progress/habit links (Prompt 3, schema 12), Goal Plan JSON schema + partial import (Prompts 3–4), sessions/reminders (Prompt 5, design in V2_ARCHITECTURE §7.3), analytics (Prompt 6), UX/security passes (Prompt 7), release (Prompt 8: version 2.1.0, README/UPGRADE refresh).
+- `AGENTS.md` release-branch notes stay accurate for v1.x; the V2 header records the new branch and will be updated by each V2 prompt.
 
 ---
 

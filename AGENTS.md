@@ -5,7 +5,7 @@ Offline-first Android habit tracker: Kotlin, Jetpack Compose Material 3, Room, M
 ## Non-negotiable constraints (apply to every session and agent)
 
 - Offline-first always: no `INTERNET` permission, no accounts, no analytics/cloud sync, no automatic app-data cloud backup.
-- Room is the canonical preference store; JSON backups (format v3/v4) are the only restorable export. Any schema change needs an additive Room migration with exported `app/schemas/*.json`, no destructive fallback, and backup-format versioning with in-memory conversion of older formats.
+- Room is the canonical preference store; JSON backups (formats v1–v10) are the only restorable export. Any schema change needs an additive Room migration with exported `app/schemas/*.json`, no destructive fallback, and backup-format versioning with in-memory conversion of older formats.
 - Preserve existing user data, tracking rules and backward compatibility. Tracking semantics live in `domain/Analytics.kt` and `HabitRepository.kt`; change them only with test coverage.
 - Do not commit, push, merge, or modify `main` unless the user explicitly asks.
 - Report faithfully: state the exact commands and results you observed; never claim a check you did not run (see VALIDATION.md culture).
@@ -44,7 +44,16 @@ Avoid redundant analysis: one specialist per concern; reviewers see finished dif
 
 ## Current state
 
-- Branch `develop/achievements` (branched from the v1.9.0-preview.1 release on `main`); versionName 1.9.0 / versionCode 9; Room schema **10**; backup format v1–v9 (v6 = Smart Streaks, v7 = daily reflections, v8 = achievement acknowledgments, v9 = flexible scheduling; each format required only when such data exists; plain exports stay key-free for older apps via `@EncodeDefault(NEVER)`). Latest published preview: tag `v1.10.0-preview.1` (= Prompt 7 tip).
+### Version 2 line (active)
+
+- Branch **`version-2`** (branched from the `main` tip `e97c8b9653303efb5a026f03c482c61e40c1fd33`); target release 2.1.0, prerelease in Prompt 8 — **do not publish versions or merge to main before Prompt 8**. Eight-prompt plan: [`docs/V2_ROADMAP.md`](docs/V2_ROADMAP.md); requirements: [`docs/V2_PRODUCT_REQUIREMENTS.md`](docs/V2_PRODUCT_REQUIREMENTS.md); architecture: [`docs/V2_ARCHITECTURE.md`](docs/V2_ARCHITECTURE.md); data model: [`docs/V2_DATA_MODEL.md`](docs/V2_DATA_MODEL.md).
+- **Prompt 1/8 landed**: Room schema **11** (additive `MIGRATION_10_11`): `goals`, `goal_phases`, `goal_milestones`, `goal_tasks`, `goal_task_dependencies` — every row carries a permanent canonical UUID (unique index) as external identity; row ids are local only. Backup format **v1–v10** (v10 = goal roadmaps; additive `@EncodeDefault(NEVER)` lists; v3–v9 plain exports stay key-free). All goal writes go through `data/GoalRepository.kt` (state machines in `GoalTransitions`, shared validation in `GoalValidator`, explicit child deletes — Room never enforces FKs at runtime). Replace-all import/reset clear goal tables edges→tasks→milestones→phases→goals. `GoalPlan` JSON import is a separate future document type — never mix it with full backups.
+- Data-safety constraints for every V2 session: statuses/UUIDs validated against `GoalValidator` on every write and import; nothing ever auto-completes (no deadline/notification/parent-derived status writes); goal code never writes habit tables (future links, Prompt 3, read-only through an additive link table); every multi-table write is one transaction.
+- Prompt sequencing: 2 = goal UI + timeline, 3 = progress + habit links (schema 12) + Goal Plan JSON schema, 4 = import preview/merge, 5 = study sessions + reminders, 6 = session recovery + goal analytics, 7 = UX/accessibility/security, 8 = integration/QA/release.
+
+### Version 1 line (archived, sessions 1–13)
+
+- Branches `develop/achievements` / `main`; latest published preview `v1.11.0-preview.1` (versionCode 12). Room schema **10** at that tip; backup formats v1–v9 (v6 = Smart Streaks, v7 = daily reflections, v8 = achievement acknowledgments, v9 = flexible scheduling; each format required only when such data exists; plain exports stay key-free for older apps via `@EncodeDefault(NEVER)`).
 - App lock (opt-in biometric/device-credential gate) is local-only: `appLockEnabled` is stripped from backups and rejected on import — never serialize it.
 - Daily reflections (`daily_reflections`, date-scoped, NO habit FK) and achievement acknowledgments (`achievement_acknowledgments`, id-scoped, NO FK): import/reset must clear both explicitly — habit cascades never touch these tables.
 - Flexible scheduling (`domain/Scheduling.kt`, schema 10: `scheduleMode`/`intervalDays`/`intervalAnchor`/`weeklyTarget`): WEEKDAYS (default, legacy habits unchanged), EVERY_N_DAYS (LocalDate/epochDay grid from the revision anchor — never elapsed millis), WEEKLY_QUOTA (ISO Mon–Sun, any day counts). Canonical semantics: quota habits are check-in-eligible every day but NEVER daily-due — `Analytics.dueOn` gates `unmarked`/`density`/streaks-zero/rate exclusion, reminders (policy + claim + daily worker) and CSV per-row resolution. Null-mode schedule revisions are weekday periods (`Scheduling.mode`), so weekday-era history survives mode switches. Import validation range-checks interval 2..365 and weeklyTarget 1..7 at habit AND revision level.

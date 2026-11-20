@@ -67,7 +67,7 @@ class DatabaseMigrationTest {
                 DatabaseMigrations.MIGRATION_3_4, DatabaseMigrations.MIGRATION_4_5,
                 DatabaseMigrations.MIGRATION_5_6, DatabaseMigrations.MIGRATION_6_7,
                 DatabaseMigrations.MIGRATION_7_8, DatabaseMigrations.MIGRATION_8_9,
-                DatabaseMigrations.MIGRATION_9_10
+                DatabaseMigrations.MIGRATION_9_10, DatabaseMigrations.MIGRATION_10_11
             )
             .allowMainThreadQueries().build()
         try {
@@ -112,6 +112,14 @@ class DatabaseMigrationTest {
             val acknowledgment = migrated.dao().allAchievementAcknowledgments().single()
             assertEquals("habit.first_completion", acknowledgment.achievementId)
             assertEquals(300, acknowledgment.acknowledgedAt)
+            // MIGRATION_10_11 added the Goal Roadmap tables; they start empty and accept rows.
+            assertTrue(migrated.goalDao().allGoals().isEmpty())
+            migrated.goalDao().insertGoal(Goal(uuid = "11111111-1111-4111-8111-111111111111", title = "Learn ML", createdAt = 100, updatedAt = 200))
+            val insertedGoal = migrated.goalDao().allGoals().single()
+            assertEquals("Learn ML", insertedGoal.title)
+            assertEquals("PLANNED", insertedGoal.status)
+            migrated.goalDao().insertPhase(GoalPhase(uuid = "22222222-2222-4222-8222-222222222222", goalId = insertedGoal.id, name = "Foundations", createdAt = 100, updatedAt = 200))
+            assertEquals(1, migrated.goalDao().allPhases().size)
             // MIGRATION_9_10 added flexible scheduling; every migrated habit keeps WEEKDAYS semantics.
             assertEquals("WEEKDAYS", migrated.dao().allHabits().single().scheduleMode)
             assertNull(migrated.dao().allHabits().single().intervalAnchor)
@@ -120,7 +128,7 @@ class DatabaseMigrationTest {
             assertEquals(today, pause.startDate)
             assertNull(pause.endDate)
             assertEquals("2026-10", migrated.dao().allFreezes().single().month)
-            assertEquals(10, migrated.openHelper.readableDatabase.version)
+            assertEquals(11, migrated.openHelper.readableDatabase.version)
             assertTrue("Version-3 activity tables start empty after migration from version 1", migrated.dao().allActivities().isEmpty())
             // MIGRATION_4_5 added the tracking columns; the migrated schema must apply their defaults.
             // (Opening schema 5 at all proves Room accepted the migrated structure — a mismatch would throw.)
@@ -138,12 +146,12 @@ class DatabaseMigrationTest {
 
     // ---- Every old install reaches the new release: each exported era walks the full chain ----
 
-    @Test fun everyExportedSchemaVersionStillMigratesForwardToVersionTen() = runBlocking {
+    @Test fun everyExportedSchemaVersionStillMigratesForwardToVersionEleven() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
-        // Any supported install — not just the oldest one — must reach schema 10. Room validates
+        // Any supported install — not just the oldest one — must reach schema 11. Room validates
         // every end state against the compiled schema when it opens, so a broken middle leg,
         // a dropped column or a default mismatch anywhere on the chain fails here.
-        for (startVersion in 2..9) {
+        for (startVersion in 2..10) {
             val name = "lifetrack-era-$startVersion-${System.nanoTime()}.db"
             buildDatabaseAt(context, name, startVersion) { db -> seedEraRows(db, startVersion) }
             val migrated = migrateForward(context, name)
@@ -154,7 +162,7 @@ class DatabaseMigrationTest {
                 assertEquals((1..7).toList(), habit.scheduledDays)
                 assertEquals(1, habit.targetCount)
                 assertEquals("times", habit.targetUnit)
-                // Every era lands on the same schema-10 semantics.
+                // Every era lands on the same schema-11 semantics.
                 assertEquals("STRICT", habit.streakPolicy)
                 assertEquals(75, habit.partialCreditPercent)
                 assertEquals("WEEKDAYS", habit.scheduleMode)
@@ -170,7 +178,13 @@ class DatabaseMigrationTest {
                 assertEquals("DARK", settings.theme)
                 assertEquals(123L, settings.lastExportAt)
                 assertEquals("2026-10", migrated.dao().allFreezes().single().month)
-                assertEquals(10, migrated.openHelper.readableDatabase.version)
+                // MIGRATION_10_11 mints the Goal Roadmap tables empty for every era.
+                assertTrue(migrated.goalDao().allGoals().isEmpty())
+                assertTrue(migrated.goalDao().allPhases().isEmpty())
+                assertTrue(migrated.goalDao().allMilestones().isEmpty())
+                assertTrue(migrated.goalDao().allTasks().isEmpty())
+                assertTrue(migrated.goalDao().allDependencies().isEmpty())
+                assertEquals(11, migrated.openHelper.readableDatabase.version)
             } finally {
                 migrated.close()
                 context.deleteDatabase(name)
@@ -180,7 +194,7 @@ class DatabaseMigrationTest {
 
     // ---- Per-era legs: each feature's own migration, seeded with rows of that era ----
 
-    @Test fun versionSixRowsGainStrictSmartStreakDefaultsWhenMigratingToTen() = runBlocking {
+    @Test fun versionSixRowsGainStrictSmartStreakDefaultsWhenMigratingToEleven() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         val name = "lifetrack-era-six-${System.nanoTime()}.db"
         buildDatabaseAt(context, name, 6) { db -> seedEraRows(db, 6) }
@@ -195,7 +209,7 @@ class DatabaseMigrationTest {
             assertEquals(75, habit.partialCreditPercent)
             assertTrue("Streak protections start empty after migration", migrated.dao().allStreakProtections().isEmpty())
             assertEquals(19L, migrated.dao().allLogs().single().id)
-            assertEquals(10, migrated.openHelper.readableDatabase.version)
+            assertEquals(11, migrated.openHelper.readableDatabase.version)
         } finally {
             migrated.close()
             context.deleteDatabase(name)
@@ -286,9 +300,9 @@ class DatabaseMigrationTest {
         }
     }
 
-    // ---- Foreign keys: declarations travel with the migrations; enforcement is a runtime setting ----
+    // ---- Foreign keys: declarations travel with the migrations and Room enforces them at runtime ----
 
-    @Test fun migratedSchemasDeclareTheirForeignKeysWithoutEnforcingThem() = runBlocking {
+    @Test fun migratedSchemasDeclareTheirForeignKeys() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         val name = "lifetrack-fk-${System.nanoTime()}.db"
         buildDatabaseAt(context, name, 1) { db -> seedEraRows(db, 1) }
@@ -328,6 +342,80 @@ class DatabaseMigrationTest {
                 assertTrue("$table must exist", ddl.isNotBlank())
                 assertFalse("$table must declare no habit foreign key (found: $ddl)", ddl.contains("FOREIGN KEY"))
             }
+            // MIGRATION_10_11 declared the goal graph: goal-owned children cascade, optional
+            // phase/milestone attachments SET NULL, and dependency edges cascade with their tasks.
+            val goalPhases = ddlOf("goal_phases")
+            assertTrue("goal_phases must reference goals on delete CASCADE",
+                goalPhases.contains("FOREIGN KEY(goalId) REFERENCES goals(id)") && goalPhases.contains("ON DELETE CASCADE"))
+            val goalMilestones = ddlOf("goal_milestones")
+            assertTrue("goal_milestones must reference goals on delete CASCADE",
+                goalMilestones.contains("FOREIGN KEY(goalId) REFERENCES goals(id)") && goalMilestones.contains("ON DELETE CASCADE"))
+            assertTrue("goal_milestones must SET NULL on phase deletion",
+                goalMilestones.contains("FOREIGN KEY(phaseId) REFERENCES goal_phases(id)") && goalMilestones.contains("ON DELETE SET NULL"))
+            val goalTasks = ddlOf("goal_tasks")
+            assertTrue("goal_tasks must reference goals on delete CASCADE",
+                goalTasks.contains("FOREIGN KEY(goalId) REFERENCES goals(id)") && goalTasks.contains("ON DELETE CASCADE"))
+            assertTrue("goal_tasks must SET NULL on phase deletion",
+                goalTasks.contains("FOREIGN KEY(phaseId) REFERENCES goal_phases(id)") && goalTasks.contains("ON DELETE SET NULL"))
+            assertTrue("goal_tasks must SET NULL on milestone deletion",
+                goalTasks.contains("FOREIGN KEY(milestoneId) REFERENCES goal_milestones(id)") && goalTasks.contains("ON DELETE SET NULL"))
+            val goalTaskDependencies = ddlOf("goal_task_dependencies")
+            assertTrue("goal_task_dependencies must reference tasks on delete CASCADE in both directions",
+                goalTaskDependencies.contains("FOREIGN KEY(dependentTaskId) REFERENCES goal_tasks(id)") &&
+                    goalTaskDependencies.contains("FOREIGN KEY(prerequisiteTaskId) REFERENCES goal_tasks(id)") &&
+                    goalTaskDependencies.contains("ON DELETE CASCADE"))
+            listOf("goals", "goal_phases", "goal_milestones", "goal_tasks").forEach { table ->
+                val ddl = createTableSql(db, table)
+                assertTrue("$table must exist", ddl.isNotBlank())
+                assertTrue("$table must carry its uuid column", ddl.contains("uuid"))
+            }
+            val goalIndexes = mutableListOf<String>()
+            db.query("SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'index_goal%'").use { cursor ->
+                while (cursor.moveToNext()) goalIndexes.add(cursor.getString(0))
+            }
+            listOf(
+                "index_goals_uuid", "index_goal_phases_uuid", "index_goal_phases_goalId",
+                "index_goal_milestones_uuid", "index_goal_milestones_goalId", "index_goal_milestones_phaseId",
+                "index_goal_tasks_uuid", "index_goal_tasks_goalId", "index_goal_tasks_phaseId",
+                "index_goal_tasks_milestoneId", "index_goal_task_dependencies_prerequisiteTaskId"
+            ).forEach { index ->
+                assertTrue("index $index must exist after migration", goalIndexes.contains(index))
+            }
+        } finally {
+            migrated.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test fun versionTenGainsTheGoalRoadmapTablesAndTheyStartEmptyAndUsable() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val name = "lifetrack-era-ten-${System.nanoTime()}.db"
+        buildDatabaseAt(context, name, 10) { db -> seedEraRows(db, 10) }
+        val migrated = migrateForward(context, name)
+        try {
+            assertEquals(7L, migrated.dao().allHabits().single().id)
+            // The five goal tables are minted by MIGRATION_10_11 itself: empty, then fully usable.
+            assertTrue(migrated.goalDao().allGoals().isEmpty())
+            val goal = Goal(uuid = "11111111-1111-4111-8111-111111111111", title = "Learn ML", createdAt = 100, updatedAt = 200)
+            val savedGoal = migrated.goalDao().insertGoal(goal)
+            val phase = migrated.goalDao().insertPhase(GoalPhase(uuid = "22222222-2222-4222-8222-222222222222", goalId = savedGoal, name = "Foundations", createdAt = 100, updatedAt = 200))
+            val milestone = migrated.goalDao().insertMilestone(GoalMilestone(uuid = "33333333-3333-4333-8333-333333333333", goalId = savedGoal, phaseId = phase, title = "Basics down", createdAt = 100, updatedAt = 200))
+            val prerequisite = migrated.goalDao().insertTask(GoalTask(uuid = "44444444-4444-4444-8444-444444444444", goalId = savedGoal, phaseId = phase, milestoneId = milestone, title = "Read chapter", createdAt = 100, updatedAt = 200))
+            val dependent = migrated.goalDao().insertTask(GoalTask(uuid = "55555555-5555-4555-8555-555555555555", goalId = savedGoal, phaseId = phase, title = "Solve exercises", sortOrder = 1, createdAt = 100, updatedAt = 200))
+            migrated.goalDao().insertDependency(GoalTaskDependency(dependent, prerequisite))
+            assertEquals(1, migrated.goalDao().allGoals().size)
+            assertEquals(2, migrated.goalDao().allTasks().size)
+            assertEquals(1, migrated.goalDao().allDependencies().size)
+            // Deleting the goal clears the tree explicitly (the repository does this) — habits untouched.
+            migrated.goalDao().deleteDependenciesForGoal(savedGoal)
+            migrated.goalDao().deleteTasksForGoal(savedGoal)
+            migrated.goalDao().deleteMilestonesForGoal(savedGoal)
+            migrated.goalDao().deletePhasesForGoal(savedGoal)
+            migrated.goalDao().deleteGoalById(savedGoal)
+            assertTrue(migrated.goalDao().allGoals().isEmpty())
+            assertTrue(migrated.goalDao().allTasks().isEmpty())
+            assertEquals(7L, migrated.dao().allHabits().single().id)
+            assertEquals(11, migrated.openHelper.readableDatabase.version)
         } finally {
             migrated.close()
             context.deleteDatabase(name)
@@ -341,7 +429,7 @@ class DatabaseMigrationTest {
         DatabaseMigrations.MIGRATION_3_4, DatabaseMigrations.MIGRATION_4_5,
         DatabaseMigrations.MIGRATION_5_6, DatabaseMigrations.MIGRATION_6_7,
         DatabaseMigrations.MIGRATION_7_8, DatabaseMigrations.MIGRATION_8_9,
-        DatabaseMigrations.MIGRATION_9_10
+        DatabaseMigrations.MIGRATION_9_10, DatabaseMigrations.MIGRATION_10_11
     )
 
     private fun schemaFile(version: Int): File = listOf(
