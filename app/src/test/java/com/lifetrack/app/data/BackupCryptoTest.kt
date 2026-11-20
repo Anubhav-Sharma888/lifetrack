@@ -2,6 +2,7 @@ package com.lifetrack.app.data
 
 import java.util.Base64
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
@@ -122,6 +123,34 @@ class BackupCryptoTest {
             changed(encrypted, "ciphertext", JsonPrimitive("AAAA"))
         )
         invalid.forEach { assertThrows(IllegalArgumentException::class.java) { BackupCrypto.decrypt(it, password) } }
+    }
+
+    @Test fun `plain backup formats eight and nine are recognized without a password`() {
+        for (version in listOf(8, 9)) {
+            val backup = LifeTrackBackup(
+                formatVersion = version, exportedAt = 100,
+                habits = emptyList(), logs = emptyList(), settings = AppSettings(),
+                freezes = emptyList()
+            )
+            val bytes = BackupValidator.json.encodeToString(backup).toByteArray(Charsets.UTF_8)
+            assertEquals(BackupFileKind.PLAIN, BackupInspector.inspect(bytes))
+        }
+    }
+
+    @Test fun `inspector distinguishes encryption and rejects fake or unsupported envelopes`() {
+        val envelope = BackupCrypto.encrypt(plain, password)
+        assertEquals(BackupFileKind.ENCRYPTED, BackupInspector.inspect(envelope))
+        listOf(
+            "{}",
+            "not-json",
+            "{\"kind\":\"lifetrack-encrypted\",\"version\":1,\"kdf\":\"PBKDF2-HMAC-SHA256\"}",
+            "{\"kind\":\"unrecognized-backup\",\"formatVersion\":9}",
+            "{\"formatVersion\":999}"
+        ).forEach { input ->
+            assertThrows(IllegalArgumentException::class.java) {
+                BackupInspector.inspect(input.toByteArray(Charsets.UTF_8))
+            }
+        }
     }
 
     @Test fun `envelope recognition is explicit and accepts a utf8 bom`() {
