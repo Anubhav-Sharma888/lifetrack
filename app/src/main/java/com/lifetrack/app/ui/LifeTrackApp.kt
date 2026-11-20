@@ -35,6 +35,7 @@ import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.*
 import androidx.navigation.navArgument
 import androidx.navigation.NavType
+import com.lifetrack.app.data.BackupFileKind
 import kotlinx.coroutines.launch
 import kotlin.math.sin
 
@@ -54,11 +55,17 @@ fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, vm: HabitView
     val owner = LocalLifecycleOwner.current
     val busy by vm.busy.collectAsState()
     val operationError by vm.operationError.collectAsState()
+    val importKind by vm.importKind.collectAsState()
     var pendingImport by rememberSaveable { mutableStateOf<String?>(null) }
     // A password is deliberately never put into saved instance state or preferences.
     var backupPassword by remember { mutableStateOf("") }
     // One import trigger shared by the Settings row and the Today restore action.
-    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> vm.clearOperationError(); backupPassword = ""; pendingImport = uri?.toString() }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        vm.clearImportInspection()
+        backupPassword = ""
+        pendingImport = uri?.toString()
+        if (uri != null) vm.inspectImport(uri)
+    }
     val launchImport = { importLauncher.launch(arrayOf("application/json", "text/json", "text/plain", "application/octet-stream")) }
     DisposableEffect(owner) {
         val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) vm.refreshToday() }
@@ -154,17 +161,66 @@ fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, vm: HabitView
                     }
                 }
             }
-            pendingImport?.let { path -> AlertDialog(onDismissRequest = { if (!busy) { pendingImport = null; backupPassword = "" } }, title = { Text("Replace all LifeTrack data?") }, text = {
-                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Restoring replaces current habits, history, pauses, freezes and settings. Export your current data first if you want to keep it. Invalid files or a wrong password leave existing data intact.")
-                    OutlinedTextField(backupPassword, { if (it.length <= 1024) backupPassword = it }, label = { Text("Password · encrypted backups only") },
-                        visualTransformation = PasswordVisualTransformation(), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Password), singleLine = true)
-                    Text("Leave the password empty for a plain JSON backup. A failed restore stays open so you can retry.", style = MaterialTheme.typography.bodySmall)
-                    operationError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
-                }
-            }, confirmButton = { TextButton(enabled = !busy, onClick = {
-                vm.import(Uri.parse(path), backupPassword.takeIf { it.isNotEmpty() }?.toCharArray()) { pendingImport = null; backupPassword = "" }
-            }) { Text(if (busy) "Restoring…" else "Replace and restore") } }, dismissButton = { TextButton(enabled = !busy, onClick = { pendingImport = null; backupPassword = "" }) { Text("Cancel") } }) }
+            pendingImport?.let { path ->
+                AlertDialog(
+                    onDismissRequest = {
+                        if (!busy) { pendingImport = null; backupPassword = ""; vm.clearImportInspection() }
+                    },
+                    title = { Text("Replace all LifeTrack data?") },
+                    text = {
+                        Column(
+                            Modifier.verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            when (importKind) {
+                                BackupFileKind.PLAIN -> Text("Unencrypted LifeTrack backup — no password is required.")
+                                BackupFileKind.ENCRYPTED -> {
+                                    Text("This LifeTrack backup is password-protected. Enter its original password.")
+                                    OutlinedTextField(
+                                        backupPassword,
+                                        { if (it.length <= 1024) backupPassword = it },
+                                        label = { Text("Backup password") },
+                                        visualTransformation = PasswordVisualTransformation(),
+                                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Password
+                                        ),
+                                        singleLine = true
+                                    )
+                                }
+                                null -> if (busy) Text("Checking the selected backup…")
+                                    else Text("The selected file could not be verified. Choose a valid LifeTrack backup.")
+                            }
+                            Text("Restoring replaces your current data. Export your current data first if you want to keep it. Invalid files and incorrect passwords leave your existing data unchanged.")
+                            operationError?.let {
+                                Text(it, color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(
+                            enabled = !busy && importKind != null &&
+                                (importKind != BackupFileKind.ENCRYPTED || backupPassword.isNotEmpty()),
+                            onClick = {
+                                val password = if (importKind == BackupFileKind.ENCRYPTED)
+                                    backupPassword.toCharArray() else null
+                                vm.import(Uri.parse(path), password) {
+                                    pendingImport = null
+                                    backupPassword = ""
+                                    vm.clearImportInspection()
+                                }
+                            }
+                        ) { Text(if (busy) "Restoring…" else "Replace and restore") }
+                    },
+                    dismissButton = {
+                        TextButton(enabled = !busy, onClick = {
+                            pendingImport = null
+                            backupPassword = ""
+                            vm.clearImportInspection()
+                        }) { Text("Cancel") }
+                    }
+                )
+            }
             if (state.settings.animationsEnabled) MilestoneConfetti(celebration)
         }
         }
