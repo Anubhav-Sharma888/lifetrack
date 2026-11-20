@@ -25,6 +25,16 @@ Branches: `develop/achievements` (current) · `main` (= `32c9bfa`, carries the v
 - Device QA: **NOT RUN** (no device/emulator in this environment) — the manual checklist lives in docs/QA-MATRIX.md; the prerelease is explicitly labeled as debug-signed testing build (applicationId `com.lifetrack.app.preview`) and production certification remains Prompt-12-manual/out-of-scope.
 - Verdict: **CONDITIONAL GO** for the clearly labeled testing prerelease (Gates A–E pass; Gate F device QA remains for manual execution).
 
+## Publication and divergence record (important)
+
+**A parallel session published v1.11.0-preview.1 from main while this session was implementing Prompt 12.** Timeline and reconciliation facts:
+
+- Both lines descend from the Prompt 11 commit `1c29bd2` (merge-base verified): this session's work on `develop/achievements` (65f8b25) and the parallel session's `fix/backup-import-v1.11-preview` branch (via PR #6).
+- The parallel session implemented the same P0 import fix independently (`BackupFileKind`/`importKind` conditional dialog, `MAX_JSON_DEPTH = 64` depth pre-scan — convergent design, including the encrypted-envelope application), merged into **main** (`32c9bfa` → `7d37170` "Merge LifeTrack v1.11 preview backup restore fix", versionCode 12), tagged `v1.11.0-preview.1` at the main tip and published the prerelease (CI runs on the fix branch and main all **success**).
+- **Publication verified independently by this session**: tag target = `7d37170` (= main tip); release marked prerelease with both assets present; downloaded `LifeTrack-v1.11.0-preview.1.apk` (23,590,195 bytes) and `sha256sum -c` **OK** against the published `LifeTrack-v1.11.0-preview.1.apk.sha256` (a0906d52…a361); the APK manifest contains `1.11.0-preview.1` and applicationId `com.lifetrack.app.preview`.
+- **This session's develop/achievements work (65f8b25) is complementary, not redundant**: it adds `BackupKind`/`classifyBackup` classification with truncated-envelope fallback, the `ImportDialog` UI tests, the encrypted-envelope depth guard in `BackupCrypto.decrypt`, its own SHA-pinned v1.11 CI workflow, and README/UPGRADE/PRIVACY refreshes. Reconciling the two lines (merging develop into main, or cherry-picking the deltas) is a user decision — this session is forbidden from merging into main and did not overwrite the existing tag or assets.
+- Main was NOT modified by this session (it moved externally); no tags or assets were overwritten; no force-pushes.
+
 # Session 13 (Prompt 11/12) — Integration testing, release hardening, QA evidence
 
 ## What was done (this session, uncommitted → committing at end)
