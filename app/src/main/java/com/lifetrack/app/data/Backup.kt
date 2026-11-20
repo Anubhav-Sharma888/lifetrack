@@ -8,6 +8,8 @@ import kotlinx.serialization.Required
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.intOrNull
@@ -39,6 +41,12 @@ data class LifeTrackBackup(
     val achievementAcknowledgments: List<AchievementAcknowledgment> = emptyList()
 )
 
+/** What a selected import file is, classified before any password-specific UI is shown.
+ *  A damaged file that parses as neither format still classifies by its best signal:
+ *  an envelope prefix is reported as ENCRYPTED (its password prompt and restore error
+ *  are the honest next step), everything else as PLAIN. */
+enum class BackupKind { PLAIN, ENCRYPTED }
+
 /** Validation is independent of Android/Room so corrupt imports can be rejected before writes. */
 object BackupValidator {
     val json = Json {
@@ -52,6 +60,19 @@ object BackupValidator {
     /** Real backups nest a handful of levels (backups → habits → schedule history → weekday lists);
      *  anything deeper is either corrupt or crafted to overflow the JSON parser's recursion. */
     const val MAX_JSON_DEPTH = 64
+
+    /** True when [text] carries the encrypted-envelope marker: either it fully parses as an
+     *  envelope (the authoritative check) or it merely begins with one — a truncated envelope
+     *  still deserves the password prompt rather than the plain-backup dialog. */
+    fun looksLikeEncryptedEnvelope(text: String): Boolean {
+        val stripped = text.removePrefix("\uFEFF").trimStart()
+        if (stripped.startsWith("""{"kind":"${BackupCrypto.KIND}"""") || stripped.startsWith("""{"kind": "${BackupCrypto.KIND}"""")) return true
+        return runCatching {
+            val root = json.parseToJsonElement(stripped) as? JsonObject
+            val kind = root?.get("kind") as? JsonPrimitive
+            kind?.isString == true && kind.content == BackupCrypto.KIND
+        }.getOrDefault(false)
+    }
 
     fun validateHabit(habit: Habit, today: LocalDate = LocalDate.now()) {
         require(habit.id >= 0 && habit.id < Long.MAX_VALUE) { "Invalid habit ID." }

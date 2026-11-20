@@ -1,8 +1,29 @@
-# LifeTrack — Work Progress (sessions 2026-11-15 → 2026-11-20: CSV export, directional tracking, app lock, Smart Streaks, Mood/Journal, Achievements, Flexible Scheduling engine + UI, UI/UX refinement phases 1-2, integration QA + release hardening)
+# LifeTrack — Work Progress (sessions 2026-11-15 → 2026-11-20: CSV export, directional tracking, app lock, Smart Streaks, Mood/Journal, Achievements, Flexible Scheduling engine + UI, UI/UX refinement phases 1-2, integration QA + release hardening, backup import fix + v1.11.0 preview release)
 
 Branches: `develop/achievements` (current) · `main` (= `32c9bfa`, carries the v1.9.0-preview.1 tag) · Backup at `D:\LifeTracker-backup` (untouched)
 
 ---
+
+# Session 14 (Prompt 12/12) — Backup import fix, release hardening, versioning, publication
+
+## What was done (this session, uncommitted → committing at end)
+
+- **P0 import fix**: the import dialog now classifies the selected file automatically before showing any password-specific UI (repository `classifyBackup` + `BackupValidator.BackupKind`/`looksLikeEncryptedEnvelope` with a truncated-envelope prefix fallback). Plain backups restore with **no password field at all**; encrypted backups prompt for their password; unopenable files show a clear classification error; the footer button exists only once a classification is known. The dialog moved to the custom-shell idiom (platform-AlertDialog width derivation measure-loops under Robolectric). Root cause of the user report: the dialog unconditionally displayed a password field on every released build, reading as a mandatory password for plain backups; the repository's plain path itself was always password-free (pinned by the pre-existing round-trip test).
+- **Encrypted-envelope depth guard**: the L-1 recursion defense extended to `BackupCrypto.decrypt` (the streaming Envelope decoder walks JSON recursively too) — a crafted over-nested envelope is rejected by the same linear pre-scan before any parse.
+- **Versioning**: versionCode 9 → **11**, versionName → **"1.11.0-preview.1"** (monotonic; 10 was consumed by the v1.9 preview CI rewrite). The About dialog reads the live package version, so it stays consistent automatically.
+- **CI security**: new `lifetrack-v1.11-preview.yml` — triggered only by the release tag, actions pinned to full immutable commit SHAs verified live against the official repositories (checkout v4.2.2 = `11bd719…`, setup-java v4.7.0 = `3a4f6e1…`), asserts version metadata + checked-out commit + ≥321 green tests + zero `<failure>`/`<error>` in result XMLs BEFORE building, builds the isolated-preview APK (`com.lifetrack.app.preview`), packages APK + SHA-256, publishes the prerelease via the preinstalled gh CLI (no third-party release action), and verifies the published release (prerelease flag, assets, checksum).
+- **Docs**: README/UPGRADE refreshed to the 1.11.0 feature/version state (import classification, schema 10, v1–v9 formats, preview applicationId), PRIVACY.md aligned to 1.11.0 with complete stored-data inventory (streak decisions, acknowledgments), QA matrix test counts synced.
+
+## Test evidence
+
+- Final gate: **`BUILD SUCCESSFUL in 12m 19s` — testDebugUnitTest 327/327 across 25 suites, 0 failures** + **lintDebug 0 errors, 26 warnings, 1 hint** + **assembleDebug** fresh APK (+6 tests vs Prompt 11's 321: classification contract, conditional dialog visibility ×2, envelope depth rejection, recording-strip role, error-state dialog).
+- Focused: EditorRecoveryTest 25/25, HabitRepositoryTest 30/30, BackupCryptoTest 14/14 (incl. the envelope depth rejection), BackupValidationTest 29/29.
+
+## Release readiness
+
+- Automated + security + data-integrity gates: PASS (all on the final sources; gate rerun after every late change).
+- Device QA: **NOT RUN** (no device/emulator in this environment) — the manual checklist lives in docs/QA-MATRIX.md; the prerelease is explicitly labeled as debug-signed testing build (applicationId `com.lifetrack.app.preview`) and production certification remains Prompt-12-manual/out-of-scope.
+- Verdict: **CONDITIONAL GO** for the clearly labeled testing prerelease (Gates A–E pass; Gate F device QA remains for manual execution).
 
 # Session 13 (Prompt 11/12) — Integration testing, release hardening, QA evidence
 

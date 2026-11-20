@@ -1,6 +1,6 @@
 # LifeTrack privacy
 
-Applies to LifeTrack 1.10.0, the native Android application.
+Applies to LifeTrack 1.11.0, the native Android application.
 
 LifeTrack works without an account or Internet connection. Habits, descriptions, check-ins, numeric progress, notes, links, weekday schedules and their revision history, flexible-schedule modes (interval anchors, weekly targets), recorded archive pauses, freezes, reminder settings and preferences, directional activities and their entries, daily reflections (a 1–5 mood and optional journal text, one per local date), Smart Streak protection decisions, achievement acknowledgment markers and spent-freeze records remain in a Room SQLite database in Android private app storage. A local delivery ledger prevents duplicate daily habit reminders. The app does not add its own database encryption; Android private storage and device security protect the local database.
 

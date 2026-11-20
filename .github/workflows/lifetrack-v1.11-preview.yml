@@ -1,0 +1,168 @@
+name: Build and publish LifeTrack v1.11.0 Preview 1
+
+on:
+  push:
+    tags:
+      - 'v1.11.0-preview.1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: lifetrack-v1.11-preview
+  cancel-in-progress: false
+
+# Third-party actions are pinned to full immutable commit SHAs. The SHAs were
+# resolved live from the official actions/* repositories (api.github.com) and
+# verified to be the commit each release tag points to:
+#   actions/checkout   v4.2.2 = 11bd71901bbe5b1630ceea73d27597364c9af683
+#   actions/setup-java v4.7.0 = 3a4f6e1af504cf6a31855fa899c6aa5355ba6c12
+# Release creation uses the preinstalled gh CLI (no third-party release action).
+
+jobs:
+  preview-apk:
+    if: github.repository == 'Anubhav-Sharma888/lifetrack'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout the release tag
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.ref }}
+          persist-credentials: false
+
+      - name: Verify the checked-out commit is the tagged release commit
+        shell: bash
+        run: |
+          HEAD_SHA="$(git rev-parse HEAD)"
+          echo "checked-out commit: $HEAD_SHA"
+          test "$HEAD_SHA" = "$(git rev-parse v1.11.0-preview.1^{})" || {
+            echo "::error::Checked-out commit does not match tag v1.11.0-preview.1"; exit 1; }
+
+      - name: Verify release version metadata before any build
+        shell: bash
+        run: |
+          grep -q 'versionCode = 11' app/build.gradle.kts || { echo "::error::versionCode must be 11"; exit 1; }
+          grep -q 'versionName = "1.11.0-preview.1"' app/build.gradle.kts || { echo "::error::versionName must be 1.11.0-preview.1"; exit 1; }
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Use preinstalled Android SDK
+        shell: bash
+        run: |
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -1)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --install "platforms;android-36" "build-tools;35.0.0" "platform-tools"
+
+      - name: Configure isolated preview
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          gradle = Path('app/build.gradle.kts')
+          text = gradle.read_text(encoding='utf-8')
+          # The version metadata IS the source configuration ( asserted above); this rewrite
+          # only isolates the preview installation under a distinct application ID.
+          for expected in ('versionCode = 11', 'versionName = "1.11.0-preview.1"', 'buildTypes {\n        release {'):
+              assert expected in text, f'Unexpected build configuration: {expected}'
+          text = text.replace('buildTypes {\n        release {',
+              'buildTypes {\n        getByName("debug") {\n            applicationIdSuffix = ".preview"\n        }\n        release {', 1)
+          gradle.write_text(text, encoding='utf-8')
+          manifest = Path('app/src/main/AndroidManifest.xml')
+          text = manifest.read_text(encoding='utf-8')
+          assert 'android:label="LifeTrack"' in text
+          manifest.write_text(text.replace('android:label="LifeTrack"', 'android:label="LifeTrack 1.11 Preview"', 1), encoding='utf-8')
+          PY
+
+      - name: Run unit tests and lint before building the APK
+        shell: bash
+        env:
+          GRADLE_OPTS: -Xmx512m
+        run: |
+          chmod +x gradlew
+          ./gradlew --max-workers=2 --no-parallel --no-daemon \
+            "-Dorg.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8" \
+            testDebugUnitTest lintDebug
+
+      - name: Build APK
+        shell: bash
+        env:
+          GRADLE_OPTS: -Xmx512m
+        run: |
+          ./gradlew --max-workers=2 --no-parallel --no-daemon \
+            "-Dorg.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8" \
+            assembleDebug
+
+      - name: Verify test results are present and green
+        shell: bash
+        run: |
+          XML_COUNT="$(find app/build/test-results/testDebugUnitTest -name 'TEST-*.xml' | wc -l)"
+          test "$XML_COUNT" -eq 25 || { echo "::error::Expected 25 suite result files, found $XML_COUNT"; exit 1; }
+          if grep -rE '<failure|<error' app/build/test-results/testDebugUnitTest --include='TEST-*.xml'; then
+            echo "::error::Unit-test failures detected"; exit 1
+          fi
+          TESTED="$(grep -ho 'tests="[0-9]*"' app/build/test-results/testDebugUnitTest/TEST-*.xml | grep -o '[0-9]*' | paste -sd+ | bc)"
+          echo "executed unit tests: $TESTED"
+          test "$TESTED" -ge 321 || { echo "::error::Fewer than 321 tests executed ($TESTED)"; exit 1; }
+
+      - name: Package APK and checksum
+        shell: bash
+        run: |
+          mkdir -p dist
+          test -s app/build/outputs/apk/debug/app-debug.apk || { echo "::error::APK missing or empty"; exit 1; }
+          cp app/build/outputs/apk/debug/app-debug.apk dist/LifeTrack-v1.11.0-preview.1.apk
+          cd dist
+          sha256sum LifeTrack-v1.11.0-preview.1.apk > LifeTrack-v1.11.0-preview.1.apk.sha256
+          cat LifeTrack-v1.11.0-preview.1.apk.sha256
+
+      - name: Publish GitHub prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > dist/RELEASE-NOTES.md <<'EOF'
+          LifeTrack v1.11.0 Preview 1 — integration-tested release hardening build.
+
+          **Backup import fix (P0):** the single Import action now inspects the selected
+          file and automatically distinguishes plain from encrypted backups. A plain JSON
+          backup restores without any password; an encrypted backup prompts for its
+          password; wrong-password and damaged-file imports leave existing data intact.
+          Over-nested (crafted) import files are rejected before parsing.
+
+          Also included: Smart Streaks, directional activity tracking, App Lock, CSV
+          export, Mood Tracking and Daily Journal, Milestones and Achievements, Flexible
+          Scheduling (weekday / every-N-days / weekly-quota), migration chain tests from
+          every historical schema era, and the UI/UX refinement phases.
+
+          **This is a debug-signed test build** that installs separately as
+          com.lifetrack.app.preview. It will not replace an existing LifeTrack
+          installation and does not share its local data. Do not uninstall the existing
+          app to install it. Device QA (TalkBack, fontScale 2.0, on-device contrast,
+          DatePicker flows, IME) has NOT been executed in this environment.
+
+          Plain JSON backups contain readable personal data — handle exported files
+          accordingly. SHA-256 checksum: see the .sha256 asset.
+          EOF
+          gh release create v1.11.0-preview.1 \
+            dist/LifeTrack-v1.11.0-preview.1.apk \
+            dist/LifeTrack-v1.11.0-preview.1.apk.sha256 \
+            --target "$GITHUB_SHA" \
+            --title "LifeTrack v1.11.0 Preview 1" \
+            --notes-file dist/RELEASE-NOTES.md \
+            --prerelease
+
+      - name: Verify publication
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view v1.11.0-preview.1 --json isPrerelease,tagName,assets \
+            --jq '{prerelease: .isPrerelease, tag: .tagName, assets: [.assets[].name]}'
+          test -f dist/LifeTrack-v1.11.0-preview.1.apk
+          sha256sum -c dist/LifeTrack-v1.11.0-preview.1.apk.sha256

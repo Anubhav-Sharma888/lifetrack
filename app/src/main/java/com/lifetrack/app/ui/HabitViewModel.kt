@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lifetrack.app.data.AppSettings
+import com.lifetrack.app.data.BackupKind
 import com.lifetrack.app.data.FreezeUsage
 import com.lifetrack.app.data.Habit
 import com.lifetrack.app.data.HabitLog
@@ -346,6 +347,25 @@ class HabitViewModel @Inject constructor(
             onSaved()
         } finally { password?.fill('\u0000') }
     }
+    /** The selected import file, classified before any password-specific dialog is shown:
+     *  null while inspecting, an error when the file cannot be opened at all. */
+    data class ImportClassification(val kind: BackupKind?, val error: String?)
+    private val _importClassification = MutableStateFlow<ImportClassification?>(null)
+    val importClassification: StateFlow<ImportClassification?> = _importClassification.asStateFlow()
+
+    fun classifyImport(uri: Uri) = viewModelScope.launch {
+        _importClassification.value = ImportClassification(kind = null, error = null)
+        _importClassification.value = try {
+            ImportClassification(repository.classifyBackup(uri), error = null)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            ImportClassification(kind = null, error = "The selected backup cannot be opened. Choose the file again.")
+        }
+    }
+
+    fun clearImportClassification() { _importClassification.value = null }
+
     fun import(uri: Uri, password: CharArray? = null, onSaved: () -> Unit = {}) = perform {
         // Seed flags move BEFORE the restore: the post-commit flow re-emission must run in
         // seed mode (silent acknowledgments), never in celebrate mode, or a restored earned

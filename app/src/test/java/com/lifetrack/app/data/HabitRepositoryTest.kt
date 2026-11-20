@@ -17,6 +17,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
@@ -500,6 +501,30 @@ class HabitRepositoryTest {
         assertTrue(Analytics.eligible(habit, start, emptyList()))
         assertFalse(Analytics.eligible(habit, start.plusDays(1), emptyList())) // off-grid
         assertTrue(Analytics.eligible(habit, start.plusDays(3), emptyList()))  // anchor + 3
+    }
+
+    @Test
+    fun classifyBackupDistinguishesPlainFromEncryptedAndDamagedEnvelopes() = runBlocking {
+        val parent = createHabit("Brush teeth")
+        repository.setLog(parent, today, LogStatus.COMPLETED)
+        val plain = backupFile()
+        repository.exportTo(Uri.fromFile(plain))
+        assertEquals(BackupKind.PLAIN, repository.classifyBackup(Uri.fromFile(plain)))
+        val encrypted = backupFile()
+        repository.exportTo(Uri.fromFile(encrypted), "correct horse battery staple".toCharArray())
+        assertEquals(BackupKind.ENCRYPTED, repository.classifyBackup(Uri.fromFile(encrypted)))
+        // A truncated encrypted envelope cannot fully parse, but its marker still identifies it:
+        // the password prompt is the honest next step, not the plain-backup dialog.
+        val truncated = backupFile()
+        val full = encrypted.readText()
+        truncated.writeText(full.substring(0, full.length / 2))
+        assertEquals(BackupKind.ENCRYPTED, repository.classifyBackup(Uri.fromFile(truncated)))
+        // An unopenable URI (revoked provider, deleted file) surfaces the same error the
+        // restore path would raise, so the dialog can explain it before any password UI.
+        assertThrows(Exception::class.java) {
+            runBlocking { repository.classifyBackup(Uri.parse("content://com.example.invalid/missing.json")) }
+        }
+        Unit
     }
 
     @Test

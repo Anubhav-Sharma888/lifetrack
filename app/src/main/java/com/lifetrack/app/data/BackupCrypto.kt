@@ -33,7 +33,7 @@ object BackupCrypto {
     private const val IV_BYTES = 12
     private const val TAG_BITS = 128
     private const val TAG_BYTES = TAG_BITS / 8
-    private const val KIND = "lifetrack-encrypted"
+    internal const val KIND = "lifetrack-encrypted"
     private const val KDF = "PBKDF2-HMAC-SHA256"
     private val random = SecureRandom()
     private val json = Json { encodeDefaults = true; ignoreUnknownKeys = false; isLenient = false }

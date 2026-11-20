@@ -1,6 +1,6 @@
-# LifeTrack 1.9.0
+# LifeTrack 1.11.0 Preview 1
 
-A complete native Android habit tracker using Kotlin, Jetpack Compose Material 3, Room, MVVM, a repository and Hilt. All user records and settings are local. There is no account, Internet permission, analytics SDK, advertising SDK, server or automatic app-data cloud backup.
+A complete native Android habit tracker using Kotlin, Jetpack Compose Material 3, Room, MVVM, a repository and Hilt. All user records and settings are local. There is no account, Internet permission, analytics SDK, advertising SDK, server or automatic app-data cloud backup. Features: habits with Smart Streaks, directional activity tracking, flexible scheduling (selected weekdays, every-N-days intervals, weekly quotas), mood tracking and a daily journal, milestones and achievements, CSV export, encrypted backups with automatic plain/encrypted import detection, and an optional app lock.
 
 Open this directory directly in Android Studio. The supplied screenshots were visual references; no third-party branding or app code was copied. The native Android app is canonical. The accompanying localhost browser preview is a separate implementation with separate browser storage; it neither runs the APK nor shares the Android database.
 
@@ -12,7 +12,7 @@ Open this directory directly in Android Studio. The supplied screenshots were vi
 4. The APK is `app/build/outputs/apk/debug/app-debug.apk`. Install through Android Studio or `adb install -r app/build/outputs/apk/debug/app-debug.apk`. Updating an existing installation requires the same package and signing certificate. Read [UPGRADE.md](UPGRADE.md); do not uninstall or clear storage to work around incompatible signatures.
 5. For publishing, use Android Studio **Build → Generate Signed App Bundle / APK** and your own release signing key. Release builds enable R8 and resource shrinking. Keep signing keys/passwords out of distributed source. Future updates need the same release key. Changing `applicationId` creates a separate app with separate data. Provide store artwork/privacy policy and review current store requirements.
 
-This release uses Android version code 8 and Room database schema 5. Activities has its own ledger with directional tracking modes (below), and Settings links to Schedules & Reminders. The implementation notes below describe the original architecture.
+This release uses Android version code 11 and Room database schema 10. Import automatically distinguishes plain and password-encrypted backup files — a plain JSON backup restores without any password. The implementation notes below describe the original architecture and its later additions; see [WORK_PROGRESS.md](WORK_PROGRESS.md) for the full development record.
 
 ## Step 1 — Project setup
 

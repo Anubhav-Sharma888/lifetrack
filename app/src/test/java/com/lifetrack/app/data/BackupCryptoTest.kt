@@ -133,4 +133,14 @@ class BackupCryptoTest {
         assertTrue(BackupCrypto.isEncrypted(withBom))
         assertArrayEquals(plain, BackupCrypto.decrypt(withBom, password))
     }
+
+    @Test fun `deeply nested envelopes are rejected before decryption can overflow`() {
+        // The streaming Envelope decoder walks JSON recursively too: the linear depth pre-scan
+        // on decrypt rejects an over-nested envelope before any parser recursion can run.
+        val depth = BackupValidator.MAX_JSON_DEPTH + 1
+        val crafted = """{"kind":"lifetrack-encrypted","v":[""".toByteArray() +
+            "[".repeat(depth).toByteArray() + "]".repeat(depth).toByteArray()
+        val error = assertThrows(IllegalArgumentException::class.java) { BackupCrypto.decrypt(crafted, password) }
+        assertEquals("This file nests data too deeply to be a LifeTrack backup.", error.message)
+    }
 }

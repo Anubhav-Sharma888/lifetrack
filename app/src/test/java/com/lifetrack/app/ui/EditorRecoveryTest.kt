@@ -504,4 +504,63 @@ class EditorRecoveryTest {
             .config[SemanticsProperties.StateDescription])
         compose.onNodeWithText("Hour · 00–23").assertDoesNotExist()
     }
+
+    @Test fun importDialogForPlainBackupShowsNoPasswordField() {
+        var restoredWith: CharArray? = null
+        compose.setContent {
+            MaterialTheme {
+                ImportDialog(
+                    classification = HabitViewModel.ImportClassification(BackupKind.PLAIN, error = null),
+                    busy = false, operationError = null,
+                    onDismiss = {}, onRestore = { restoredWith = it })
+            }
+        }
+        compose.onNodeWithText("Restore unencrypted LifeTrack backup?").assertExists()
+        compose.onNodeWithText("Backup password").assertDoesNotExist()
+        compose.onNodeWithText("Replace and restore").performClick()
+        assertTrue(restoredWith == null) // plain restores hand no password material to crypto
+    }
+
+    @Test fun importDialogForEncryptedBackupRequiresPassword() {
+        var restoredWith: CharArray? = null
+        compose.setContent {
+            MaterialTheme {
+                ImportDialog(
+                    classification = HabitViewModel.ImportClassification(BackupKind.ENCRYPTED, error = null),
+                    busy = false, operationError = null,
+                    onDismiss = {}, onRestore = { restoredWith = it })
+            }
+        }
+        compose.onNodeWithText("Restore password-protected LifeTrack backup?").assertExists()
+        compose.onNodeWithText("Backup password").assertExists()
+        compose.onNodeWithText("Replace and restore").assertDoesNotExist() // the footer appears only with a password
+        compose.onNodeWithText("Backup password").performTextInput("open sesame")
+        compose.onNodeWithText("Replace and restore").performClick()
+        assertTrue(restoredWith != null && restoredWith!!.contentEquals("open sesame".toCharArray()))
+    }
+
+    @Test fun importDialogWhileInspectingShowsNeitherExperience() {
+        compose.setContent {
+            MaterialTheme {
+                ImportDialog(classification = null, busy = false, operationError = null, onDismiss = {}, onRestore = {})
+            }
+        }
+        compose.onNodeWithText("Inspecting backup…").assertExists()
+        compose.onNodeWithText("Backup password").assertDoesNotExist()
+        compose.onNodeWithText("Replace and restore").assertDoesNotExist() // the footer exists only once a kind is known
+    }
+
+    @Test fun importDialogShowsClassificationErrorsWithoutARestoreButton() {
+        compose.setContent {
+            MaterialTheme {
+                ImportDialog(
+                    classification = HabitViewModel.ImportClassification(kind = null,
+                        error = "The selected backup cannot be opened. Choose the file again."),
+                    busy = false, operationError = null, onDismiss = {}, onRestore = {})
+            }
+        }
+        compose.onNodeWithText("Inspecting backup…").assertDoesNotExist()
+        compose.onNodeWithText("The selected backup cannot be opened. Choose the file again.").assertExists()
+        compose.onNodeWithText("Replace and restore").assertDoesNotExist()
+    }
 }

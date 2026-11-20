@@ -442,6 +442,30 @@ class HabitRepository @Inject constructor(
         dao.deleteReminderDelivery(habitId, date)
     }
 
+    /** Classifies a selected import file before any password-specific UI is shown: PLAIN when
+     *  the bytes are not an encrypted envelope, ENCRYPTED when they are (even a truncated
+     *  envelope reports ENCRYPTED — the password prompt and its restore error are the honest
+     *  next step for a damaged encrypted file). No database access; no password material.
+     *  Throws the same "cannot be opened" error the restore path would for an inaccessible URI. */
+    suspend fun classifyBackup(uri: Uri): BackupKind = withContext(Dispatchers.IO) {
+        val input = context.contentResolver.openInputStream(uri)
+            ?: throw IllegalStateException("The selected backup cannot be opened.")
+        val bytes = input.use { stream ->
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(8_192)
+            while (true) {
+                val count = stream.read(buffer)
+                if (count < 0) break
+                require(output.size() + count <= MAX_ENCRYPTED_BACKUP_BYTES) { "Backup files must be 15 MB or smaller." }
+                output.write(buffer, 0, count)
+            }
+            output.toByteArray()
+        }
+        if (BackupCrypto.isEncrypted(bytes)) BackupKind.ENCRYPTED
+        else if (BackupValidator.looksLikeEncryptedEnvelope(String(bytes, Charsets.UTF_8))) BackupKind.ENCRYPTED
+        else BackupKind.PLAIN
+    }
+
     suspend fun exportTo(uri: Uri, password: CharArray? = null) = backupMutex.withLock { withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         val snapshot = db.withTransaction {

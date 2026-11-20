@@ -8,8 +8,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
@@ -20,12 +22,17 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -35,6 +42,7 @@ import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.*
 import androidx.navigation.navArgument
 import androidx.navigation.NavType
+import com.lifetrack.app.data.BackupKind
 import kotlinx.coroutines.launch
 import kotlin.math.sin
 
@@ -55,10 +63,9 @@ fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, vm: HabitView
     val busy by vm.busy.collectAsState()
     val operationError by vm.operationError.collectAsState()
     var pendingImport by rememberSaveable { mutableStateOf<String?>(null) }
-    // A password is deliberately never put into saved instance state or preferences.
-    var backupPassword by remember { mutableStateOf("") }
-    // One import trigger shared by the Settings row and the Today restore action.
-    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> vm.clearOperationError(); backupPassword = ""; pendingImport = uri?.toString() }
+    // One import trigger shared by the Settings row and the Today restore action. The selected
+    // file is classified before any password-specific UI is shown (see ImportDialog).
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> vm.clearOperationError(); vm.clearImportClassification(); pendingImport = uri?.toString() }
     val launchImport = { importLauncher.launch(arrayOf("application/json", "text/json", "text/plain", "application/octet-stream")) }
     DisposableEffect(owner) {
         val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) vm.refreshToday() }
@@ -154,20 +161,89 @@ fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, vm: HabitView
                     }
                 }
             }
-            pendingImport?.let { path -> AlertDialog(onDismissRequest = { if (!busy) { pendingImport = null; backupPassword = "" } }, title = { Text("Replace all LifeTrack data?") }, text = {
-                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Restoring replaces current habits, history, pauses, freezes and settings. Export your current data first if you want to keep it. Invalid files or a wrong password leave existing data intact.")
-                    OutlinedTextField(backupPassword, { if (it.length <= 1024) backupPassword = it }, label = { Text("Password · encrypted backups only") },
-                        visualTransformation = PasswordVisualTransformation(), keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Password), singleLine = true)
-                    Text("Leave the password empty for a plain JSON backup. A failed restore stays open so you can retry.", style = MaterialTheme.typography.bodySmall)
-                    operationError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
-                }
-            }, confirmButton = { TextButton(enabled = !busy, onClick = {
-                vm.import(Uri.parse(path), backupPassword.takeIf { it.isNotEmpty() }?.toCharArray()) { pendingImport = null; backupPassword = "" }
-            }) { Text(if (busy) "Restoring…" else "Replace and restore") } }, dismissButton = { TextButton(enabled = !busy, onClick = { pendingImport = null; backupPassword = "" }) { Text("Cancel") } }) }
+            pendingImport?.let { path ->
+                // Classify the selected file BEFORE any password-specific UI is shown (I/O in
+                // the view model, off the main thread). One dialog window, never stacked.
+                LaunchedEffect(path) { vm.classifyImport(path.toUri()) }
+                val classification by vm.importClassification.collectAsStateWithLifecycle()
+                ImportDialog(
+                    classification = classification,
+                    busy = busy,
+                    operationError = operationError,
+                    onDismiss = { if (!busy) { pendingImport = null; vm.clearImportClassification() } },
+                    onRestore = { password ->
+                        vm.import(path.toUri(), password) { pendingImport = null; vm.clearImportClassification() }
+                    })
+            }
             if (state.settings.animationsEnabled) MilestoneConfetti(celebration)
         }
         }
+        }
+    }
+}
+
+/** The single import dialog: classification-first UX. PLAIN backups restore with no password
+ *  field at all; ENCRYPTED backups request the password; an unopenable file shows a clear
+ *  error. Restore stays enabled only once a classification exists, and a failed restore
+ *  keeps the dialog open with the error so the user can retry. */
+@Composable
+internal fun ImportDialog(
+    classification: HabitViewModel.ImportClassification?,
+    busy: Boolean,
+    operationError: String?,
+    onDismiss: () -> Unit,
+    onRestore: (CharArray?) -> Unit
+) {
+    var password by rememberSaveable { mutableStateOf("") }
+    // Custom dialog shell (the LogEditorDialog idiom): platform-AlertDialog width derivation
+    // measure-loops under Robolectric, and the shell keeps this a single predictable window.
+    Dialog(onDismissRequest = { if (!busy) onDismiss() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surface,
+            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+            modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth().padding(20.dp)) {
+            Column(Modifier.heightIn(max = with(LocalDensity.current) {
+                (LocalWindowInfo.current.containerSize.height * 0.85f).toDp()
+            }).padding(24.dp)) {
+                Text(when {
+                    classification?.kind == BackupKind.ENCRYPTED -> "Restore password-protected LifeTrack backup?"
+                    classification?.kind == BackupKind.PLAIN -> "Restore unencrypted LifeTrack backup?"
+                    classification?.error != null -> "Backup could not be opened"
+                    else -> "Inspecting backup…"
+                }, style = MaterialTheme.typography.headlineSmall)
+                Spacer(Modifier.height(12.dp))
+                Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    when {
+                        classification?.kind == BackupKind.ENCRYPTED -> {
+                            Text("Password-protected LifeTrack backup. Restoring replaces current habits, history, pauses, freezes, activities, reflections and settings. Export your current data first if you want to keep it.")
+                            OutlinedTextField(password, { if (it.length <= 1024) password = it }, label = { Text("Backup password") },
+                                visualTransformation = PasswordVisualTransformation(),
+                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Password), singleLine = true)
+                            Text("A wrong password or damaged file leaves current records intact and this dialog open so you can retry.", style = MaterialTheme.typography.bodySmall)
+                        }
+                        classification?.kind == BackupKind.PLAIN -> {
+                            Text("Unencrypted LifeTrack backup — no password is needed. Restoring replaces current habits, history, pauses, freezes, activities, reflections and settings. Export your current data first if you want to keep it.")
+                            Text("A failed restore stays open so you can retry.", style = MaterialTheme.typography.bodySmall)
+                        }
+                        classification?.error != null -> Text(classification.error, color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                        else -> Text("Inspecting the selected backup…", style = MaterialTheme.typography.bodySmall)
+                    }
+                    operationError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
+                }
+                Spacer(Modifier.height(16.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(enabled = !busy, onClick = onDismiss) { Text("Cancel") }
+                    // The footer button exists only once the classification is known and the
+                    // restore can proceed — while inspecting, Cancel alone is offered.
+                    val plainReady = classification?.kind == BackupKind.PLAIN
+                    val encryptedReady = classification?.kind == BackupKind.ENCRYPTED && password.isNotEmpty()
+                    if (plainReady || encryptedReady) TextButton(enabled = !busy, onClick = {
+                        // Plain restores pass no password material at all; encrypted restores hand the
+                        // entered password to the crypto layer, which zeroes the array when it finishes.
+                        onRestore(if (plainReady) null else password.toCharArray())
+                    }) { Text(if (busy) "Restoring…" else "Replace and restore") }
+                }
+            }
         }
     }
 }
