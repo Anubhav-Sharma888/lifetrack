@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lifetrack.app.data.AppSettings
+import com.lifetrack.app.data.BackupFileKind
 import com.lifetrack.app.data.FreezeUsage
 import com.lifetrack.app.data.Habit
 import com.lifetrack.app.data.HabitLog
@@ -80,6 +81,8 @@ class HabitViewModel @Inject constructor(
     val busy = _busy.asStateFlow()
     private val _operationError = MutableStateFlow<String?>(null)
     val operationError = _operationError.asStateFlow()
+    private val _importKind = MutableStateFlow<BackupFileKind?>(null)
+    val importKind: StateFlow<BackupFileKind?> = _importKind.asStateFlow()
     val events = _events.asSharedFlow()
     /** Stays true after a reset until real data exists again, so Today can show the fresh-start empty state. */
     private val _wasReset = MutableStateFlow(false)
@@ -346,6 +349,17 @@ class HabitViewModel @Inject constructor(
             onSaved()
         } finally { password?.fill('\u0000') }
     }
+    /** Inspect the selected file without modifying the database or prompting for credentials. */
+    fun inspectImport(uri: Uri) {
+        _importKind.value = null
+        perform { _importKind.value = repository.inspectBackup(uri) }
+    }
+
+    fun clearImportInspection() {
+        _importKind.value = null
+        _operationError.value = null
+    }
+
     fun import(uri: Uri, password: CharArray? = null, onSaved: () -> Unit = {}) = perform {
         // Seed flags move BEFORE the restore: the post-commit flow re-emission must run in
         // seed mode (silent acknowledgments), never in celebrate mode, or a restored earned
