@@ -71,7 +71,7 @@ internal fun ResetLifeTrackDialog(
                         textStyle = AlmanacType.monoMetric, colors = almanacFieldColors(),
                         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters, autoCorrectEnabled = false)
                     )
-                    if (confirmed) Text("Confirmation matches.", style = MaterialTheme.typography.bodySmall, color = colors.secondary,
+                    if (confirmed) Text("Confirmation matches.", style = MaterialTheme.typography.bodySmall, color = colors.onSecondaryContainer,
                         modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                 }
                 error?.let {

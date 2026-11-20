@@ -4,6 +4,8 @@ import com.lifetrack.app.data.GoalRevision
 import com.lifetrack.app.data.Habit
 import com.lifetrack.app.data.HabitLog
 import com.lifetrack.app.data.LogStatus
+import com.lifetrack.app.data.ScheduleMode
+import com.lifetrack.app.data.ScheduleRevision
 import com.lifetrack.app.data.StreakProtection
 import com.lifetrack.app.data.StreakPolicy as StoredStreakPolicy
 import java.time.LocalDate
@@ -147,5 +149,31 @@ class StreakAnalyticsTest {
         val gapped = listOf(log(0), log(2, LogStatus.IN_PROGRESS, progress = 1), log(3))
         assertEquals(1, Analytics.currentStreak(anyPartial, gapped, start.plusDays(3)))
         assertEquals(1, Analytics.bestStreak(anyPartial, gapped, start.plusDays(3)))
+    }
+
+    @Test fun `weekly quota habits keep zero day streaks across weekday era and quota era partials`() {
+        // Weekday era for the first three days, then a mode-bearing revision switches to quota.
+        val quota = Habit(
+            id = 1, name = "Read", startDate = start, targetCount = 4,
+            streakPolicy = StoredStreakPolicy.AUTOMATIC.name, partialCreditPercent = 75,
+            scheduleMode = ScheduleMode.WEEKLY_QUOTA.name, weeklyTarget = 3,
+            scheduleHistory = listOf(
+                ScheduleRevision(start, (1..7).toList()),
+                ScheduleRevision(start.plusDays(3), (1..7).toList(),
+                    mode = ScheduleMode.WEEKLY_QUOTA.name, weeklyTarget = 3)
+            )
+        )
+        val logs = listOf(
+            log(0), log(1),                                   // weekday-era chain of two completions
+            log(2, LogStatus.IN_PROGRESS, progress = 3),      // weekday-era 3/4 partial — bridges
+            log(4, LogStatus.IN_PROGRESS, progress = 3)       // quota-era partial after the switch
+        )
+        val today = start.plusDays(6)
+        assertEquals(ScheduleMode.WEEKLY_QUOTA, Scheduling.mode(quota, today))
+        // The quota block is period-based: both streaks read zero even though every link of this
+        // chain would bridge under AUTOMATIC (3*100 >= 75*4) and the weekday era was due daily —
+        // without the block the exact same history walks to a streak of 2 across both eras.
+        assertEquals(0, Analytics.currentStreak(quota, logs, today))
+        assertEquals(0, Analytics.bestStreak(quota, logs, today))
     }
 }

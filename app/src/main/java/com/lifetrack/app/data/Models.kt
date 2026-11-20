@@ -63,7 +63,20 @@ data class Habit(
     @ColumnInfo(defaultValue = "'STRICT'") val streakPolicy: String = StreakPolicy.STRICT.name,
     @OptIn(ExperimentalSerializationApi::class)
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    @ColumnInfo(defaultValue = "75") val partialCreditPercent: Int = 75
+    @ColumnInfo(defaultValue = "75") val partialCreditPercent: Int = 75,
+    // Flexible scheduling: absent keys stay out of plain exports so older apps still decode them.
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @ColumnInfo(defaultValue = "'WEEKDAYS'") val scheduleMode: String = ScheduleMode.WEEKDAYS.name,
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @ColumnInfo(defaultValue = "NULL") val intervalDays: Int? = null,
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @ColumnInfo(defaultValue = "NULL") @Serializable(with = LocalDateSerializer::class) val intervalAnchor: LocalDate? = null,
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @ColumnInfo(defaultValue = "NULL") val weeklyTarget: Int? = null
 )
 
 @Serializable
@@ -81,7 +94,17 @@ internal fun Habit.goalOn(date: LocalDate): Habit {
 @Serializable
 data class ScheduleRevision(
     @Serializable(with = LocalDateSerializer::class) val effectiveFrom: LocalDate,
-    val days: List<Int>
+    val days: List<Int>,
+    // Flexible scheduling: absent on legacy revisions, which remain selected-weekday rules.
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val mode: String? = null,
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val intervalDays: Int? = null,
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val weeklyTarget: Int? = null
 )
 
 @Serializable
@@ -168,6 +191,20 @@ data class DailyReflection(
     val updatedAt: Long = createdAt
 )
 
+/**
+ * Durable record that the user has seen and acknowledged an achievement's celebration. Achievement
+ * status itself is always derived from canonical data (and can be un-earned by later corrections);
+ * only the acknowledgment is stored, so a re-earned achievement never celebrates twice while a
+ * temporarily un-earned one does not lose its acknowledgment. Not tied to any habit FK: the
+ * catalogue is code-defined and survives habit deletion.
+ */
+@Serializable
+@Entity(tableName = "achievement_acknowledgments", primaryKeys = ["achievementId"])
+data class AchievementAcknowledgment(
+    val achievementId: String,
+    val acknowledgedAt: Long
+)
+
 @Serializable
 @Entity(tableName = "app_settings")
 data class AppSettings(
@@ -204,6 +241,16 @@ enum class ActivityMode { LOGGED, INCREASING, DECREASING, PERSONAL_BEST;
     companion object {
         /** Unknown stored values fall back to LOGGED so old or foreign data still renders. */
         fun fromStored(value: String): ActivityMode = entries.firstOrNull { it.name == value } ?: LOGGED
+    }
+}
+
+/** How a habit's due days are determined. WEEKDAYS preserves the original selected-weekday rules. */
+@Serializable
+enum class ScheduleMode { WEEKDAYS, EVERY_N_DAYS, WEEKLY_QUOTA;
+
+    companion object {
+        /** Unknown stored values fall back to WEEKDAYS so old or foreign data keeps its meaning. */
+        fun fromStored(value: String): ScheduleMode = entries.firstOrNull { it.name == value } ?: WEEKDAYS
     }
 }
 

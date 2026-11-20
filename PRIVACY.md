@@ -1,8 +1,8 @@
 # LifeTrack privacy
 
-Applies to LifeTrack 1.1.0, the native Android application.
+Applies to LifeTrack 1.10.0, the native Android application.
 
-LifeTrack works without an account or Internet connection. Habits, descriptions, check-ins, numeric progress, notes, links, weekday schedules and their history, recorded archive pauses, freezes, reminder settings and preferences remain in a Room SQLite database in Android private app storage. A local delivery ledger prevents duplicate daily habit reminders. The app does not add its own database encryption; Android private storage and device security protect the local database.
+LifeTrack works without an account or Internet connection. Habits, descriptions, check-ins, numeric progress, notes, links, weekday schedules and their revision history, flexible-schedule modes (interval anchors, weekly targets), recorded archive pauses, freezes, reminder settings and preferences, directional activities and their entries, daily reflections (a 1–5 mood and optional journal text, one per local date), Smart Streak protection decisions, achievement acknowledgment markers and spent-freeze records remain in a Room SQLite database in Android private app storage. A local delivery ledger prevents duplicate daily habit reminders. The app does not add its own database encryption; Android private storage and device security protect the local database.
 
 There is no `INTERNET` permission, advertising, analytics SDK, login, remote database or cloud synchronization. Habit data is not sent to a developer-operated service. Manifest and backup rules disable automatic app-data cloud backup and device-transfer backup.
 
@@ -18,11 +18,11 @@ The optional launcher widget displays habit names and today's status. Add it onl
 
 ## Manual files
 
-Export offers readable JSON or optional password-encrypted JSON. Both contain habits/IDs, quantities/logs, notes, timestamps, schedule history, pauses, links, ordering, settings and spent freeze months. Operational notification-delivery records are excluded. Android's system picker lets you choose Downloads, removable storage or an installed document provider. A provider such as Google Drive may upload a file if you explicitly choose it; LifeTrack itself does not connect to it. Deleting app data never deletes exported copies.
+Export offers readable JSON or optional password-encrypted JSON. Both contain habits/IDs, quantities/logs, notes, timestamps, schedule and flexible-scheduling history, pauses, links, ordering, settings, spent freeze months, Smart Streak protection decisions, achievement acknowledgment markers, activity records and daily reflections (mood and journal text). Operational notification-delivery records are excluded. Android's system picker lets you choose Downloads, removable storage or an installed document provider. A provider such as Google Drive may upload a file if you explicitly choose it; LifeTrack itself does not connect to it. Deleting app data never deletes exported copies.
 
 Encrypted files use AES-256-GCM, a 128-bit authentication tag, a fresh random 16-byte salt and 12-byte IV, and PBKDF2-HMAC-SHA256 with 600,000 iterations. Compatible files with 210,000–600,000 iterations can be opened. Encrypted export requires at least 10 password characters. Passwords are not persisted or transmitted and cannot be recovered by LifeTrack. Keep a separate safe password record. This protects the exported file, not the app's local SQLite database. Plain JSON is readable by anyone with access to the file.
 
-Import reads only the selected file and replaces local records after confirmation, decryption when applicable and validation. Invalid files or passwords leave current records intact. The source file is unchanged. Normal JSON version 1 is upgraded; new exports use data format version 2. Plain/decrypted data is capped at 10 MiB, encrypted envelopes at 15 MiB. Import resets the operational delivery ledger, so a restored habit may receive another reminder that day if still due.
+Import reads only the selected file and replaces local records after confirmation, decryption when applicable and validation. Invalid files or passwords leave current records intact. The source file is unchanged. Version 1–8 files are upgraded to the current on-disk format; new exports use data format version 9. Plain/decrypted data is capped at 10 MiB, encrypted envelopes at 15 MiB. Import resets the operational delivery ledger, so a restored habit may receive another reminder that day if still due.
 
 ## Retention and deletion
 

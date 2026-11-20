@@ -3,6 +3,7 @@ package com.lifetrack.app.domain
 import com.lifetrack.app.data.Habit
 import com.lifetrack.app.data.HabitLog
 import com.lifetrack.app.data.LogStatus
+import com.lifetrack.app.data.ScheduleMode
 import java.time.LocalDate
 import org.junit.Assert.*
 import org.junit.Test
@@ -77,5 +78,44 @@ class AnalyticsTest {
         val archived = habit(9).copy(isArchived = true, archivedOn = start)
         val future = habit(10).copy(startDate = start.plusDays(5))
         assertEquals(emptyList<Long>(), Analytics.unmarked(listOf(archived, future), logs, monday).map { it.id })
+    }
+
+    @Test fun dueOnFollowsTheScheduleMode() {
+        val monday = start.plusDays(2) // 2026-03-09
+        val weekday = habit(2).copy(scheduledDays = listOf(1))
+        assertTrue(Analytics.dueOn(weekday, monday))
+        assertFalse(Analytics.dueOn(weekday, monday.plusDays(1)))
+        val interval = habit(3).copy(
+            scheduleMode = ScheduleMode.EVERY_N_DAYS.name, intervalDays = 3, intervalAnchor = start)
+        assertTrue(Analytics.dueOn(interval, start))
+        assertTrue(Analytics.dueOn(interval, start.plusDays(6)))
+        assertFalse(Analytics.dueOn(interval, start.plusDays(1)))
+    }
+
+    @Test fun quotaHabitsAreNeverDueOnAnyDay() {
+        val quota = habit(2).copy(scheduleMode = ScheduleMode.WEEKLY_QUOTA.name, weeklyTarget = 3)
+        // Even with no completions this week, no specific day is ever required.
+        (0..6).forEach { offset -> assertFalse(Analytics.dueOn(quota, start.plusDays(offset.toLong()))) }
+        assertTrue(Analytics.eligible(quota, start))
+    }
+
+    @Test fun unmarkedExcludesQuotaHabitsButStillListsOverdueWeekdayHabits() {
+        val weekday = habit(2).copy(scheduledDays = listOf(1))
+        val quota = habit(3).copy(scheduleMode = ScheduleMode.WEEKLY_QUOTA.name, weeklyTarget = 3)
+        val monday = start.plusDays(2)
+        assertEquals(listOf(2L), Analytics.unmarked(listOf(weekday, quota), emptyList(), monday).map { it.id })
+    }
+
+    @Test fun densityExcludesQuotaHabitsFromNumeratorAndDenominator() {
+        val quota = habit(2).copy(scheduleMode = ScheduleMode.WEEKLY_QUOTA.name, weeklyTarget = 3)
+        val quotaLog = HabitLog(id = 90, habitId = 2, date = start, status = LogStatus.COMPLETED)
+        // A quota-only day has nothing due: 0/0, never a zero-percent rate against phantom dues.
+        val quotaOnly = Analytics.density(listOf(quota), listOf(quotaLog), start)
+        assertEquals(0L, quotaOnly.opportunities)
+        assertEquals(0L, quotaOnly.completed)
+        // A mixed day counts only the daily-due weekday habits, in both directions.
+        val mixed = Analytics.density(listOf(habit(), quota), listOf(log(0), quotaLog), start)
+        assertEquals(1L, mixed.opportunities)
+        assertEquals(1L, mixed.completed)
     }
 }

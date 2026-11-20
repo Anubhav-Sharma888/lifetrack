@@ -1,5 +1,6 @@
 package com.lifetrack.app.data
 
+import com.lifetrack.app.domain.Scheduling
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.EncodeDefault
 import kotlinx.serialization.Serializable
@@ -31,7 +32,11 @@ data class LifeTrackBackup(
     // Daily reflections: same pattern — present only in v7 exports that carry them.
     @OptIn(ExperimentalSerializationApi::class)
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val dailyReflections: List<DailyReflection> = emptyList()
+    val dailyReflections: List<DailyReflection> = emptyList(),
+    // Achievement acknowledgments: present only in v8 exports that carry them.
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val achievementAcknowledgments: List<AchievementAcknowledgment> = emptyList()
 )
 
 /** Validation is independent of Android/Room so corrupt imports can be rejected before writes. */
@@ -43,6 +48,10 @@ object BackupValidator {
         isLenient = false
     }
     val earliestDate: LocalDate = LocalDate.of(1900, 1, 1)
+
+    /** Real backups nest a handful of levels (backups → habits → schedule history → weekday lists);
+     *  anything deeper is either corrupt or crafted to overflow the JSON parser's recursion. */
+    const val MAX_JSON_DEPTH = 64
 
     fun validateHabit(habit: Habit, today: LocalDate = LocalDate.now()) {
         require(habit.id >= 0 && habit.id < Long.MAX_VALUE) { "Invalid habit ID." }
@@ -73,6 +82,29 @@ object BackupValidator {
         require(habit.archivedOn == null || (habit.archivedOn >= earliestDate && habit.archivedOn <= today)) { "Invalid archive date." }
         require(habit.streakPolicy in StreakPolicy.entries.map(StreakPolicy::name)) { "Unknown streak policy for this habit." }
         require(habit.partialCreditPercent in 1..100) { "Partial-credit thresholds must be between 1 and 100 percent." }
+        val scheduleMode = ScheduleMode.fromStored(habit.scheduleMode)
+        require(habit.scheduleMode in ScheduleMode.entries.map(ScheduleMode::name)) { "Unknown schedule mode for this habit." }
+        require(
+            when (scheduleMode) {
+                ScheduleMode.WEEKDAYS -> habit.intervalDays == null && habit.weeklyTarget == null
+                ScheduleMode.EVERY_N_DAYS -> habit.weeklyTarget == null &&
+                    habit.intervalDays != null && habit.intervalDays in Scheduling.MIN_INTERVAL_DAYS..Scheduling.MAX_INTERVAL_DAYS
+                ScheduleMode.WEEKLY_QUOTA -> habit.intervalDays == null && habit.weeklyTarget != null && habit.weeklyTarget in 1..7
+            }
+        ) { "The schedule mode and its parameters do not match." }
+        require(
+            habit.scheduleHistory.all { revision ->
+                // Null-mode revisions are weekday periods (weekday saves and pre-schema-10 rows never
+                // carry a mode), matching the engine's Scheduling.mode resolution; only mode-bearing
+                // flexible revisions carry parameters that need range checks.
+                when (ScheduleMode.fromStored(revision.mode ?: ScheduleMode.WEEKDAYS.name)) {
+                    ScheduleMode.WEEKLY_QUOTA -> revision.weeklyTarget != null && revision.weeklyTarget in 1..7
+                    ScheduleMode.EVERY_N_DAYS -> revision.intervalDays != null &&
+                        revision.intervalDays in Scheduling.MIN_INTERVAL_DAYS..Scheduling.MAX_INTERVAL_DAYS
+                    ScheduleMode.WEEKDAYS -> true
+                }
+            }
+        ) { "Invalid schedule revision parameters." }
     }
 
     /** One optional mood and/or journal per date; a row carrying neither is rejected before any write. */
@@ -82,6 +114,12 @@ object BackupValidator {
         require(reflection.journal == null || reflection.journal.isNotBlank() && reflection.journal.length <= 2_000) { "Journals are limited to 2,000 characters." }
         require(reflection.mood != null || reflection.journal != null) { "A reflection needs a mood or a journal entry." }
         require(reflection.createdAt >= 0 && reflection.updatedAt >= reflection.createdAt) { "Invalid reflection timestamps." }
+    }
+
+    /** Acknowledgment rows carry no user content — only a catalogue id and a durable timestamp. */
+    fun validateAchievementAcknowledgment(acknowledgment: AchievementAcknowledgment) {
+        require(acknowledgment.achievementId.isNotBlank() && acknowledgment.achievementId.length <= 100) { "Invalid achievement identifier." }
+        require(acknowledgment.acknowledgedAt >= 0) { "Invalid achievement acknowledgment timestamp." }
     }
 
     fun validateSettings(settings: AppSettings) {
@@ -117,12 +155,14 @@ object BackupValidator {
     }
 
     fun validate(backup: LifeTrackBackup, today: LocalDate = LocalDate.now()) {
-        require(backup.formatVersion in 1..7) { "This backup version is not supported by this app." }
+        require(backup.formatVersion in 1..9) { "This backup version is not supported by this app." }
         require(backup.formatVersion >= 4 || backup.habits.none { it.goalHistory.isNotEmpty() }) { "Goal revisions require backup version 4." }
         require(backup.formatVersion >= 5 || backup.activities.none { it.isDirectional() }) { "Directional activity tracking requires backup version 5." }
         require(backup.formatVersion >= 6 || (backup.habits.none { com.lifetrack.app.domain.StreakPolicy.isConfigured(it) } &&
             backup.streakProtections.isEmpty())) { "Smart Streaks data requires backup version 6." }
         require(backup.formatVersion >= 7 || backup.dailyReflections.isEmpty()) { "Daily reflections require backup version 7." }
+        require(backup.formatVersion >= 8 || backup.achievementAcknowledgments.isEmpty()) { "Achievement acknowledgments require backup version 8." }
+        require(backup.formatVersion >= 9 || backup.habits.none { com.lifetrack.app.domain.Scheduling.isConfigured(it) }) { "Flexible scheduling requires backup version 9." }
         require(backup.exportedAt >= 0) { "Invalid export timestamp." }
         validateSettings(backup.settings)
         // App lock is a local-only security choice and never roams through backups, plain or encrypted.
@@ -215,13 +255,22 @@ object BackupValidator {
         // One reflection per date, each carrying a mood and/or a journal.
         require(backup.dailyReflections.map { it.date }.toSet().size == backup.dailyReflections.size) { "More than one reflection exists for the same date." }
         backup.dailyReflections.forEach { validateReflection(it, today) }
+        // Acknowledgments: no user content, no duplicates, sane timestamps.
+        require(backup.achievementAcknowledgments.map { it.achievementId }.toSet().size == backup.achievementAcknowledgments.size) { "Duplicate achievement acknowledgments in backup." }
+        backup.achievementAcknowledgments.forEach { validateAchievementAcknowledgment(it) }
     }
 
     /** Version 1 lacks schedules, progress and intervals; normalize before replacing any table. */
     fun decode(text: String, today: LocalDate = LocalDate.now()): LifeTrackBackup {
-        val document = json.parseToJsonElement(text.removePrefix("\uFEFF")).jsonObject
+        val stripped = text.removePrefix("\uFEFF")
+        // kotlinx-serialization walks JSON recursively with no depth bound: a crafted ~20 KB
+        // file nests deeply enough to overflow the stack, and StackOverflowError escapes every
+        // Exception handler on the import path. A linear character scan rejects over-nested
+        // documents before the parser touches them — real backups nest a handful of levels.
+        require(maxJsonDepth(stripped) <= MAX_JSON_DEPTH) { "This file nests data too deeply to be a LifeTrack backup." }
+        val document = json.parseToJsonElement(stripped).jsonObject
         val version = document["formatVersion"]?.jsonPrimitive?.intOrNull
-        require(version != null && version in 1..7) { "This backup version is not supported by this app." }
+        require(version != null && version in 1..9) { "This backup version is not supported by this app." }
         if (version >= 2) {
             require("pauses" in document) { "This version 2 backup is missing its pause history." }
             (document["habits"] as? JsonArray)?.forEach { entry ->
@@ -233,7 +282,7 @@ object BackupValidator {
         if (version >= 3) {
             require("activities" in document && "activityEntries" in document) { "This version 3 backup is missing its activity collections." }
         }
-        val decoded = json.decodeFromString<LifeTrackBackup>(text.removePrefix("\uFEFF"))
+        val decoded = json.decodeFromString<LifeTrackBackup>(stripped)
         val normalized = if (version == 1) {
             val byId = decoded.habits.associateBy { it.id }
             decoded.copy(
@@ -246,5 +295,25 @@ object BackupValidator {
         } else decoded.copy(formatVersion = maxOf(3, version))
         validate(normalized, today)
         return normalized
+    }
+
+    /** Deepest nesting of objects/arrays in [text], ignoring brackets inside JSON strings.
+     *  Linear scan — no recursion — so the depth check itself cannot overflow. Internal so
+     *  BackupCrypto can apply the same bound to encrypted envelopes before their parse. */
+    internal fun maxJsonDepth(text: String): Int {
+        var depth = 0
+        var max = 0
+        var inString = false
+        var escaped = false
+        for (character in text) {
+            when {
+                escaped -> escaped = false
+                character == '\\' && inString -> escaped = true
+                character == '"' -> inString = !inString
+                !inString && (character == '{' || character == '[') -> { depth += 1; if (depth > max) max = depth }
+                !inString && (character == '}' || character == ']') -> depth -= 1
+            }
+        }
+        return max
     }
 }

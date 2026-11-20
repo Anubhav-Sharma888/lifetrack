@@ -55,6 +55,12 @@ interface HabitDao {
     @Insert suspend fun insertReflections(reflections: List<DailyReflection>)
     @Query("DELETE FROM daily_reflections WHERE date = :date") suspend fun deleteReflection(date: LocalDate)
     @Query("DELETE FROM daily_reflections") suspend fun deleteReflections()
+    @Query("SELECT * FROM achievement_acknowledgments ORDER BY acknowledgedAt") fun observeAchievementAcknowledgments(): Flow<List<AchievementAcknowledgment>>
+    @Query("SELECT * FROM achievement_acknowledgments ORDER BY acknowledgedAt") suspend fun allAchievementAcknowledgments(): List<AchievementAcknowledgment>
+    @Query("SELECT * FROM achievement_acknowledgments WHERE achievementId = :achievementId") suspend fun achievementAcknowledgment(achievementId: String): AchievementAcknowledgment?
+    @Upsert suspend fun upsertAchievementAcknowledgment(acknowledgment: AchievementAcknowledgment)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertAchievementAcknowledgments(acknowledgments: List<AchievementAcknowledgment>)
+    @Query("DELETE FROM achievement_acknowledgments") suspend fun deleteAchievementAcknowledgments()
     @Update suspend fun updatePause(pause: HabitPause)
     @Query("DELETE FROM habit_pauses WHERE id = :id") suspend fun deletePause(id: Long)
     @Query("DELETE FROM habit_pauses") suspend fun deletePauses()

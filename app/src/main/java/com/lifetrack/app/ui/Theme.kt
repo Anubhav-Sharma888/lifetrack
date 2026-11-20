@@ -81,7 +81,10 @@ private val DarkColors = darkColorScheme(
     error = Color(0xFFFFA387), errorContainer = Color(0xFF4A2C22), onError = Color(0xFF151412), onErrorContainer = Color(0xFFFFA387)
 )
 
-/** Accents the M3 scheme cannot carry (missed terracotta, notebook rules, decorative faded ink). */
+/** Accents the M3 scheme cannot carry (missed terracotta, notebook rules, decorative faded ink).
+ *  Two-tier hairline convention: `rule` borders sunken-parchment register wells (surfaceVariant
+ *  panels — Today's register, reflection card, achievement wells, Settings groups);
+ *  `outlineVariant` borders surface-level document cards, dividers, input fields and seals. */
 data class AlmanacColors(
     val terracotta: Color,
     val terracottaWash: Color,

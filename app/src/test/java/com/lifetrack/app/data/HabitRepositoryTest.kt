@@ -4,6 +4,7 @@ import android.app.Application
 import android.database.sqlite.SQLiteConstraintException
 import android.net.Uri
 import androidx.room.Room
+import com.lifetrack.app.domain.Analytics
 import java.io.File
 import java.time.LocalDate
 import java.time.YearMonth
@@ -361,6 +362,146 @@ class HabitRepositoryTest {
         assertEquals(1.0, repository.activityEntries.first().single { it.activityId == plain }.quantity, 0.0)
     }
 
+    // ---- Flexible scheduling: grid-only interval editing, any-day quota editing, quota guardrails ----
+
+    @Test
+    fun intervalHabitsAcceptOnlyGridDatesWhileQuotaHabitsAcceptAnyDay() = runBlocking {
+        val (interval, quota) = importFlexibleHabits()
+        // Off-grid past date: the anchor is six days ago, so yesterday sits between grid dates.
+        expectRejected { repository.setLog(interval, today.minusDays(4), LogStatus.COMPLETED) }
+        assertTrue(repository.setLog(interval, today.minusDays(6), LogStatus.COMPLETED))
+        assertTrue(repository.setLog(interval, today.minusDays(3), LogStatus.COMPLETED))
+        assertTrue(repository.setLog(interval, today, LogStatus.COMPLETED))
+        assertEquals(
+            listOf(today.minusDays(6), today.minusDays(3), today),
+            repository.logs.first().filter { it.habitId == interval }.map { it.date }.sorted()
+        )
+        // Weekly-quota habits may check in on any day of the week.
+        assertTrue(repository.setLog(quota, today, LogStatus.COMPLETED))
+        assertTrue(repository.setLog(quota, today.minusDays(2), LogStatus.COMPLETED))
+    }
+
+    @Test
+    fun weeklyQuotaHabitsDoNotUseStreakFreezes() = runBlocking {
+        val (interval, quota) = importFlexibleHabits()
+        try {
+            repository.useFreeze(quota, today.minusDays(1))
+            fail("Weekly-quota habits must never consume a monthly freeze")
+        } catch (expected: IllegalArgumentException) {
+            assertEquals("Weekly-quota habits do not use streak freezes.", expected.message)
+        }
+        assertEquals(emptyList<FreezeUsage>(), repository.freezes.first())
+        // The interval habit still freezes normally on a missed grid date.
+        repository.useFreeze(interval, today.minusDays(6), "Travel")
+        assertEquals(1, repository.freezes.first().size)
+    }
+
+    @Test
+    fun weeklyQuotaDaysRejectStreakDecisionsWhileWeekdayPartialsStillProtect() = runBlocking {
+        // A v9 fixture mirroring importFlexibleHabits' quota habit, but with a real 3-unit goal so
+        // a genuine quota-era partial day (1 of 3) can be seeded through the public API: the guard
+        // must fire ahead of every later check, including the decision-shape requirement itself.
+        val quota = Habit(
+            id = 8, name = "Three times a week", startDate = today.minusDays(35), targetCount = 3,
+            scheduleMode = ScheduleMode.WEEKLY_QUOTA.name, weeklyTarget = 3,
+            scheduleHistory = listOf(ScheduleRevision(today.minusDays(6), (1..7).toList(),
+                mode = ScheduleMode.WEEKLY_QUOTA.name, weeklyTarget = 3)),
+            createdAt = 100, updatedAt = 200,
+        )
+        val backup = LifeTrackBackup(
+            formatVersion = 9, exportedAt = 300, habits = listOf(quota),
+            logs = emptyList(), settings = AppSettings(), freezes = emptyList(),
+        )
+        repository.importFrom(Uri.fromFile(backupFile(BackupValidator.json.encodeToString(backup))))
+        // Quota days are check-in-eligible every day, so the partial day is a real check-in shape.
+        // setProgress returns "newly completed", which a 1-of-3 partial deliberately is not.
+        repository.setProgress(quota.id, today.minusDays(2), 1)
+        val partial = repository.logs.first().single()
+        assertEquals(LogStatus.IN_PROGRESS, partial.status)
+        assertEquals(1, partial.progress)
+        try {
+            repository.setStreakProtection(quota.id, today.minusDays(2), true)
+            fail("Weekly-quota days have no chain to protect")
+        } catch (expected: IllegalArgumentException) {
+            assertEquals("Weekly-quota habits do not use day streaks.", expected.message)
+        }
+        assertTrue(repository.streakProtections.first().isEmpty())
+        // The guard is quota-only: an ordinary weekday habit's partial day still protects.
+        val weekday = repository.saveHabit(Habit(name = "Read", startDate = today.minusDays(35), targetCount = 4))
+        repository.setProgress(weekday, today.minusDays(1), 3)
+        repository.setStreakProtection(weekday, today.minusDays(1), true)
+        assertEquals(listOf(weekday), repository.streakProtections.first().map { it.habitId })
+    }
+
+    @Test
+    fun claimReminderSkipsQuotaHabitsAndNudgesDueWeekdayHabits() = runBlocking {
+        val (interval, quota, weekday) = importFlexibleHabits()
+        // reminderMinutes = 0 is always in the past, so LocalTime.now() never blocks the claim.
+        assertFalse(repository.claimReminder(quota, today))
+        assertTrue(repository.claimReminder(weekday, today))
+        assertTrue(repository.claimReminder(interval, today))
+        // A second claim on the same day is deduplicated by the delivery record.
+        assertFalse(repository.claimReminder(weekday, today))
+    }
+
+    @Test
+    fun weekdayToQuotaSwitchPreservesTheWeekdayEraWithoutFalseRejection() = runBlocking {
+        val id = repository.saveHabit(Habit(name = "Read", startDate = today.minusDays(30)))
+        repository.setLog(id, today.minusDays(1), LogStatus.COMPLETED)
+        val original = database.dao().habit(id)!!
+        // The repaired save path: the seeded weekday era plus the quota revision must not false-reject.
+        val switchedId = repository.saveHabit(original.copy(
+            scheduleMode = ScheduleMode.WEEKLY_QUOTA.name, weeklyTarget = 3, intervalDays = null))
+        val habit = database.dao().habit(switchedId)!!
+        assertEquals("WEEKLY_QUOTA", habit.scheduleMode)
+        assertEquals(3, habit.weeklyTarget)
+        assertNull(habit.intervalDays)
+        assertEquals(2, habit.scheduleHistory.size)
+        assertNull(habit.scheduleHistory.first().mode) // the weekday era stays a null-mode weekday period
+        assertEquals(ScheduleMode.WEEKLY_QUOTA.name, habit.scheduleHistory.last().mode)
+        assertEquals(today, habit.scheduleHistory.last().effectiveFrom)
+        // The weekday-era check-in survived the switch untouched.
+        assertEquals(listOf(today.minusDays(1)), repository.logs.first().map { it.date })
+    }
+
+    @Test
+    fun weekdayToIntervalSwitchKeepsTheWeekdayEraEligibleBeforeTheAnchor() = runBlocking {
+        val id = repository.saveHabit(Habit(name = "Walk", startDate = today.minusDays(30)))
+        val switchedId = repository.saveHabit(database.dao().habit(id)!!.copy(
+            scheduleMode = ScheduleMode.EVERY_N_DAYS.name, intervalDays = 3, weeklyTarget = null))
+        val habit = database.dao().habit(switchedId)!!
+        assertEquals("EVERY_N_DAYS", habit.scheduleMode)
+        assertEquals(3, habit.intervalDays)
+        assertEquals(today, habit.intervalAnchor)
+        assertEquals(2, habit.scheduleHistory.size)
+        assertNull(habit.scheduleHistory.first().mode)
+        assertEquals(ScheduleMode.EVERY_N_DAYS.name, habit.scheduleHistory.last().mode)
+        // Mode-at-date: the pre-switch era resolves WEEKDAYS (any weekday eligible), while
+        // post-switch dates follow the grid anchored at the switch date.
+        assertTrue(Analytics.eligible(habit, habit.startDate.plusDays(1), emptyList()))
+        assertFalse(Analytics.eligible(habit, today.plusDays(1), emptyList())) // off-grid under the new anchor
+        assertTrue(Analytics.eligible(habit, today.plusDays(3), emptyList()))  // anchor + 3
+    }
+
+    @Test
+    fun newFlexibleHabitsAnchorTheirWholeVisibleHistoryAtTheStartDate() = runBlocking {
+        val start = today.minusDays(10)
+        val id = repository.saveHabit(Habit(
+            name = "Every third day", startDate = start,
+            scheduleMode = ScheduleMode.EVERY_N_DAYS.name, intervalDays = 3))
+        val habit = database.dao().habit(id)!!
+        // A backdated new habit owns its whole visible history: the seed sits at startDate, not today.
+        assertEquals(1, habit.scheduleHistory.size)
+        assertEquals(start, habit.scheduleHistory.single().effectiveFrom)
+        assertEquals(ScheduleMode.EVERY_N_DAYS.name, habit.scheduleHistory.single().mode)
+        assertEquals(3, habit.scheduleHistory.single().intervalDays)
+        assertEquals(start, habit.intervalAnchor)
+        // The grid starts at startDate: no invented weekday-era dues inside the backdated window.
+        assertTrue(Analytics.eligible(habit, start, emptyList()))
+        assertFalse(Analytics.eligible(habit, start.plusDays(1), emptyList())) // off-grid
+        assertTrue(Analytics.eligible(habit, start.plusDays(3), emptyList()))  // anchor + 3
+    }
+
     @Test
     fun appLockSettingPersistsLocallySurvivesRestoresAndNeverTravelsInBackups() = runBlocking {
         repository.updateSettings(AppSettings(appLockEnabled = true))
@@ -461,6 +602,38 @@ class HabitRepositoryTest {
 
     private suspend fun createHabit(name: String = "Drink water"): Long =
         repository.saveHabit(Habit(name = name, startDate = today.minusDays(35)))
+
+    /** Imports one interval, one quota and one weekday habit so engine dispatch sees real stored
+     *  history: a mid-history anchor cannot be produced by saveHabit, which seeds new flexible
+     *  habits at their start date and re-anchors to today only on an existing habit's change. */
+    private suspend fun importFlexibleHabits(): Triple<Long, Long, Long> {
+        val anchor = today.minusDays(6)
+        val interval = Habit(
+            id = 5, name = "Every third day", startDate = today.minusDays(35), reminderMinutes = 0,
+            scheduleMode = ScheduleMode.EVERY_N_DAYS.name, intervalDays = 3, intervalAnchor = anchor,
+            scheduleHistory = listOf(ScheduleRevision(anchor, (1..7).toList(),
+                mode = ScheduleMode.EVERY_N_DAYS.name, intervalDays = 3)),
+            createdAt = 100, updatedAt = 200,
+        )
+        val quota = Habit(
+            id = 6, name = "Three times a week", startDate = today.minusDays(35), reminderMinutes = 0,
+            scheduleMode = ScheduleMode.WEEKLY_QUOTA.name, weeklyTarget = 3,
+            scheduleHistory = listOf(ScheduleRevision(anchor, (1..7).toList(),
+                mode = ScheduleMode.WEEKLY_QUOTA.name, weeklyTarget = 3)),
+            createdAt = 100, updatedAt = 200,
+        )
+        val weekday = Habit(
+            id = 7, name = "Daily read", startDate = today.minusDays(35), reminderMinutes = 0,
+            scheduleHistory = listOf(ScheduleRevision(anchor, (1..7).toList())),
+            createdAt = 100, updatedAt = 200,
+        )
+        val backup = LifeTrackBackup(
+            formatVersion = 9, exportedAt = 300, habits = listOf(interval, quota, weekday),
+            logs = emptyList(), settings = AppSettings(), freezes = emptyList(),
+        )
+        repository.importFrom(Uri.fromFile(backupFile(BackupValidator.json.encodeToString(backup))))
+        return Triple(interval.id, quota.id, weekday.id)
+    }
 
     private fun backupFile(content: String = ""): File = File.createTempFile(
         "lifetrack-test-", ".json", RuntimeEnvironment.getApplication().cacheDir,

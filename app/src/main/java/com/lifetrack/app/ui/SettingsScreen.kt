@@ -14,6 +14,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
@@ -24,7 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
@@ -55,6 +56,7 @@ fun SettingsScreen(
     onOpen: (Long) -> Unit
 ) {
     val context = LocalContext.current
+    val versionName = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "unknown" }
     val settings = state.settings
     val latestSettings by rememberUpdatedState(settings)
     val busy by vm.busy.collectAsState()
@@ -158,7 +160,7 @@ fun SettingsScreen(
             HorizontalDivider()
             SettingsAction("Export encrypted backup", "Protect the file with a password · AES-256-GCM", Icons.Outlined.Lock, enabled = !busy) { launchExport(true) }
             HorizontalDivider()
-            SettingsAction("Export CSV", "Habit details and check-in history for spreadsheets · analysis copy, not a backup",
+            SettingsAction("Export CSV", "Habit details and check-in history · contains your notes unencrypted · analysis copy, not a backup",
                 Icons.Outlined.TableView, enabled = !busy) { csvExport.launch("lifetrack-habits-${state.today}.csv") }
             HorizontalDivider()
             SettingsAction("Import data", "Restore a backup · replaces current data", Icons.Outlined.FileDownload, enabled = !busy, onClick = onImport)
@@ -188,15 +190,17 @@ fun SettingsScreen(
             }
         }
         SettingsGroup {
-            SettingsAction("About LifeTrack", "Version 1.9.0", Icons.Outlined.Info) { aboutDialog = true }
+            SettingsAction("About LifeTrack", "Version $versionName", Icons.Outlined.Info) { aboutDialog = true }
             HorizontalDivider()
             SettingsAction("Open-source licenses", "Runtime library license and notices", Icons.Outlined.Description) { licensesDialog = true }
         }
     }
     if (themeDialog) AlertDialog(onDismissRequest = { themeDialog = false }, title = { Text("Choose theme") }, text = {
         Column { listOf("SYSTEM", "LIGHT", "DARK").forEach { theme ->
-            Row(Modifier.fillMaxWidth().clickable { vm.updateSettings(settings.copy(theme = theme)); themeDialog = false }, verticalAlignment = Alignment.CenterVertically) {
-                RadioButton(selected = settings.theme == theme, onClick = { vm.updateSettings(settings.copy(theme = theme)); themeDialog = false })
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    .clickable(role = Role.RadioButton) { vm.updateSettings(settings.copy(theme = theme)); themeDialog = false },
+                verticalAlignment = Alignment.CenterVertically) {
+                RadioButton(selected = settings.theme == theme, onClick = null)
                 Text(theme.lowercase().replaceFirstChar(Char::titlecase))
             }
         } }
@@ -225,7 +229,7 @@ fun SettingsScreen(
     }, confirmButton = { TextButton(enabled = !busy && backupPassword.length >= 10 && backupPassword == confirmPassword, onClick = {
         vm.export(Uri.parse(path), backupPassword.toCharArray()) { pendingEncryptedExport = null; backupPassword = ""; confirmPassword = "" }
     }) { Text(if (busy) "Encrypting…" else "Encrypt and export") } }, dismissButton = { TextButton(enabled = !busy, onClick = { pendingEncryptedExport = null; backupPassword = ""; confirmPassword = "" }) { Text("Cancel") } }) }
-    if (aboutDialog) AlertDialog(onDismissRequest = { aboutDialog = false }, title = { Text("LifeTrack 1.9.0") }, text = {
+    if (aboutDialog) AlertDialog(onDismissRequest = { aboutDialog = false }, title = { Text("LifeTrack $versionName") }, text = {
         Text("An offline habit companion. Every habit has its own Day 1.\n\nAll user records live in a local Room database. There is no Internet permission or automatic cloud backup. Choose plain JSON for readability or optional password encryption for a private portable copy.\n\nLocal habit reminders are inexact and may be deferred by Android.\n\nCharts: Vico. Reordering: Calvin Reorderable. AndroidX, Kotlin and Hilt. Runtime libraries use Apache 2.0.", Modifier.verticalScroll(rememberScrollState()))
     }, confirmButton = { TextButton(onClick = { aboutDialog = false }) { Text("Close") } })
     if (licensesDialog) {
@@ -243,13 +247,15 @@ fun SettingsScreen(
 
 @Composable
 private fun PreferenceSwitch(title: String, detail: String, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+    Row(Modifier.fillMaxWidth()
+            .toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onChange)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.titleSmall)
             Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Switch(checked, onCheckedChange = onChange, enabled = enabled, modifier = Modifier.semantics { contentDescription = title })
+        Switch(checked, onCheckedChange = null, enabled = enabled)
     }
 }
 

@@ -72,4 +72,23 @@ object DatabaseMigrations {
             db.execSQL("CREATE TABLE IF NOT EXISTS daily_reflections (date INTEGER NOT NULL, mood INTEGER, journal TEXT, createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, PRIMARY KEY(date))")
         }
     }
+
+    /** Achievement acknowledgments arrive in version 9: durable seen-markers that persist
+     *  independently of the derived achievement state and of habit deletion. */
+    val MIGRATION_8_9 = object : Migration(8, 9) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS achievement_acknowledgments (achievementId TEXT NOT NULL, acknowledgedAt INTEGER NOT NULL, PRIMARY KEY(achievementId))")
+        }
+    }
+
+    /** Flexible scheduling arrives in version 10: every existing habit keeps WEEKDAYS semantics
+     *  with no anchor — no historical reinterpretation. */
+    val MIGRATION_9_10 = object : Migration(9, 10) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE habits ADD COLUMN scheduleMode TEXT NOT NULL DEFAULT 'WEEKDAYS'")
+            db.execSQL("ALTER TABLE habits ADD COLUMN intervalDays INTEGER DEFAULT NULL")
+            db.execSQL("ALTER TABLE habits ADD COLUMN intervalAnchor INTEGER DEFAULT NULL")
+            db.execSQL("ALTER TABLE habits ADD COLUMN weeklyTarget INTEGER DEFAULT NULL")
+        }
+    }
 }

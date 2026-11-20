@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -118,7 +119,8 @@ fun CheckInButton(
                 enabled = enabled, role = Role.Button,
                 hapticFeedbackEnabled = false,
                 onClickLabel = actionLabel ?: if (status == LogStatus.COMPLETED) "Undo completion" else "Complete habit",
-                onLongClickLabel = "Skip with an optional note",
+                // Long-press opens the full log editor (any status + note), not just a skip.
+                onLongClickLabel = "Edit check-in and note",
                 onClick = { if (preferences.hapticsEnabled) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove); onClick() },
                 onLongClick = { if (preferences.hapticsEnabled) haptic.performHapticFeedback(HapticFeedbackType.LongPress); onLongClick() }
             ), contentAlignment = Alignment.Center
@@ -151,7 +153,8 @@ fun HabitCard(
     quickActions: (@Composable () -> Unit)? = null,
     checkInEnabled: Boolean = true,
     progress: Int = 0,
-    nudged: Boolean = false
+    nudged: Boolean = false,
+    scheduleNote: String? = null
 ) {
     val accent = habitColor(habit.colorHex)
     OutlinedCard(onClick = onOpen, modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp),
@@ -163,20 +166,24 @@ fun HabitCard(
             Row(Modifier.padding(if (compact) PaddingValues(12.dp) else PaddingValues(horizontal = 14.dp, vertical = 12.dp)), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp)) {
                 if (dragHandle != null) dragHandle()
-                if (!compact) Box(Modifier.size(44.dp).clip(RoundedCornerShape(8.dp)).background(accent.copy(alpha = .12f)), contentAlignment = Alignment.Center) {
+                if (!compact) Box(Modifier.size(44.dp).clip(RoundedCornerShape(8.dp)).background(accent.copy(alpha = .12f))
+                    .clearAndSetSemantics {}, contentAlignment = Alignment.Center) {
                     Text(habit.icon, fontSize = 24.sp)
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        if (compact) Text(habit.icon, fontSize = 20.sp, modifier = Modifier.widthIn(max = 28.dp), maxLines = 1, overflow = TextOverflow.Clip)
+                        if (compact) Text(habit.icon, fontSize = 20.sp, modifier = Modifier.widthIn(max = 28.dp).clearAndSetSemantics {}, maxLines = 1, overflow = TextOverflow.Clip)
                         Text(habit.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
                             maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                     Text("$dayLabel · ${habit.category}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    scheduleNote?.let { note -> Text(note, style = AlmanacType.monoData, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     if (habit.targetCount > 1) Text("$progress / ${habit.targetCount} ${habit.targetUnit}",
                         style = AlmanacType.monoData, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (!stackLabel.isNullOrBlank()) Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                        Text("ANCHOR:", style = AlmanacType.monoCaption, color = MaterialTheme.colorScheme.tertiary)
+                        // onTertiaryContainer keeps the small caps text at AA contrast in light mode
+                        // (raw tertiary reads 3.0:1 on paper); the container pair passes both modes.
+                        Text("ANCHOR:", style = AlmanacType.monoCaption, color = MaterialTheme.colorScheme.onTertiaryContainer)
                         Text("After $stackLabel", style = MaterialTheme.typography.bodySmall.copy(fontStyle = FontStyle.Italic),
                             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }

@@ -76,8 +76,15 @@ object BackupCrypto {
     fun decrypt(envelope: ByteArray, password: CharArray): ByteArray {
         require(envelope.size <= MAX_ENVELOPE_BYTES) { "Encrypted backups must be 15 MB or smaller." }
         require(password.isNotEmpty() && password.size <= 1_024) { "Enter the backup password (up to 1,024 characters)." }
+        val text = envelope.toString(Charsets.UTF_8).removePrefix("\uFEFF")
+        // Same recursion defense as BackupValidator.decode: the streaming Envelope decoder walks
+        // JSON recursively too, and StackOverflowError is an Error that the catch below cannot
+        // intercept. A linear pre-scan rejects over-nested envelopes before any parse runs.
+        require(BackupValidator.maxJsonDepth(text) <= BackupValidator.MAX_JSON_DEPTH) {
+            "This file nests data too deeply to be a LifeTrack backup."
+        }
         val parsed = try {
-            json.decodeFromString<Envelope>(envelope.toString(Charsets.UTF_8).removePrefix("\uFEFF"))
+            json.decodeFromString<Envelope>(text)
         } catch (_: Exception) {
             throw IllegalArgumentException("This is not a valid encrypted LifeTrack backup.")
         }

@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,6 +20,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -30,6 +33,7 @@ import com.lifetrack.app.data.Habit
 import com.lifetrack.app.data.HabitLog
 import com.lifetrack.app.data.HabitPause
 import com.lifetrack.app.data.LogStatus
+import com.lifetrack.app.domain.Achievements
 import com.lifetrack.app.domain.Analytics
 import com.lifetrack.app.domain.ProgressTracking
 import com.lifetrack.app.ui.components.HeatmapWidget
@@ -47,7 +51,9 @@ fun AnalyticsScreen(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate,
                     activities: List<com.lifetrack.app.data.WorkoutActivity> = emptyList(),
                     activityEntries: List<com.lifetrack.app.data.ActivityEntry> = emptyList(),
                     streakProtections: List<com.lifetrack.app.data.StreakProtection> = emptyList(),
-                    reflections: List<com.lifetrack.app.data.DailyReflection> = emptyList()) {
+                    reflections: List<com.lifetrack.app.data.DailyReflection> = emptyList(),
+                    achievements: List<com.lifetrack.app.domain.Achievements.Progress> = emptyList(),
+                    onAchievements: () -> Unit = {}) {
     val active = habits.filterNot { it.isArchived }
     val first = habits.minOfOrNull { it.startDate } ?: today
     val allTime = remember(habits, logs, today, pauses) { Analytics.rate(habits, logs, first, today, pauses) }
@@ -57,6 +63,21 @@ fun AnalyticsScreen(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate,
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         Text("Analytics", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
         Text("You are your only competition.", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        // The achievements flow emits after first collection; falling back to the static
+        // catalogue size keeps the summary truthful ("0 / 13") during that first frame
+        // instead of flashing "of 0" — same pattern as AchievementsScreen. Rendered
+        // unconditionally so the row never appears and disappears.
+        val earned = achievements.count { it.achieved }
+        val total = if (achievements.isEmpty()) Achievements.catalogue.size else achievements.size
+        val percent = if (total == 0) "—" else "${(earned * 100.0 / total).roundToInt()}%"
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            MetricCard("Milestones", "$earned / $total", Modifier.weight(1f))
+            MetricCard("Earned", percent, Modifier.weight(1f))
+            TextButton(onClick = onAchievements, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text("View all")
+                Icon(Icons.Outlined.ChevronRight, contentDescription = null, modifier = Modifier.size(18.dp))
+            }
+        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             MetricCard("Active habits", active.size.toString(), Modifier.weight(1f))
             MetricCard("All-time rate", if (allTime.opportunities == 0L) "—" else "${allTime.percent}%", Modifier.weight(1f))
@@ -64,11 +85,13 @@ fun AnalyticsScreen(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate,
         AnalyticsPanel {
             Text("A little, often", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(18.dp))
-            val periods = listOf(
-                "Today" to Analytics.rate(habits, logs, today, today, pauses),
-                "This week" to Analytics.rate(habits, logs, Analytics.weekStart(today), today, pauses),
-                "This month" to Analytics.rate(habits, logs, today.withDayOfMonth(1), today, pauses)
-            )
+            val periods = remember(habits, logs, today, pauses) {
+                listOf(
+                    "Today" to Analytics.rate(habits, logs, today, today, pauses),
+                    "This week" to Analytics.rate(habits, logs, Analytics.weekStart(today), today, pauses),
+                    "This month" to Analytics.rate(habits, logs, today.withDayOfMonth(1), today, pauses)
+                )
+            }
             BoxWithConstraints(Modifier.fillMaxWidth()) {
                 if (maxWidth < 260.dp || LocalDensity.current.fontScale > 1.4f) {
                     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(20.dp)) {
@@ -79,7 +102,7 @@ fun AnalyticsScreen(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate,
                 }
             }
             Spacer(Modifier.height(12.dp))
-            Text("Rates exclude skips, paused dates and unscheduled weekdays. Heatmap shows completed / all scheduled habits. Future days never count.",
+            Text("Rates exclude skips, paused dates and unscheduled weekdays. Weekly \"X times per week\" habits are measured per week, not per day, so they stay out of daily rates and the heatmap. Future days never count.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         ComparisonCard(habits, logs, today, pauses)
@@ -102,7 +125,7 @@ fun AnalyticsScreen(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate,
                         "${formatQuantityLabel(entry.quantity)} ${activity.unit} on ${entry.date}"
                     }
                 Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(activity.icon)
+                    Text(activity.icon, modifier = Modifier.clearAndSetSemantics {})
                     Column(Modifier.weight(1f)) {
                         Text(activity.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text("${activity.unit}${activity.target?.let { " · " + (if (directional) "goal ${formatQuantityLabel(it)}" else "target ${formatQuantityLabel(it)}/day") } ?: ""} · ${inWindow.size} day${if (inWindow.size == 1) "" else "s"} logged",
@@ -158,7 +181,7 @@ fun AnalyticsScreen(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate,
             leaderboard.forEachIndexed { index, (habit, streak) ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("${index + 1}", style = AlmanacType.monoData, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(habit.icon)
+                    Text(habit.icon, modifier = Modifier.clearAndSetSemantics {})
                     Text(habit.name, Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text("$streak ${if (streak == 1) "day" else "days"}", style = AlmanacType.monoData, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
                 }
@@ -182,6 +205,8 @@ fun AnalyticsPanel(modifier: Modifier = Modifier, content: @Composable ColumnSco
 
 @Composable
 private fun MetricCard(label: String, value: String, modifier: Modifier) {
+    // Ruled-panel variant of the Almanac stat well — note the (label, value) argument
+    // order differs from components/AlmanacStat.kt's (value, label); see its KDoc.
     AnalyticsPanel(modifier) {
         Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(6.dp))
@@ -207,24 +232,31 @@ private fun ProgressRing(label: String, rate: Analytics.Rate) {
     }
 }
 
+/** The four You-vs-you rates, computed together so recomposition skips all four traversals. */
+private data class ComparisonRates(val thisWeek: Analytics.Rate, val previousWeek: Analytics.Rate, val thisMonth: Analytics.Rate, val previousMonth: Analytics.Rate)
+
 @Composable
 private fun ComparisonCard(habits: List<Habit>, logs: List<HabitLog>, today: LocalDate, pauses: List<HabitPause>) {
-    val week = Analytics.weekStart(today)
-    val elapsed = ChronoUnit.DAYS.between(week, today)
-    val lastMonth = today.minusMonths(1).withDayOfMonth(1)
-    val lastMonthEnd = lastMonth.withDayOfMonth(minOf(today.dayOfMonth, lastMonth.lengthOfMonth()))
-    val thisWeek = Analytics.rate(habits, logs, week, today, pauses)
-    val previousWeek = Analytics.rate(habits, logs, week.minusWeeks(1), week.minusWeeks(1).plusDays(elapsed), pauses)
-    val thisMonth = Analytics.rate(habits, logs, today.withDayOfMonth(1), today, pauses)
-    val previousMonth = Analytics.rate(habits, logs, lastMonth, lastMonthEnd, pauses)
+    val comparisons = remember(habits, logs, today, pauses) {
+        val week = Analytics.weekStart(today)
+        val elapsed = ChronoUnit.DAYS.between(week, today)
+        val lastMonth = today.minusMonths(1).withDayOfMonth(1)
+        val lastMonthEnd = lastMonth.withDayOfMonth(minOf(today.dayOfMonth, lastMonth.lengthOfMonth()))
+        ComparisonRates(
+            thisWeek = Analytics.rate(habits, logs, week, today, pauses),
+            previousWeek = Analytics.rate(habits, logs, week.minusWeeks(1), week.minusWeeks(1).plusDays(elapsed), pauses),
+            thisMonth = Analytics.rate(habits, logs, today.withDayOfMonth(1), today, pauses),
+            previousMonth = Analytics.rate(habits, logs, lastMonth, lastMonthEnd, pauses)
+        )
+    }
     AnalyticsPanel {
         Text("You vs. you", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(4.dp))
         Text("Same elapsed days in each period.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(14.dp))
-        ComparisonRow("This week", thisWeek, previousWeek, "last week")
+        ComparisonRow("This week", comparisons.thisWeek, comparisons.previousWeek, "last week")
         HorizontalDivider(Modifier.padding(vertical = 12.dp))
-        ComparisonRow("This month", thisMonth, previousMonth, "last month")
+        ComparisonRow("This month", comparisons.thisMonth, comparisons.previousMonth, "last month")
     }
 }
 
@@ -241,7 +273,8 @@ private fun ComparisonRow(label: String, current: Analytics.Rate, previous: Anal
             Text(if (current.opportunities == 0L) "—" else "${current.percent}%", style = MaterialTheme.typography.titleMedium.copy(fontFamily = AlmanacFonts.mono, fontFeatureSettings = "tnum"), fontWeight = FontWeight.Bold)
             if (previous.opportunities > 0L && current.opportunities > 0L) Text(
                 when { difference > 0 -> "+$difference pp"; difference < 0 -> "−${abs(difference)} pp"; else -> "Steady" },
-                style = MaterialTheme.typography.labelSmall, color = if (difference >= 0) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant)
+                // onSecondaryContainer keeps the small "pp" delta at AA contrast in light mode.
+                style = MaterialTheme.typography.labelSmall, color = if (difference >= 0) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
