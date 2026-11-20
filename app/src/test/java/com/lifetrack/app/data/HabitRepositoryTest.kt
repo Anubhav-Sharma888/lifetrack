@@ -600,6 +600,55 @@ class HabitRepositoryTest {
         assertEquals("DARK", repository.settings.first().theme)
     }
 
+    @Test
+    fun plainExportIsDetectedAndRestoredWithoutPassword() = runBlocking {
+        val id = createHabit("Plain JSON recovery")
+        repository.setLog(id, today, LogStatus.COMPLETED)
+        val original = repository.logs.first()
+        val file = backupFile()
+        repository.exportTo(Uri.fromFile(file))
+        assertEquals(BackupFileKind.PLAIN, repository.inspectBackup(Uri.fromFile(file)))
+        assertFalse(BackupCrypto.isEncrypted(file.readBytes()))
+
+        repository.resetAllData()
+        repository.importFrom(Uri.fromFile(file), null)
+        assertEquals("Plain JSON recovery", repository.habits.first().single().name)
+        assertEquals(original, repository.logs.first())
+    }
+
+    @Test
+    fun encryptedExportRequiresCorrectPasswordAndRestoresOnRetry() = runBlocking {
+        val id = createHabit("Private recovery")
+        repository.setLog(id, today, LogStatus.COMPLETED)
+        val file = backupFile()
+        val password = "test password for recovery 123".toCharArray()
+        repository.exportTo(Uri.fromFile(file), password)
+        assertEquals(BackupFileKind.ENCRYPTED, repository.inspectBackup(Uri.fromFile(file)))
+        repository.resetAllData()
+        expectRejected { repository.importFrom(Uri.fromFile(file), null) }
+        assertTrue(repository.habits.first().isEmpty())
+        expectRejected { repository.importFrom(Uri.fromFile(file), "wrong password".toCharArray()) }
+        assertTrue(repository.habits.first().isEmpty())
+        repository.importFrom(Uri.fromFile(file), password)
+        assertEquals("Private recovery", repository.habits.first().single().name)
+        assertEquals(LogStatus.COMPLETED, repository.logs.first().single().status)
+    }
+
+    @Test
+    fun corruptOrUnsupportedFileIsRejectedBeforeAnyDataIsOverwritten() = runBlocking {
+        createHabit("Preserve me")
+        val original = repository.habits.first()
+        listOf(
+            backupFile("not-json"),
+            backupFile("{\"kind\":\"lifetrack-encrypted\",\"version\":1,\"kdf\":\"PBKDF2-HMAC-SHA256\"}"),
+            backupFile("{\"formatVersion\":999}")
+        ).forEach { file ->
+            expectRejected { repository.inspectBackup(Uri.fromFile(file)) }
+            expectRejected { repository.importFrom(Uri.fromFile(file)) }
+            assertEquals(original, repository.habits.first())
+        }
+    }
+
     private suspend fun createHabit(name: String = "Drink water"): Long =
         repository.saveHabit(Habit(name = name, startDate = today.minusDays(35)))
 
