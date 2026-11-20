@@ -1,4 +1,4 @@
-# LifeTrack 1.9.0
+# LifeTrack 1.11.0 Preview 1
 
 A complete native Android habit tracker using Kotlin, Jetpack Compose Material 3, Room, MVVM, a repository and Hilt. All user records and settings are local. There is no account, Internet permission, analytics SDK, advertising SDK, server or automatic app-data cloud backup.
 
@@ -8,13 +8,13 @@ Open this directory directly in Android Studio. The supplied screenshots were vi
 
 1. Install Android Studio, JDK 17, Android SDK Platform 36 and Build Tools 35.0.0. Select JDK 17 as the Gradle JDK. The project pins Android Gradle Plugin 8.10.1, Gradle 8.11.1 and Kotlin 2.1.21.
 2. Open this directory, sync Gradle and Run `app` on Android 8.0 / API 26 or later.
-3. Run `./gradlew assembleDebug testDebugUnitTest lintDebug` (Windows: `gradlew.bat assembleDebug testDebugUnitTest lintDebug`). The first build downloads development dependencies; the installed app works offline.
+3. Run `./gradlew --max-workers=2 --no-parallel --no-daemon assembleDebug testDebugUnitTest lintDebug` (Windows: `gradlew.bat --max-workers=2 --no-parallel --no-daemon assembleDebug testDebugUnitTest lintDebug`). The first build downloads development dependencies; the installed app works offline.
 4. The APK is `app/build/outputs/apk/debug/app-debug.apk`. Install through Android Studio or `adb install -r app/build/outputs/apk/debug/app-debug.apk`. Updating an existing installation requires the same package and signing certificate. Read [UPGRADE.md](UPGRADE.md); do not uninstall or clear storage to work around incompatible signatures.
 5. For publishing, use Android Studio **Build → Generate Signed App Bundle / APK** and your own release signing key. Release builds enable R8 and resource shrinking. Keep signing keys/passwords out of distributed source. Future updates need the same release key. Changing `applicationId` creates a separate app with separate data. Provide store artwork/privacy policy and review current store requirements.
 
-This release uses Android version code 8 and Room database schema 5. Activities has its own ledger with directional tracking modes (below), and Settings links to Schedules & Reminders. The implementation notes below describe the original architecture.
+The current source has versionCode 12, versionName 1.11.0-preview.1, Room schema 10 and supports JSON backup formats v1–v9. Activities has its own ledger with directional tracking modes (below), and Settings links to Schedules & Reminders. The implementation notes below describe the original architecture.
 
-## Step 1 — Project setup
+## Backup restore and testing prerelease\n\nSettings offers plain JSON and password-encrypted JSON exports, plus a single Import action. The Import action inspects the chosen file first. Plain backups restore without any password prompt; an encrypted backup requires its original password. The backup is validated before the database is transactionally replaced. The plain JSON file contains sensitive notes and journal text unencrypted. Keep it private.\n\nGitHub v1.11.0 Preview 1 uses an isolated debug app ID (`com.lifetrack.app.preview`), signed with an ephemeral CI debug certificate. It will not replace `com.lifetrack.app` or automatically share its local data. It may not be signature-compatible with older previews, and physical-device QA is not complete. Export backups before changing installed versions; never uninstall the original app to work around signing errors.\n\n## Step 1 — Project setup
 
 `settings.gradle.kts`, root `build.gradle.kts`, `gradle.properties`, `gradle/wrapper/` and `app/build.gradle.kts` contain the full configuration. Both wrapper scripts and the official wrapper binary are included. Dependencies are pinned: Compose BOM, Room/KSP, Hilt, Navigation, Kotlin Serialization, WorkManager, Glance, Vico and Reorderable. DataStore's preference dependency is included as requested; **Room is the canonical preference store** so settings restore atomically with user records.
 

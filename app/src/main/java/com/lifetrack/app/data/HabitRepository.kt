@@ -492,10 +492,17 @@ class HabitRepository @Inject constructor(
     }
 
     /** Replace, never merge: IDs, stack relationships, notes and the spent-freeze ledger survive exactly. */
-    suspend fun importFrom(uri: Uri, password: CharArray? = null) = backupMutex.withLock { withContext(Dispatchers.IO) {
+    /** Non-destructive inspection for one import picker; no password is needed to inspect. */
+    suspend fun inspectBackup(uri: Uri): BackupFileKind = withContext(Dispatchers.IO) {
+        BackupInspector.inspect(readBackupBytes(uri))
+    }
+
+    /** Shared bounded reader for preflight and final import. URI content can change between
+     *  them, so import always classifies and validates again before its transaction. */
+    private fun readBackupBytes(uri: Uri): ByteArray {
         val input = context.contentResolver.openInputStream(uri)
             ?: throw IllegalStateException("The selected backup cannot be opened.")
-        val bytes = input.use { stream ->
+        return input.use { stream ->
             val output = ByteArrayOutputStream()
             val buffer = ByteArray(8_192)
             while (true) {
@@ -506,9 +513,13 @@ class HabitRepository @Inject constructor(
             }
             output.toByteArray()
         }
-        val plain = if (BackupCrypto.isEncrypted(bytes)) {
-            require(password != null && password.isNotEmpty()) { "This backup is encrypted. Enter its password and choose the file again." }
-            BackupCrypto.decrypt(bytes, password!!)
+    }
+
+    suspend fun importFrom(uri: Uri, password: CharArray? = null) = backupMutex.withLock { withContext(Dispatchers.IO) {
+        val bytes = readBackupBytes(uri)
+        val plain = if (BackupInspector.inspect(bytes) == BackupFileKind.ENCRYPTED) {
+            require(password != null && password.isNotEmpty()) { "This backup is encrypted. Enter its password." }
+            BackupCrypto.decrypt(bytes, password)
         } else bytes
         require(plain.size <= MAX_BACKUP_BYTES) { "Decrypted backups must be 10 MB or smaller." }
         val backup = try {
