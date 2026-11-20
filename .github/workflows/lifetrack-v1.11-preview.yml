@@ -1,0 +1,156 @@
+name: LifeTrack v1.11.0 Preview 1 — verify and publish
+
+on:
+  push:
+    branches:
+      - fix/backup-import-v1.11-preview
+      - main
+    paths:
+      - .github/workflows/lifetrack-v1.11-preview.yml
+      - app/**
+      - gradle/**
+      - gradlew
+      - build.gradle.kts
+      - settings.gradle.kts
+      - gradle.properties
+  workflow_dispatch:
+
+concurrency:
+  group: lifetrack-v1.11-preview-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: github.repository == 'Anubhav-Sharma888/lifetrack'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Java 21
+        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Use official Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d "$ANDROID_HOME"
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -1)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --install "platforms;android-36" "build-tools;35.0.0" "platform-tools"
+
+      - name: Verify release metadata and isolate preview package
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('app/build.gradle.kts')
+          s=p.read_text()
+          for required in ('versionCode = 12', 'versionName = "1.11.0-preview.1"', 'applicationId = "com.lifetrack.app"', 'buildTypes {\n        release {'):
+              assert required in s, required
+          s=s.replace('buildTypes {\n        release {', 'buildTypes {\n        getByName("debug") { applicationIdSuffix = ".preview" }\n        release {', 1)
+          p.write_text(s)
+          manifest=Path('app/src/main/AndroidManifest.xml')
+          m=manifest.read_text()
+          assert 'android:label="LifeTrack"' in m
+          manifest.write_text(m.replace('android:label="LifeTrack"', 'android:label="LifeTrack 1.11 Preview"', 1))
+          PY
+
+      - name: Unit tests, lint and debug APK
+        shell: bash
+        env:
+          GRADLE_OPTS: -Xmx512m
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew --max-workers=2 --no-parallel --no-daemon \
+            "-Dorg.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8" \
+            testDebugUnitTest lintDebug assembleDebug
+
+      - name: Package and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          test -s app/build/outputs/apk/debug/app-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/LifeTrack-v1.11.0-preview.1.apk
+          cd dist
+          sha256sum LifeTrack-v1.11.0-preview.1.apk > LifeTrack-v1.11.0-preview.1.apk.sha256
+          sha256sum -c LifeTrack-v1.11.0-preview.1.apk.sha256
+
+      - name: Upload verified preview package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: LifeTrack-v1.11.0-preview.1-${{ github.sha }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    if: github.ref == 'refs/heads/main' && github.repository == 'Anubhav-Sharma888/lifetrack'
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download exact verified artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: LifeTrack-v1.11.0-preview.1-${{ github.sha }}
+          path: dist
+
+      - name: Validate checksum and publish immutable GitHub prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum -c LifeTrack-v1.11.0-preview.1.apk.sha256
+          if gh release view v1.11.0-preview.1 >/dev/null 2>&1; then
+            echo "Release tag already exists. Refusing to overwrite." >&2
+            exit 1
+          fi
+          cat > RELEASE-NOTES.md <<'EOF'
+          LifeTrack v1.11.0 Preview 1 — test build from main after Prompt 11.
+
+          Includes Smart Streaks, directional Activities, Mood/Journal, Achievements,
+          Flexible Scheduling, accessibility and visual improvements, schema 10,
+          backup format support v1–v9, and security hardening.
+
+          Backup import fix: the single Import action now checks the selected file
+          first. Plain JSON imports do not request a password; encrypted JSON imports
+          request the original password. Regression tests cover both paths and reject
+          invalid files before replacing existing records.
+
+          IMPORTANT: This is a DEBUG-SIGNED testing prerelease, not a production-stable
+          or physically device-certified build. It installs separately as
+          com.lifetrack.app.preview, does not replace the original LifeTrack app,
+          and cannot access its private data automatically. Debug signatures may
+          also differ from prior previews, so an in-place upgrade may be impossible.
+          Export backups before changing installations and do not uninstall your
+          existing application until your data is safely restored.
+
+          Plain JSON backups contain unencrypted personal records, notes and journals.
+          The final manual device QA matrix has not been executed; TalkBack,
+          DatePicker, large-font, IME and device-specific tests remain outstanding.
+          EOF
+          gh release create v1.11.0-preview.1 \
+            LifeTrack-v1.11.0-preview.1.apk \
+            LifeTrack-v1.11.0-preview.1.apk.sha256 \
+            --target "$GITHUB_SHA" \
+            --title "LifeTrack v1.11.0 Preview 1 — Backup Restore Fix" \
+            --notes-file RELEASE-NOTES.md \
+            --prerelease
