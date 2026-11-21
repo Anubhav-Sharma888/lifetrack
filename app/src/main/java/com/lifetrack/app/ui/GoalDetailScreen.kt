@@ -74,10 +74,16 @@ import java.time.format.DateTimeFormatter
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun GoalDetailScreen(goalId: Long, vm: GoalViewModel, onBack: () -> Unit, onEdit: (Long) -> Unit) {
-    val detail by remember(goalId) { vm.detailState(goalId) }.collectAsStateWithLifecycle(initialValue = null)
+    // The goal is selected on the hot detail StateFlow: switching screens switches the chain, and
+    // recompositions read the conflated value instead of restarting a cold collection.
+    LaunchedEffect(goalId) { vm.selectGoal(goalId) }
+    val detail by vm.detail.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
     val operationError by vm.operationError.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { vm.clearOperationError() }
+    // State for THIS route only: while a fresh selection loads (or after the id changed), the hot
+    // flow still holds the previous goal's value — it must never render or feed actions here.
+    val state = detail?.takeIf { it.goal.id == goalId }
     var dialog by rememberSaveable { mutableStateOf("") } // "", "phase", "milestone", "task", "moveTask", "moveMilestone", "movePhase", "archive", "deleteGoal"
     var selectedPhaseId by rememberSaveable { mutableStateOf(0L) }
     var selectedMilestoneId by rememberSaveable { mutableStateOf(0L) }
@@ -85,15 +91,14 @@ internal fun GoalDetailScreen(goalId: Long, vm: GoalViewModel, onBack: () -> Uni
     val dateFormatter = rememberRowDateFormatter()
 
     Scaffold(topBar = { TopAppBar(
-        title = { Text(detail?.goal?.title ?: "Goal", maxLines = 2, overflow = TextOverflow.Ellipsis) },
+        title = { Text(state?.goal?.title ?: "Goal", maxLines = 2, overflow = TextOverflow.Ellipsis) },
         navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } },
         actions = {
-            IconButton(enabled = detail != null && !busy, onClick = { onEdit(goalId) }) {
+            IconButton(enabled = state != null && !busy, onClick = { onEdit(goalId) }) {
                 Icon(Icons.Outlined.Edit, "Edit goal")
             }
         }
     ) }) { padding ->
-        val state = detail
         if (state == null) {
             Column(Modifier.fillMaxSize().padding(padding).padding(32.dp), verticalArrangement = Arrangement.Center) {
                 Text("This goal no longer exists.", style = MaterialTheme.typography.titleMedium)

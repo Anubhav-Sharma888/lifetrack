@@ -46,6 +46,19 @@
   - **L1/L2/L3/L4/L6** — detail/editor screens refresh `today` on resume; status radios offer only `GoalTransitions`-legal options; the prerequisite list pre-filters cycle-forming candidates (`GoalTimeline.wouldCreateCycle`, engine-tested); the overpromising move test now actually opens the dialog and asserts the disabled no-op Move; `originalPlannedDates` consolidated into the engine (production-dead helpers removed).
   - **L5 + informational (documented, not changed)** — orphaned imported revisions survive goal deletes by design (uuid-bound audit rows; pruning belongs with Prompt 4's uuid matching) and shift propagation through completed intermediates is the intended chain semantics (both documented).
 
+
+## Release-blocker hotfix (CI intermittent failures, post-Prompt-2)
+
+**Trigger:** ChatGPT release workflow (release/v2.2.0-preview.1, 2-core ubuntu runner, JDK 21) exposed intermittent GoalScreensTest failures that never reproduced locally (6/6 green pre-fix): (A) dialogsCreatePhasesAndTasks failing inside performScrollToNode and (B) theDetailScreenShowsTheWholeHierarchy timing out in the load wait. The release branch carried IDENTICAL app/test code (zero diff vs e952fec for app/src), so the failures are timing-dependent, not code-version-dependent.
+
+**Root cause (evidence-weighted):** hub and detail used different state architectures — the hub is a hot stateIn StateFlow with .catch and its tests poll the state (vm.hub.value.loaded) and never flaked anywhere; the detail was a cold 7-flow combine chain with NO error recovery, collected via collectAsStateWithLifecycle(initialValue = null), and its tests polled the semantics tree. On a slower runner a transient re-query failure or a recomposition-lag window could (A) race performScrollToNode against a freshly-written row composition and (B) leave the semantics condition unsettled or a cold chain dead at its initial null.
+
+**Fix (three files; schemas 12 and backup v11 untouched):**
+- GoalViewModel: detail state is now a hot, resilient StateFlow — selectGoal(id) + flatMapLatest + onStart { emit(null) } (a fresh selection never shows the previous goal) + .catch (a transient failure degrades to null; recovery = upstream restart, documented precisely) + stateIn(WhileSubscribed(5_000)). Room re-emissions conflate, so recomposition can never observe a transient null or half-updated tree.
+- GoalDetailScreen: selects via LaunchedEffect, collects the hot flow, and renders state for THIS route only (detail?.takeIf { it.goal.id == goalId }) — the previous goal value can never feed destructive actions.
+- GoalScreensTest: detail waits poll the STATE (vm.detail.value?.goal?.id == goalId) before syncing the UI; scrollTo asserts exactly one scrollable with a diagnostic naming the loaded state; the freshly-written row is awaited BEFORE scrolling (the CI Failure A ordering). No assertions removed, no tests skipped, no timeout increases.
+
+**Verification:** GoalScreensTest stability 10/10 across two loops (6 pre-review + 4 post-review-fix); full testDebugUnitTest x2 with --rerun-tasks on the final source — 446/446 across 30 suites, 0 failures both runs; lintDebug 0 errors / 27 warnings (baseline parity); assembleDebug green. Independent reviewer confirmed the hot-flow direction, found one live ordering issue (scroll-before-gate — fixed) and one production hardening (stale-goal id guard — fixed). GitHub CI does not trigger on version-2 pushes (workflow triggers verified); Linux verification lands when ChatGPT re-runs the release workflow on the integrated fix.
 ## Deferred (later prompts, deliberately)
 
 - Progress engine + milestone verification UX + habit links (Prompt 3, additive schema), Goal Plan JSON (Prompts 3–4), sessions/reminders (Prompt 5), goal analytics (Prompt 6), UX/security passes (Prompt 7), release (Prompt 8).

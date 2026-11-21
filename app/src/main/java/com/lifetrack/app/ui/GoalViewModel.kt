@@ -25,6 +25,9 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -125,15 +128,34 @@ class GoalViewModel @Inject constructor(private val repository: GoalRepository) 
         val tasks: List<GoalTask>, val dependencies: List<GoalTaskDependency>
     )
 
-    /** Live detail state for one goal; null while the id points at a deleted goal. */
-    fun detailState(goalId: Long): Flow<GoalDetailState?> =
-        combine(repository.observeGoal(goalId), repository.phases(goalId), repository.milestones(goalId),
+    private val selectedGoalId = MutableStateFlow<Long?>(null)
+
+    /** The detail screen selects its goal; the chain switches with it. */
+    fun selectGoal(goalId: Long) { selectedGoalId.value = goalId }
+
+    /** Live detail state for the selected goal — a hot, resilient StateFlow (same architecture as
+     *  the hub): Room re-emissions conflate here, so a recomposition can never observe a transient
+     *  null or a half-updated tree. A transient re-query failure degrades to `null` instead of
+     *  killing a cold collection; recovery happens when the upstream restarts (a subscriber gap
+     *  longer than the WhileSubscribed grace, or a fresh selection) — not on the next invalidation.
+     *  `null` = loading, deleted goal, or last attempt failed; the UI renders its not-found state. */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val detail: StateFlow<GoalDetailState?> = selectedGoalId.flatMapLatest { goalId ->
+        if (goalId == null) flowOf(null)
+        else combine(repository.observeGoal(goalId), repository.phases(goalId), repository.milestones(goalId),
             repository.tasks(goalId), repository.dependencies(goalId)) { goal, phases, milestones, tasks, dependencies ->
             DetailCore(goal, phases, milestones, tasks, dependencies)
         }.combine(repository.scheduleHistory(goalId)) { core, history -> core to history }
-        .combine(today) { (core, history), currentToday ->
-            core.goal?.let { goal -> buildDetail(goal, core.phases, core.milestones, core.tasks, core.dependencies, history, currentToday) }
-        }
+            .combine(today) { (core, history), currentToday ->
+                core.goal?.let { goal -> buildDetail(goal, core.phases, core.milestones, core.tasks, core.dependencies, history, currentToday) }
+            }
+            // A fresh selection must not display the previous goal's state while its chain loads.
+            .onStart { emit(null) }
+            .catch { error ->
+                if (error is CancellationException) throw error
+                emit(null)
+            }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private fun buildDetail(goal: Goal, phases: List<GoalPhase>, milestones: List<GoalMilestone>,
                             tasks: List<GoalTask>, dependencies: List<GoalTaskDependency>,

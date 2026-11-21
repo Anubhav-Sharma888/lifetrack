@@ -28,7 +28,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git merge-base --is-ancestor e952fec13ad91b69b0dffe69beecf04b68bfba3a "$GITHUB_SHA"
+          git merge-base --is-ancestor 497e705d4ac6816068ab749f51c0e6fecb793eeb "$GITHUB_SHA"
           python3 - <<'PY'
           from pathlib import Path
           import subprocess
@@ -39,7 +39,7 @@ jobs:
           }
           changed = set(subprocess.check_output([
               'git', 'diff', '--name-only',
-              'e952fec13ad91b69b0dffe69beecf04b68bfba3a',
+              '497e705d4ac6816068ab749f51c0e6fecb793eeb',
               'HEAD',
           ], text=True).splitlines())
           assert changed <= allowed, f'Unexpected feature changes after Prompt 2: {changed - allowed}'
