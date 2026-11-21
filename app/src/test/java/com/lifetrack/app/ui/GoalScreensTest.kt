@@ -95,12 +95,21 @@ class GoalScreensTest {
 
     private fun setDetailContent(goalId: Long, title: String) {
         compose.setContent { MaterialTheme { GoalDetailScreen(goalId, vm, onBack = {}, onEdit = {}) } }
-        // The top bar is always composed; LazyColumn items below the fold are not, so later
-        // sections must scroll into view before their assertions.
-        awaitSettled("the goal detail to load") { compose.onAllNodesWithText(title).fetchSemanticsNodes().isNotEmpty() }
+        // Wait on the STATE, not the semantics tree: the hot detail StateFlow is the source of
+        // truth, so a slow runner can only delay the emission, never hide it behind recomposition
+        // timing. One idle sync then guarantees the UI mirrors the settled state (the top bar
+        // carries the goal title once detail is non-null).
+        awaitSettled("the goal detail to load") { vm.detail.value?.goal?.id == goalId }
+        compose.waitForIdle()
+        awaitSettled("the goal title to render") { compose.onAllNodesWithText(title).fetchSemanticsNodes().isNotEmpty() }
     }
 
     private fun scrollTo(text: String) {
+        // The loaded detail screen has exactly one scrollable (the roadmap list); a missing or
+        // doubled scrollable is a state bug this assertion names instead of failing opaquely.
+        val scrollables = compose.onAllNodes(hasScrollAction()).fetchSemanticsNodes()
+        assertTrue("Expected exactly one scrollable roadmap list, found ${scrollables.size} " +
+            "(detail loaded: ${vm.detail.value?.goal?.id != null}; a goal dialog adds a second)", scrollables.size == 1)
         compose.onNode(hasScrollAction()).performScrollToNode(hasText(text))
         compose.waitForIdle()
     }
@@ -240,8 +249,10 @@ class GoalScreensTest {
         compose.onNode(hasSetTextAction() and hasText("Title")).performTextInput("Install Python")
         compose.onNodeWithText("Save task").performClick()
         waitUntilIdle()
-        scrollTo("Install Python")
+        // Gate the freshly-written row BEFORE scrolling: performScrollToNode can exhaust a short
+        // list while the Room re-emission has not landed yet (the CI Failure A signature).
         awaitSettled("the task row to appear") { compose.onAllNodesWithText("Install Python").fetchSemanticsNodes().isNotEmpty() }
+        scrollTo("Install Python")
         assertEquals(1, runBlocking { db.goalDao().tasksForGoal(goalId).size })
     }
 
