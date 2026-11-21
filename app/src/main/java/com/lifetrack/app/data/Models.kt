@@ -18,12 +18,20 @@ import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import java.time.LocalDate
+import java.time.LocalTime
 
 /** Calendar dates deliberately have no UTC conversion: Day 1 is the chosen local start date. */
 object LocalDateSerializer : KSerializer<LocalDate> {
     override val descriptor = PrimitiveSerialDescriptor("LocalDate", PrimitiveKind.STRING)
     override fun serialize(encoder: Encoder, value: LocalDate) = encoder.encodeString(value.toString())
     override fun deserialize(decoder: Decoder): LocalDate = LocalDate.parse(decoder.decodeString())
+}
+
+/** Wall-clock times serialize as ISO-8601 local time ("17:00"), never as instants. */
+object LocalTimeSerializer : KSerializer<LocalTime> {
+    override val descriptor = PrimitiveSerialDescriptor("LocalTime", PrimitiveKind.STRING)
+    override fun serialize(encoder: Encoder, value: LocalTime) = encoder.encodeString(value.toString())
+    override fun deserialize(decoder: Decoder): LocalTime = LocalTime.parse(decoder.decodeString())
 }
 
 @Serializable

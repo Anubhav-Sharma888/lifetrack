@@ -1,7 +1,52 @@
 # LifeTrack — Work Progress
 
-**Version 2 line (current):** branch `version-2` (from `main` tip `e97c8b9653303efb5a026f03c482c61e40c1fd33`), eight-prompt roadmap in [`docs/V2_ROADMAP.md`](docs/V2_ROADMAP.md); per-prompt previews are published by ChatGPT (v2.2.0-preview.1 after Prompt 2 ✅, v2.3.0-preview.1 after Prompt 3 ✅, v2.4.0-preview.1 after Prompt 4).
+**Version 2 line (current):** branch `version-2` (from `main` tip `e97c8b9653303efb5a026f03c482c61e40c1fd33`), eight-prompt roadmap in [`docs/V2_ROADMAP.md`](docs/V2_ROADMAP.md); per-prompt previews are published by ChatGPT (v2.2.0-preview.1 after Prompt 2 ✅, v2.3.0-preview.1 after Prompt 3 ✅, v2.4.0-preview.1 after Prompt 4 ✅, v2.5.0-preview.1 after Prompt 5).
 **Version 1 line (archived):** sessions 1–13 (2026-11-15 → 2026-11-20) shipped v1.6.0 → v1.11.0-preview.1 on `develop/achievements`/`main` — CSV export, directional tracking, app lock, Smart Streaks, mood/journal, achievements, flexible scheduling, UI/UX refinement ×2, integration QA + release hardening. Session logs preserved below. Backup at `D:\LifeTracker-backup` (untouched).
+
+---
+
+# Session 18 (Version 2, Prompt 5/8) — Study sessions, timezone-safe scheduling, WorkManager reminders, check-ins
+
+## What was built (this session, uncommitted → committing at end)
+
+- **Session model** (`data/GoalSession.kt`, schema 14): planned wall-clock start/end (date+time in the session's own recorded IANA zone — never reinterpreted) + actual UTC epoch-millis start/end recorded only at user-confirmed actions; optional SET NULL goal/phase/task associations (parent deletion detaches, history survives); lifecycle PLANNED → IN_PROGRESS → COMPLETED (+ direct PLANNED → COMPLETED with actualStart left null, never fabricated) and PLANNED/IN_PROGRESS → CANCELED; awaiting-review is derived read-time, never stored; nothing auto-completes.
+- **Time policy** (`SessionTimePolicy`): deterministic DST resolution through java.time's `atZone` — gaps jump forward, overlaps take the earlier offset — pinned by tests against real IANA zones (New York 2026 spring-forward and fall-back) plus leap-year, cross-midnight, half-hour-offset and validator window cases.
+- **Room schema 14** (additive `MIGRATION_13_14`, `14.json` exported): unique uuid, plannedStartDate/status/goalId/taskId indices, three SET NULL FKs; migration tests extended to the full 2..13→14 walk plus a dedicated v13-era session-table leg (empty→usable→duplicate-uuid rejection→goal-delete detach).
+- **Repository** (`SessionRepository`): save (create/edit preserving identity and actual instants), start, confirmCompletion, cancel, delete — one transaction per write, same-state and terminal transitions rejected, caps (5,000 sessions, 1–1,440-minute windows, 1900..today+100 dates, IANA zone validation).
+- **Backup v13** (`goalSessions` with `(NEVER)` lists): export cascade sessions→13 first; gates moved to 1..13 in validate AND decode; `validateSessions` joins sessions into the global uuid-uniqueness set and validates every row against the backup's own goal records; restore inserts sessions last inside the single transaction; reset clears them; the version-gate test moved 13→14.
+- **Reminders** (`SessionReminderWorker` + `SessionReminderScheduler`): one best-effort one-time job per event (`session-start-<uuid>` / `session-end-<uuid>`, REPLACE policy), horizon-bounded; the worker reloads by UUID and validates status eligibility, reminder prefs, the planned instant it was scheduled for (stale-edit/restore protection) and notification permission before posting; notifications are VISIBILITY_PRIVATE with a generic public variant (no titles on the lock screen), FLAG_IMMUTABLE PendingIntents, a dedicated "Study sessions" channel, and a deep link (`lifetrack://session/<uuid>` + `open_session`) that lands behind App Lock; no exact-alarm permission, no foreground service. Room commits stay canonical; reconciliation (targeted upsert/cancel after lifecycle ops, full reconcile after restore/reset/app start) is idempotent and worker-side checks are the recovery path.
+- **UI**: Sessions overview (In progress / Review needed / Upcoming / Completed history, honest empty state) via a Goals top-bar icon; session editor (title, description, DateField dates, HH:mm times, curated IANA timezone picker, goal/phase/task pickers, reminder toggles) with prefills only from explicit navigation context; detail screen with planned-vs-actual display and explicit Start/Confirm/Cancel/Delete actions; deep-link not-found state; goal/plan import untouched (schemaVersion 1 carries no sessions).
+- **Tests**: `SessionRepositoryTest` 27 (lifecycle, associations, detachment, duplicates, windows), `SessionTimePolicyTest` 10 (DST gap/overlap, zones, validator), `GoalBackupTest` +5 (v13 round trip, gates, invalid rows), migration legs, `SessionsScreenTest` 6 (overview, detail actions, not-found, editor validation/save) — state-gated waits only.
+
+## Design decisions (lead)
+
+- **Planned time is never stored as an instant**: wall-clock fields + recorded zone keep DST behavior deterministic and let the session keep its own timezone when the device moves.
+- **Completion without start is legal and honest**: confirming work you never formally started records actualEnd only — fabricating a start would be a lie.
+- **SET NULL over CASCADE for session associations**: deleting a goal must not erase recorded effort.
+- **Worker-side revalidation as the reconciliation safety net**: Room and WorkManager cannot share a transaction, so every worker assumes its job may be stale.
+
+## Defects found and fixed this session
+
+- **Same-state transitions passed `legal()`** (from == to shortcut): duplicate starts/completions/cancels would have silently succeeded — lifecycle ops now require a genuinely different source state, pinned by duplicate-action tests.
+- **DST-gap duration expectation**: the first gap test asserted the wall-clock delta (90 min) as the real instant delta; across the spring-forward gap 02:30→03:30 means the planned 90 minutes are 30 real minutes — the test now pins the honest behavior.
+- Two test-side fixture issues (copied goal/task records reusing uuids fired the global-uniqueness gate first; an orphan phase/milestone on the foreign task tripped task validation) — fixed by giving copies distinct identities.
+
+## Test evidence (final gates, post-review source)
+
+- **Full gate: `BUILD SUCCESSFUL` — testDebugUnitTest 610/610 across 38 suites, 0 failures + lintDebug 0 errors / 27 warnings / 4 hints (identical baseline) + assembleDebug APK.** P4 baseline was 561 — Prompt 5 adds 49. Limits verified: 2 workers, `--no-parallel --no-daemon`, capped heap when RAM was under 4 GB, BelowNormal priority, RAM monitored.
+
+## Reviews (this session)
+
+- `independent-reviewer` (strictly read-only, post-implementation, full diff vs 6c15b6d): **1 Critical, 1 High, 6 Medium, 3 Low, 4 Informational** + a verified-clean list (schema-14 DDL vs 14.json column-for-column, backup v13 gates/cascade/uniqueness, DST policy, repository-level lifecycle integrity, reminder privacy/security, data preservation). All actionable findings fixed and re-gated (final gate above):
+  - **C1 (Critical)** — the editor never passed the row id on edit, so every UI edit was rejected by the uuid-ownership guard ("Another session already uses this identifier"). Fixed: the draft carries the id and the constructed row preserves it; a full UI edit-path regression test (open → rename → save → identity preserved) now pins it.
+  - **H1 (High)** — canceling an IN-PROGRESS session kept its start without an end, which the old status-pair invariant rejected — poisoning every future backup export of the whole database until the row was deleted. Fixed with one-directional invariants (each state requires its own evidence and forbids contradictory evidence; CANCELED may keep the genuinely recorded start); regression test start→cancel→validate+export.
+  - **M1** — dangling phase/task references in backup sessions now rejected with clear messages instead of a raw FK exception at import; **M2/M3** — the editor draft reloads for edits regardless of the goals list and after recreation; **M4** — canceled sessions excluded from the overview buckets (visible on their detail screen); **M5** — enabling a reminder toggle requests POST_NOTIFICATIONS contextually on SDK 33+ (mirrors the habit editor; denied permission still schedules in-app); **M6** — the reminder window reads from yesterday (device-local) so cross-zone late-day sessions are never missed.
+  - **L1** — the cap test now bulk-seeds to the real 5,000 boundary and proves the next save is refused; **L2** — vacuous wait conditions replaced with real assertions; **L3** (clock skew bricking Confirm) accepted and documented — the honest error surfaces and the session remains editable/deletable; **I*** — dead code removed, redundant scheduler cancels left harmless.
+
+## Device QA / deferred
+
+- Notification delivery timing on real devices (Doze/OEM battery policies — best-effort by design), TalkBack across the new screens, large-font reflow, the timezone dropdown's ergonomics with many zones.
+- Prompt 6 owns missed/partial/snoozed/recovery semantics and goal-time analytics.
 
 ---
 

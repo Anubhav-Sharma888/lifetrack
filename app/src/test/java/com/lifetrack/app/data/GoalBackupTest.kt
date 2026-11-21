@@ -1,6 +1,7 @@
 package com.lifetrack.app.data
 
 import java.time.LocalDate
+import java.time.LocalTime
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -53,12 +54,13 @@ class GoalBackupTest {
         tasks: List<GoalTask> = listOf(task, prerequisite),
         dependencies: List<GoalTaskDependency> = listOf(dependency),
         links: List<GoalHabitLink> = emptyList(),
+        sessions: List<GoalSession> = emptyList(),
         formatVersion: Int = 10
     ) = LifeTrackBackup(
         formatVersion = formatVersion, exportedAt = 300, habits = listOf(habit), logs = emptyList(),
         settings = AppSettings(), freezes = emptyList(),
         goals = goals, goalPhases = phases, goalMilestones = milestones, goalTasks = tasks,
-        goalTaskDependencies = dependencies, goalHabitLinks = links
+        goalTaskDependencies = dependencies, goalHabitLinks = links, goalSessions = sessions
     )
 
     private fun invalid(value: LifeTrackBackup, messagePart: String? = null) {
@@ -331,4 +333,68 @@ class GoalBackupTest {
 
     /** Deterministic canonical UUID per index, unique across any test list. */
     private fun uuid(index: Int): String = String.format("aaaaaaaa-bbbb-4ccc-%04x-%012x", index, index)
+
+    // ---- Study sessions (v13, Prompt 5) ----
+
+    private val session = GoalSession(
+        id = 1, uuid = "f1000000-0000-4000-8000-000000000001", title = "Study vectors",
+        plannedStartDate = LocalDate.of(2026, 11, 23), plannedStartTime = LocalTime.of(17, 0),
+        plannedEndDate = LocalDate.of(2026, 11, 23), plannedEndTime = LocalTime.of(18, 30),
+        timezoneId = "Europe/Berlin", status = GoalSessionStatus.PLANNED.name,
+        goalId = 1, createdAt = 400, updatedAt = 400
+    )
+
+    @Test fun `a v13 backup round trips sessions and preserves actual history`() {
+        val completed = session.copy(
+            id = 2, uuid = "f1000000-0000-4000-8000-000000000002", title = "Past session",
+            status = GoalSessionStatus.COMPLETED.name, actualStartAt = 1_000L, actualEndAt = 5_000_000L,
+            goalId = null)
+        val original = backup(sessions = listOf(session, completed), formatVersion = 13)
+        BackupValidator.validate(original, today)
+        val restored = BackupValidator.decode(BackupValidator.json.encodeToString(original), today)
+        assertEquals(13, restored.formatVersion)
+        assertEquals(listOf(session, completed), restored.goalSessions)
+        assertEquals(1_000L, restored.goalSessions[1].actualStartAt)
+        assertEquals(5_000_000L, restored.goalSessions[1].actualEndAt)
+    }
+
+    @Test fun `sessions require backup version 13`() {
+        invalid(backup(sessions = listOf(session), formatVersion = 12), "Study sessions require backup version 13")
+    }
+
+    @Test fun `a v12 backup decodes without session keys and a session-free v13 export stays empty`() {
+        val plain = BackupValidator.decode(BackupValidator.json.encodeToString(backup(formatVersion = 12)), today)
+        assertTrue(plain.goalSessions.isEmpty())
+        val v13 = BackupValidator.decode(BackupValidator.json.encodeToString(backup(formatVersion = 13)), today)
+        assertTrue(v13.goalSessions.isEmpty())
+    }
+
+    @Test fun `invalid sessions are rejected by the backup validator`() {
+        invalid(backup(sessions = listOf(session.copy(uuid = "not-a-uuid")), formatVersion = 13), "canonical UUID")
+        invalid(backup(sessions = listOf(session.copy(timezoneId = "Not/AZone")), formatVersion = 13), "time zone")
+        invalid(backup(sessions = listOf(session.copy(goalId = 99)), formatVersion = 13), "missing goal")
+        invalid(backup(sessions = listOf(session.copy(
+            plannedStartTime = LocalTime.of(19, 0), plannedEndTime = LocalTime.of(17, 0))), formatVersion = 13),
+            "cannot end before or exactly")
+        invalid(backup(sessions = listOf(session.copy(
+            status = GoalSessionStatus.COMPLETED.name)), formatVersion = 13), "must record when it ended")
+        invalid(backup(sessions = listOf(
+            session, session.copy(id = 1,
+                uuid = "f1000000-0000-4000-8000-000000000009")), formatVersion = 13), "Duplicate session IDs")
+    }
+
+    @Test fun `a session referencing a phase or task missing from the backup is rejected`() {
+        invalid(backup(sessions = listOf(session.copy(phaseId = 99)), formatVersion = 13), "missing phase")
+        invalid(backup(sessions = listOf(session.copy(taskId = 99)), formatVersion = 13), "missing task")
+    }
+
+    @Test fun `a session referencing a task of another goal is rejected`() {
+        val otherTask = task.copy(id = 3, goalId = 2, phaseId = null, milestoneId = null, uuid = "f1000000-0000-4000-8000-000000000008")
+        val otherGoal = goal.copy(id = 2, uuid = "f1000000-0000-4000-8000-000000000007")
+        invalid(backup(
+            goals = listOf(goal, otherGoal),
+            tasks = listOf(task, prerequisite, otherTask),
+            sessions = listOf(session.copy(taskId = 3, goalId = 1)), formatVersion = 13),
+            "same goal")
+    }
 }

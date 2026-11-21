@@ -41,7 +41,8 @@ import kotlinx.coroutines.launch
 import kotlin.math.sin
 
 @Composable
-fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, vm: HabitViewModel = hiltViewModel(),
+fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, sessionRequest: String? = null,
+                 vm: HabitViewModel = hiltViewModel(),
                  goalsVm: GoalViewModel = hiltViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     val nav = rememberNavController()
@@ -81,6 +82,9 @@ fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, vm: HabitView
     }
     LaunchedEffect(habitRequest, state.loaded) {
         if (habitRequest != null && state.loaded) nav.navigate("habit/$habitRequest") { launchSingleTop = true }
+    }
+    LaunchedEffect(sessionRequest, state.loaded) {
+        if (sessionRequest != null && state.loaded) nav.navigate("session/$sessionRequest") { launchSingleTop = true }
     }
     LaunchedEffect(vm) {
         vm.events.collect { event ->
@@ -171,7 +175,29 @@ fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, vm: HabitView
                         HabitEditorScreen(it.arguments!!.getLong("id"), state, vm, onBack = { nav.popBackStack() })
                     }
                     // ---- Goal Roadmaps (Version 2) ----
-                    composable("goals") { GoalsScreen(goalsVm, onAdd = { nav.navigate("goalEdit/0") }, onOpen = { nav.navigate("goal/$it") }, onImport = { nav.navigate("goalImport") }) }
+                    composable("goals") { GoalsScreen(goalsVm, onAdd = { nav.navigate("goalEdit/0") }, onOpen = { nav.navigate("goal/$it") }, onImport = { nav.navigate("goalImport") },
+                        onSessions = { nav.navigate("sessions") }) }
+                    composable("sessions") { SessionsScreen(onBack = { nav.popBackStack() }, onOpenSession = { nav.navigate("session/$it") }, onAdd = { nav.navigate("sessionEdit") }) }
+                    composable("session/{uuid}") {
+                        val uuid = it.arguments!!.getString("uuid") ?: ""
+                        SessionDetailScreen(uuid, onBack = { nav.popBackStack() }, onEdit = { nav.navigate("sessionEdit?uuid=$it") })
+                    }
+                    composable(
+                        "sessionEdit?uuid={uuid}&goalId={goalId}&taskId={taskId}",
+                        arguments = listOf(
+                            navArgument("uuid") { type = NavType.StringType; nullable = true },
+                            navArgument("goalId") { type = NavType.LongType; defaultValue = 0L },
+                            navArgument("taskId") { type = NavType.LongType; defaultValue = 0L }
+                        )
+                    ) {
+                        SessionEditorScreen(
+                            editUuid = it.arguments!!.getString("uuid"),
+                            prefillGoalId = it.arguments!!.getLong("goalId"),
+                            prefillTaskId = it.arguments!!.getLong("taskId"),
+                            onBack = { nav.popBackStack() },
+                            onSaved = { nav.popBackStack() }
+                        )
+                    }
                     composable("goal/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) {
                         val id = it.arguments!!.getLong("id")
                         GoalDetailScreen(id, goalsVm, onBack = { nav.popBackStack() }, onEdit = { nav.navigate("goalEdit/$id") })

@@ -114,7 +114,7 @@ private fun OperationErrorLine(operationError: String?) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DateField(label: String, value: LocalDate?, placeholder: String, enabled: Boolean,
+internal fun DateField(label: String, value: LocalDate?, placeholder: String, enabled: Boolean,
                       onChange: (LocalDate?) -> Unit) {
     var picking by rememberSaveable { mutableStateOf(false) }
     Row(verticalAlignment = Alignment.CenterVertically,

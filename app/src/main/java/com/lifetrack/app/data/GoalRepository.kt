@@ -522,6 +522,8 @@ class GoalRepository @Inject constructor(private val db: AppDatabase) {
     suspend fun milestoneById(id: Long): GoalMilestone? = dao.milestone(id)
     suspend fun taskById(id: Long): GoalTask? = dao.task(id)
     suspend fun phasesForGoal(goalId: Long): List<GoalPhase> = dao.phasesForGoal(goalId)
+    suspend fun goalsSnapshot(): List<Goal> = dao.allGoals()
+    suspend fun tasksSnapshot(): List<GoalTask> = dao.allTasks()
     suspend fun tasksForGoal(goalId: Long): List<GoalTask> = dao.tasksForGoal(goalId)
     suspend fun milestonesForGoal(goalId: Long): List<GoalMilestone> = dao.milestonesForGoal(goalId)
 

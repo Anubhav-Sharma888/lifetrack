@@ -7,6 +7,7 @@ import androidx.room.Room
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import java.io.File
+import java.time.LocalTime
 import java.time.LocalDate
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
@@ -67,7 +68,7 @@ class DatabaseMigrationTest {
                 DatabaseMigrations.MIGRATION_3_4, DatabaseMigrations.MIGRATION_4_5,
                 DatabaseMigrations.MIGRATION_5_6, DatabaseMigrations.MIGRATION_6_7,
                 DatabaseMigrations.MIGRATION_7_8, DatabaseMigrations.MIGRATION_8_9,
-                DatabaseMigrations.MIGRATION_9_10, DatabaseMigrations.MIGRATION_10_11, DatabaseMigrations.MIGRATION_11_12, DatabaseMigrations.MIGRATION_12_13
+                DatabaseMigrations.MIGRATION_9_10, DatabaseMigrations.MIGRATION_10_11, DatabaseMigrations.MIGRATION_11_12, DatabaseMigrations.MIGRATION_12_13, DatabaseMigrations.MIGRATION_13_14
             )
             .allowMainThreadQueries().build()
         try {
@@ -128,7 +129,7 @@ class DatabaseMigrationTest {
             assertEquals(today, pause.startDate)
             assertNull(pause.endDate)
             assertEquals("2026-10", migrated.dao().allFreezes().single().month)
-            assertEquals(13, migrated.openHelper.readableDatabase.version)
+            assertEquals(14, migrated.openHelper.readableDatabase.version)
             assertTrue("Version-3 activity tables start empty after migration from version 1", migrated.dao().allActivities().isEmpty())
             // MIGRATION_4_5 added the tracking columns; the migrated schema must apply their defaults.
             // (Opening schema 5 at all proves Room accepted the migrated structure — a mismatch would throw.)
@@ -146,12 +147,12 @@ class DatabaseMigrationTest {
 
     // ---- Every old install reaches the new release: each exported era walks the full chain ----
 
-    @Test fun everyExportedSchemaVersionStillMigratesForwardToVersionThirteen() = runBlocking {
+    @Test fun everyExportedSchemaVersionStillMigratesForwardToVersionFourteen() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
-        // Any supported install — not just the oldest one — must reach schema 13. Room validates
+        // Any supported install — not just the oldest one — must reach schema 14. Room validates
         // every end state against the compiled schema when it opens, so a broken middle leg,
         // a dropped column or a default mismatch anywhere on the chain fails here.
-        for (startVersion in 2..12) {
+        for (startVersion in 2..13) {
             val name = "lifetrack-era-$startVersion-${System.nanoTime()}.db"
             buildDatabaseAt(context, name, startVersion) { db -> seedEraRows(db, startVersion) }
             val migrated = migrateForward(context, name)
@@ -188,7 +189,7 @@ class DatabaseMigrationTest {
                 assertTrue(migrated.goalDao().allScheduleRevisions().isEmpty())
                 // MIGRATION_12_13 mints the habit-link table empty for every era.
                 assertTrue(migrated.goalDao().allGoalHabitLinks().isEmpty())
-                assertEquals(13, migrated.openHelper.readableDatabase.version)
+                assertEquals(14, migrated.openHelper.readableDatabase.version)
             } finally {
                 migrated.close()
                 context.deleteDatabase(name)
@@ -198,7 +199,7 @@ class DatabaseMigrationTest {
 
     // ---- Per-era legs: each feature's own migration, seeded with rows of that era ----
 
-    @Test fun versionSixRowsGainStrictSmartStreakDefaultsWhenMigratingToThirteen() = runBlocking {
+    @Test fun versionSixRowsGainStrictSmartStreakDefaultsWhenMigratingForward() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         val name = "lifetrack-era-six-${System.nanoTime()}.db"
         buildDatabaseAt(context, name, 6) { db -> seedEraRows(db, 6) }
@@ -213,7 +214,7 @@ class DatabaseMigrationTest {
             assertEquals(75, habit.partialCreditPercent)
             assertTrue("Streak protections start empty after migration", migrated.dao().allStreakProtections().isEmpty())
             assertEquals(19L, migrated.dao().allLogs().single().id)
-            assertEquals(13, migrated.openHelper.readableDatabase.version)
+            assertEquals(14, migrated.openHelper.readableDatabase.version)
         } finally {
             migrated.close()
             context.deleteDatabase(name)
@@ -434,7 +435,7 @@ class DatabaseMigrationTest {
             assertTrue(migrated.goalDao().allGoals().isEmpty())
             assertTrue(migrated.goalDao().allTasks().isEmpty())
             assertEquals(7L, migrated.dao().allHabits().single().id)
-            assertEquals(13, migrated.openHelper.readableDatabase.version)
+            assertEquals(14, migrated.openHelper.readableDatabase.version)
         } finally {
             migrated.close()
             context.deleteDatabase(name)
@@ -461,7 +462,7 @@ class DatabaseMigrationTest {
             migrated.goalDao().deleteScheduleRevisionsForEntity("aaaaaaaa-bbbb-4ccc-0001-000000000000")
             assertTrue(migrated.goalDao().allScheduleRevisions().isEmpty())
             assertEquals(7L, migrated.dao().allHabits().single().id)
-            assertEquals(13, migrated.openHelper.readableDatabase.version)
+            assertEquals(14, migrated.openHelper.readableDatabase.version)
         } finally {
             migrated.close()
             context.deleteDatabase(name)
@@ -491,13 +492,50 @@ class DatabaseMigrationTest {
             migrated.goalDao().deleteGoalById(goal)
             assertTrue(migrated.goalDao().allGoalHabitLinks().isEmpty())
             assertEquals(7L, migrated.dao().allHabits().single().id)
-            assertEquals(13, migrated.openHelper.readableDatabase.version)
+            assertEquals(14, migrated.openHelper.readableDatabase.version)
         } finally {
             migrated.close()
             context.deleteDatabase(name)
         }
     }
     // ---- Helpers: build a real exported schema of one era, then migrate it with Room ----
+
+    @Test fun `version thirteen gains the session table and it starts empty and usable`() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val name = "lifetrack-era-thirteen-${System.nanoTime()}.db"
+        buildDatabaseAt(context, name, 13) { db -> seedEraRows(db, 13) }
+        val migrated = migrateForward(context, name)
+        try {
+            // The session table is minted by MIGRATION_13_14 itself: empty, then usable, with the
+            // SET NULL detach semantics and unique uuid enforced by the migrated DDL.
+            assertTrue(migrated.sessionDao().allSessions().isEmpty())
+            val goal = migrated.goalDao().insertGoal(Goal(uuid = "31111111-1111-4111-8111-111111111111", title = "Learn ML", createdAt = 100, updatedAt = 200))
+            migrated.sessionDao().insertSession(GoalSession(
+                uuid = "f2000000-0000-4000-8000-000000000001", title = "Study",
+                plannedStartDate = LocalDate.now(), plannedStartTime = LocalTime.of(17, 0),
+                plannedEndDate = LocalDate.now(), plannedEndTime = LocalTime.of(18, 0),
+                timezoneId = "UTC", goalId = goal, createdAt = 100, updatedAt = 200))
+            val session = migrated.sessionDao().allSessions().single()
+            assertEquals(goal, session.goalId)
+            // Duplicate uuid is rejected by the unique index.
+            try {
+                migrated.sessionDao().insertSession(GoalSession(
+                    uuid = "f2000000-0000-4000-8000-000000000001", title = "Duplicate",
+                    plannedStartDate = LocalDate.now(), plannedStartTime = LocalTime.of(17, 0),
+                    plannedEndDate = LocalDate.now(), plannedEndTime = LocalTime.of(18, 0),
+                    timezoneId = "UTC", createdAt = 100, updatedAt = 200))
+                fail("A duplicate session uuid must be rejected.")
+            } catch (error: Exception) { /* SQLite constraint violation — expected. */ }
+            // Goal deletion detaches the session (SET NULL) without removing it.
+            migrated.goalDao().deleteGoalById(goal)
+            val detached = migrated.sessionDao().allSessions().single()
+            assertNull(detached.goalId)
+            assertEquals(14, migrated.openHelper.readableDatabase.version)
+        } finally {
+            migrated.close()
+            context.deleteDatabase(name)
+        }
+    }
 
     private val allMigrations = arrayOf<Migration>(
         DatabaseMigrations.MIGRATION_1_2, DatabaseMigrations.MIGRATION_2_3,
@@ -506,7 +544,7 @@ class DatabaseMigrationTest {
         DatabaseMigrations.MIGRATION_7_8, DatabaseMigrations.MIGRATION_8_9,
         DatabaseMigrations.MIGRATION_9_10, DatabaseMigrations.MIGRATION_10_11,
         DatabaseMigrations.MIGRATION_11_12,
-        DatabaseMigrations.MIGRATION_12_13
+        DatabaseMigrations.MIGRATION_12_13, DatabaseMigrations.MIGRATION_13_14
     )
 
     private fun schemaFile(version: Int): File = listOf(

@@ -1,7 +1,7 @@
 # LifeTrack Version 2 — Data Model
 
-**Database:** `lifetrack.db` · **Room schema version 13** (additive from 10) · **Backup formats v1–v12**
-Source of truth: `data/GoalModels.kt` (entities + validator), `data/GoalDao.kt` (queries), `data/DatabaseMigrations.kt` (DDL), `app/schemas/com.lifetrack.app.data.AppDatabase/13.json` (exported schema).
+**Database:** `lifetrack.db` · **Room schema version 14** (additive from 10) · **Backup formats v1–v13**
+Source of truth: `data/GoalModels.kt` (entities + validator), `data/GoalDao.kt` (queries), `data/DatabaseMigrations.kt` (DDL), `app/schemas/com.lifetrack.app.data.AppDatabase/14.json` (exported schema).
 
 ---
 
@@ -19,9 +19,12 @@ goal_task_dependencies      dependentTaskId → goal_tasks (CASCADE)
 goal_schedule_revisions     entityType/entityUuid audit rows; uuid-bound, NO foreign key by design
 goal_habit_links            goalId → goals (CASCADE) · habitId → habits (CASCADE)
                             PK(goalId, habitId) — the only goal-domain FK into a habit table
+goal_sessions               goalId/phaseId/taskId → goals/phases/tasks (SET NULL, optional)
+                            planned wall-clock start/end in the recorded IANA zone;
+                            actual UTC epoch-millis start/end; unique uuid
 ```
 
-Existing v1 tables (`habits`, `habit_logs`, `habit_pauses`, `reminder_deliveries`, `freeze_usage`, `streak_protections`, `daily_reflections`, `achievement_acknowledgments`, `activities`, `activity_entries`, `app_settings`) are **untouched** by schemas 11–13 except one read-only edge: `goal_habit_links.habitId` references `habits(id)`. The link table stores only the association — goal features read habit data through `HabitRepository` and never write habit logs, reminders or settings.
+Existing v1 tables (`habits`, `habit_logs`, `habit_pauses`, `reminder_deliveries`, `freeze_usage`, `streak_protections`, `daily_reflections`, `achievement_acknowledgments`, `activities`, `activity_entries`, `app_settings`) are **untouched** by schemas 11–14 except one read-only edge: `goal_habit_links.habitId` references `habits(id)`. The link table stores only the association — goal features read habit data through `HabitRepository` and never write habit logs, reminders or settings.
 
 Room **does** enforce these foreign keys at runtime (the declarations are validated at open time and cascades execute on delete), and **`GoalRepository` still performs every child delete explicitly** in the order the table shows — deterministic ordering, observable semantics. The DDL declarations are pinned by `DatabaseMigrationTest`.
 
@@ -74,6 +77,10 @@ One audit row per rescheduled calendar date: `id` PK, `entityType` (TASK/MILESTO
 
 Association table: `goalId` + `habitId` composite PK, `createdAt` epoch millis. Both FKs CASCADE (deleting either side removes its links inside the same transaction), plus an index on `habitId` for reverse lookups. Caps: 50 links per goal, 10,000 total (repository and backup validation share the constants). Duplicate pair is rejected ("already supports"); `unlinkHabit` is idempotent. The table carries no semantics — what a habit contributes to a goal is computed read-only at display time (`HabitRepository.habitActivity`: completion counts, window counts, last completion date). Habit logs are never written by goal code, and habit deletion cascades the link rows while leaving the goal intact (and vice versa). Backup format v12 carries the list (`goalHabitLinks`, `(NEVER)`); restore clears it first and inserts after goals+habits.
 
+### 2.8 `goal_sessions` (schema 14, Prompt 5)
+
+One planned block of focused work: `id` PK, `uuid` (unique index — stable external identity), `title` (1–120), `description` (≤ 2,000), `plannedStartDate`/`plannedStartTime`/`plannedEndDate`/`plannedEndTime` (wall-clock in the session's own `timezoneId` — never reinterpreted), `actualStartAt`/`actualEndAt` (UTC epoch millis, present only after user-confirmed actions), `status` (`PLANNED`/`IN_PROGRESS`/`COMPLETED`/`CANCELED`; IN_PROGRESS ⇔ start recorded; COMPLETED ⇔ end recorded; start ≤ end), optional `goalId`/`phaseId`/`taskId` (SET NULL — parent deletion detaches while the row survives), `startReminder`/`endCheckIn` toggles, monotonic `createdAt`/`updatedAt`. Windows are 1–1,440 minutes (cross-midnight via explicit end date) within 1900..today+100. Caps: 5,000 sessions total, 500 upcoming scheduled. Indices: unique `uuid`, `plannedStartDate`, `status`, `goalId`, `taskId`. Nothing ever auto-completes a session, and completing one never completes a task.
+
 ## 3. Identity model
 
 | Identity | Scope | Lifetime | Used by |
@@ -110,10 +117,10 @@ No goal operation ever writes habits, activities, reflections or acknowledgments
 
 ## 6. Migration path
 
-Schema 10 → 11: `MIGRATION_10_11` creates the five roadmap tables + 11 indexes, purely additive. Schema 11 → 12: `MIGRATION_11_12` adds `goal_schedule_revisions` + 2 indexes (Prompt 2). Schema 12 → 13: `MIGRATION_12_13` adds `goal_habit_links` + 1 index (Prompt 3). Exported schemas: `app/schemas/…/13.json` (current), with the full historical set retained. `DatabaseMigrationTest` walks every historical era (2→13, 3→13, … 12→13) plus the v1 full chain and asserts preservation, emptiness of new tables, FK declarations and index presence against the migrated DDL. Future: schema 14+ (Prompt 5, study sessions) — additive by the same discipline.
+Schema 10 → 11: `MIGRATION_10_11` creates the five roadmap tables + 11 indexes, purely additive. Schema 11 → 12: `MIGRATION_11_12` adds `goal_schedule_revisions` + 2 indexes (Prompt 2). Schema 12 → 13: `MIGRATION_12_13` adds `goal_habit_links` + 1 index (Prompt 3). Schema 13 → 14: `MIGRATION_13_14` adds `goal_sessions` + 5 indices (Prompt 5). Exported schemas: `app/schemas/…/14.json` (current), with the full historical set retained. `DatabaseMigrationTest` walks every historical era (2→14, 3→14, … 13→14) plus the v1 full chain and asserts preservation, emptiness of new tables, FK declarations and index presence against the migrated DDL. Future: schema 14+ (Prompt 5, study sessions) — additive by the same discipline.
 
 ## 7. Backup mapping (formats v10–v12)
 
-`LifeTrackBackup` gains eight `@EncodeDefault(NEVER)` lists — v10: `goals`, `goalPhases`, `goalMilestones`, `goalTasks`, `goalTaskDependencies`; v11: `goalScheduleRevisions`; v12: `goalHabitLinks` — present only when non-empty, so plain v3–v9 exports remain key-free and each older format decodes unchanged. Full rows are exported (all columns, row ids included). Export computes `formatVersion` by cascade: any habit-goal link → 12, else any schedule revision → 11, else any goal record → 10, else the pre-goal formats. Restore is replace-all inside the existing single restore transaction: clear goal tables (links + revisions first, then edges → tasks → milestones → phases → goals), insert parents before dependents, links and revisions last. Import normalizes text (trim, blank→null) exactly like repository saves and validates link references (goal+habit must resolve), duplicate pairs and caps. `appLockEnabled` never appears in any format.
+`LifeTrackBackup` gains nine `@EncodeDefault(NEVER)` lists — v10: `goals`, `goalPhases`, `goalMilestones`, `goalTasks`, `goalTaskDependencies`; v11: `goalScheduleRevisions`; v12: `goalHabitLinks`; v13: `goalSessions` — present only when non-empty, so plain v3–v9 exports remain key-free and each older format decodes unchanged. Full rows are exported (all columns, row ids included). Export computes `formatVersion` by cascade: any session → 13, else any habit-goal link → 12, else any schedule revision → 11, else any goal record → 10, else the pre-goal formats. Restore is replace-all inside the existing single restore transaction: clear goal tables (links + revisions first, then edges → tasks → milestones → phases → goals), insert parents before dependents, links and revisions last. Import normalizes text (trim, blank→null) exactly like repository saves and validates link references (goal+habit must resolve), duplicate pairs and caps. `appLockEnabled` never appears in any format.
 
 The **Goal Plan JSON** (`kind: "lifetrack.goal-plan"`, `schemaVersion: 1`) is deliberately a *different document type* — not a backup, never restorable as one, defined in [`docs/GOAL_PLAN_FORMAT.md`](GOAL_PLAN_FORMAT.md). It carries no row ids and no completion history; it participates in neither export nor import of backups.

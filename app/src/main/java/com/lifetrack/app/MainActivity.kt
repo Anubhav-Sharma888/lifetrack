@@ -14,17 +14,20 @@ import dagger.hilt.android.AndroidEntryPoint
 class MainActivity : FragmentActivity() {
     private val settingsRequest = mutableStateOf(0)
     private val habitRequest = mutableStateOf<Long?>(null)
+    private val sessionRequest = mutableStateOf<String?>(null)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         if (intent.getBooleanExtra("open_settings", false)) settingsRequest.value++
         habitRequest.value = intent.getLongExtra("open_habit", -1).takeIf { it > 0 }
-        setContent { LifeTrackApp(settingsRequest.value, habitRequest = habitRequest.value) }
+        sessionRequest.value = intent.getStringExtra("open_session")
+        setContent { LifeTrackApp(settingsRequest.value, habitRequest = habitRequest.value, sessionRequest = sessionRequest.value) }
     }
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         if (intent.getBooleanExtra("open_settings", false)) settingsRequest.value++
         habitRequest.value = intent.getLongExtra("open_habit", -1).takeIf { it > 0 }
+        sessionRequest.value = intent.getStringExtra("open_session")
     }
 }

@@ -61,7 +61,11 @@ data class LifeTrackBackup(
     // Habit-goal links: present only in v12 exports that carry them (Prompt 3 supporting habits).
     @OptIn(ExperimentalSerializationApi::class)
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val goalHabitLinks: List<GoalHabitLink> = emptyList()
+    val goalHabitLinks: List<GoalHabitLink> = emptyList(),
+    // Study sessions: present only in v13 exports that carry them (Prompt 5 scheduling).
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val goalSessions: List<GoalSession> = emptyList()
 )
 
 /** Validation is independent of Android/Room so corrupt imports can be rejected before writes. */
@@ -180,7 +184,7 @@ object BackupValidator {
     }
 
     fun validate(backup: LifeTrackBackup, today: LocalDate = LocalDate.now()) {
-        require(backup.formatVersion in 1..12) { "This backup version is not supported by this app." }
+        require(backup.formatVersion in 1..13) { "This backup version is not supported by this app." }
         require(backup.formatVersion >= 4 || backup.habits.none { it.goalHistory.isNotEmpty() }) { "Goal revisions require backup version 4." }
         require(backup.formatVersion >= 5 || backup.activities.none { it.isDirectional() }) { "Directional activity tracking requires backup version 5." }
         require(backup.formatVersion >= 6 || (backup.habits.none { com.lifetrack.app.domain.StreakPolicy.isConfigured(it) } &&
@@ -194,6 +198,7 @@ object BackupValidator {
             )) { "Goal roadmaps require backup version 10." }
         require(backup.formatVersion >= 11 || backup.goalScheduleRevisions.isEmpty()) { "Goal schedule history requires backup version 11." }
         require(backup.formatVersion >= 12 || backup.goalHabitLinks.isEmpty()) { "Habit-goal links require backup version 12." }
+        require(backup.formatVersion >= 13 || backup.goalSessions.isEmpty()) { "Study sessions require backup version 13." }
         require(backup.exportedAt >= 0) { "Invalid export timestamp." }
         validateSettings(backup.settings)
         // App lock is a local-only security choice and never roams through backups, plain or encrypted.
@@ -290,6 +295,7 @@ object BackupValidator {
         require(backup.achievementAcknowledgments.map { it.achievementId }.toSet().size == backup.achievementAcknowledgments.size) { "Duplicate achievement acknowledgments in backup." }
         backup.achievementAcknowledgments.forEach { validateAchievementAcknowledgment(it) }
         validateGoalRoadmaps(backup, today)
+        validateSessions(backup, today)
     }
 
     /**
@@ -307,7 +313,8 @@ object BackupValidator {
         val phaseGoalIds = backup.goalPhases.associate { it.id to it.goalId }
         val milestoneGoalIds = backup.goalMilestones.associate { it.id to it.goalId }
         val allRecordUuids = backup.goals.map(Goal::uuid) + backup.goalPhases.map(GoalPhase::uuid) +
-            backup.goalMilestones.map(GoalMilestone::uuid) + backup.goalTasks.map(GoalTask::uuid)
+            backup.goalMilestones.map(GoalMilestone::uuid) + backup.goalTasks.map(GoalTask::uuid) +
+            backup.goalSessions.map(GoalSession::uuid)
         require(allRecordUuids.size == allRecordUuids.toSet().size) { "Duplicate goal record identifiers in backup." }
         require(backup.goals.map { it.id }.toSet().size == backup.goals.size) { "Duplicate goal IDs in backup." }
         backup.goals.forEach { goal ->
@@ -359,6 +366,23 @@ object BackupValidator {
         backup.goalScheduleRevisions.forEach { GoalValidator.validateScheduleRevision(it, today) }
     }
 
+    /** Sessions (v13): bounded, identity-checked and validated against the backup's own goal
+     *  records — never trusted merely because they arrived inside a backup file. */
+    private fun validateSessions(backup: LifeTrackBackup, today: LocalDate) {
+        require(backup.goalSessions.size <= MAX_SESSIONS) { "This backup carries too many sessions." }
+        val goalIds = backup.goals.map { it.id }.toSet()
+        val phaseGoalIds = backup.goalPhases.associate { it.id to it.goalId }
+        val taskGoalIds = backup.goalTasks.associate { it.id to it.goalId }
+        require(backup.goalSessions.map { it.id }.toSet().size == backup.goalSessions.size) { "Duplicate session IDs in backup." }
+        backup.goalSessions.forEach { session ->
+            require(session.id > 0) { "Backed-up sessions must have saved IDs." }
+            session.goalId?.let { require(it in goalIds) { "A session references a missing goal." } }
+            session.phaseId?.let { require(it in phaseGoalIds) { "A session references a missing phase." } }
+            session.taskId?.let { require(it in taskGoalIds) { "A session references a missing task." } }
+            GoalSessionValidator.validateForBackup(session, today, phaseGoalIds, taskGoalIds)
+        }
+    }
+
     /** Version 1 lacks schedules, progress and intervals; normalize before replacing any table. */
     fun decode(text: String, today: LocalDate = LocalDate.now()): LifeTrackBackup {
         val stripped = text.removePrefix("\uFEFF")
@@ -369,7 +393,7 @@ object BackupValidator {
         require(maxJsonDepth(stripped) <= MAX_JSON_DEPTH) { "This file nests data too deeply to be a LifeTrack backup." }
         val document = json.parseToJsonElement(stripped).jsonObject
         val version = document["formatVersion"]?.jsonPrimitive?.intOrNull
-        require(version != null && version in 1..12) { "This backup version is not supported by this app." }
+        require(version != null && version in 1..13) { "This backup version is not supported by this app." }
         if (version >= 2) {
             require("pauses" in document) { "This version 2 backup is missing its pause history." }
             (document["habits"] as? JsonArray)?.forEach { entry ->

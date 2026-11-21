@@ -139,4 +139,31 @@ object DatabaseMigrations {
             db.execSQL("CREATE INDEX IF NOT EXISTS `index_goal_habit_links_habitId` ON `goal_habit_links` (`habitId`)")
         }
     }
+
+    /** Study sessions arrive in version 14 (Prompt 5): planned wall-clock windows in the session's
+     *  own timezone plus user-confirmed actual UTC instants. Optional goal/phase/task associations
+     *  declare SET NULL so parent deletion detaches the link while the historical session row
+     *  survives as a standalone record. Purely additive; starts empty. */
+    val MIGRATION_13_14 = object : Migration(13, 14) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `goal_sessions` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `uuid` TEXT NOT NULL, " +
+                    "`title` TEXT NOT NULL, `description` TEXT, " +
+                    "`plannedStartDate` INTEGER NOT NULL, `plannedStartTime` INTEGER NOT NULL, " +
+                    "`plannedEndDate` INTEGER NOT NULL, `plannedEndTime` INTEGER NOT NULL, " +
+                    "`timezoneId` TEXT NOT NULL, `actualStartAt` INTEGER, `actualEndAt` INTEGER, `status` TEXT NOT NULL, " +
+                    "`goalId` INTEGER, `phaseId` INTEGER, `taskId` INTEGER, " +
+                    "`startReminder` INTEGER NOT NULL, `endCheckIn` INTEGER NOT NULL, " +
+                    "`createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                    "FOREIGN KEY(`goalId`) REFERENCES `goals`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL, " +
+                    "FOREIGN KEY(`phaseId`) REFERENCES `goal_phases`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL, " +
+                    "FOREIGN KEY(`taskId`) REFERENCES `goal_tasks`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL)"
+            )
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_goal_sessions_uuid` ON `goal_sessions` (`uuid`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_goal_sessions_plannedStartDate` ON `goal_sessions` (`plannedStartDate`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_goal_sessions_status` ON `goal_sessions` (`status`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_goal_sessions_goalId` ON `goal_sessions` (`goalId`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_goal_sessions_taskId` ON `goal_sessions` (`taskId`)")
+        }
+    }
 }

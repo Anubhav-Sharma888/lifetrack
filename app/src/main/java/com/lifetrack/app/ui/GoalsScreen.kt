@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.UploadFile
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.EventNote
 import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -53,7 +54,7 @@ import java.util.Locale
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun GoalsScreen(vm: GoalViewModel, onAdd: () -> Unit, onOpen: (Long) -> Unit, onImport: () -> Unit) {
+internal fun GoalsScreen(vm: GoalViewModel, onAdd: () -> Unit, onOpen: (Long) -> Unit, onImport: () -> Unit, onSessions: () -> Unit = {}) {
     val hub by vm.hub.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { vm.refreshToday() }
     val dateFormatter = rememberRowDateFormatter()
@@ -63,6 +64,9 @@ internal fun GoalsScreen(vm: GoalViewModel, onAdd: () -> Unit, onOpen: (Long) ->
             TopAppBar(
                 title = { Text("Goals") },
                 actions = {
+                    IconButton(onClick = onSessions) {
+                        Icon(Icons.Outlined.EventNote, contentDescription = "Study sessions")
+                    }
                     IconButton(onClick = onImport) {
                         Icon(Icons.Outlined.UploadFile, contentDescription = "Import Goal Plan")
                     }

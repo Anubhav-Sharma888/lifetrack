@@ -54,6 +54,8 @@ import kotlinx.coroutines.withContext
 @InstallIn(SingletonComponent::class)
 interface BackgroundRepositoryEntryPoint {
     fun habitRepository(): HabitRepository
+
+    fun sessionRepository(): com.lifetrack.app.data.SessionRepository
 }
 
 fun backgroundRepository(context: Context): HabitRepository =
@@ -61,6 +63,13 @@ fun backgroundRepository(context: Context): HabitRepository =
         context.applicationContext,
         BackgroundRepositoryEntryPoint::class.java,
     ).habitRepository()
+
+/** Background access to the session repository for reminder workers and schedulers. */
+fun backgroundSessionRepository(context: Context): com.lifetrack.app.data.SessionRepository =
+    EntryPointAccessors.fromApplication(
+        context.applicationContext,
+        BackgroundRepositoryEntryPoint::class.java,
+    ).sessionRepository()
 
 /** No copy of the database is kept in widget preferences. Every update reads Room. */
 class LifeTrackWidget : GlanceAppWidget() {
