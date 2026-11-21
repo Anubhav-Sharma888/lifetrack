@@ -53,7 +53,11 @@ data class LifeTrackBackup(
     val goalTasks: List<GoalTask> = emptyList(),
     @OptIn(ExperimentalSerializationApi::class)
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val goalTaskDependencies: List<GoalTaskDependency> = emptyList()
+    val goalTaskDependencies: List<GoalTaskDependency> = emptyList(),
+    // Goal schedule history: present only in v11 exports that carry it (Prompt 2 rescheduling).
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val goalScheduleRevisions: List<GoalScheduleRevision> = emptyList()
 )
 
 /** Validation is independent of Android/Room so corrupt imports can be rejected before writes. */
@@ -172,7 +176,7 @@ object BackupValidator {
     }
 
     fun validate(backup: LifeTrackBackup, today: LocalDate = LocalDate.now()) {
-        require(backup.formatVersion in 1..10) { "This backup version is not supported by this app." }
+        require(backup.formatVersion in 1..11) { "This backup version is not supported by this app." }
         require(backup.formatVersion >= 4 || backup.habits.none { it.goalHistory.isNotEmpty() }) { "Goal revisions require backup version 4." }
         require(backup.formatVersion >= 5 || backup.activities.none { it.isDirectional() }) { "Directional activity tracking requires backup version 5." }
         require(backup.formatVersion >= 6 || (backup.habits.none { com.lifetrack.app.domain.StreakPolicy.isConfigured(it) } &&
@@ -184,6 +188,7 @@ object BackupValidator {
             backup.goals.isEmpty() && backup.goalPhases.isEmpty() && backup.goalMilestones.isEmpty() &&
                 backup.goalTasks.isEmpty() && backup.goalTaskDependencies.isEmpty()
             )) { "Goal roadmaps require backup version 10." }
+        require(backup.formatVersion >= 11 || backup.goalScheduleRevisions.isEmpty()) { "Goal schedule history requires backup version 11." }
         require(backup.exportedAt >= 0) { "Invalid export timestamp." }
         validateSettings(backup.settings)
         // App lock is a local-only security choice and never roams through backups, plain or encrypted.
@@ -324,6 +329,14 @@ object BackupValidator {
                 backup.goalTaskDependencies.size
         ) { "Duplicate task dependencies in backup." }
         GoalValidator.validateDependencyGraph(backup.goalTasks, backup.goalTaskDependencies)
+        // Schedule history: audit rows only — sane shapes, bounded count, canonical identity. A
+        // revision referencing an unknown uuid is inert on restore (its entity is gone or comes
+        // from another device's pruning), so it is not an integrity failure, but the row shape
+        // itself must be valid and the identifier canonical.
+        require(backup.goalScheduleRevisions.size <= GoalValidator.MAX_SCHEDULE_REVISIONS) {
+            "This backup carries too many schedule revisions."
+        }
+        backup.goalScheduleRevisions.forEach { GoalValidator.validateScheduleRevision(it, today) }
     }
 
     /** Version 1 lacks schedules, progress and intervals; normalize before replacing any table. */
@@ -336,7 +349,7 @@ object BackupValidator {
         require(maxJsonDepth(stripped) <= MAX_JSON_DEPTH) { "This file nests data too deeply to be a LifeTrack backup." }
         val document = json.parseToJsonElement(stripped).jsonObject
         val version = document["formatVersion"]?.jsonPrimitive?.intOrNull
-        require(version != null && version in 1..10) { "This backup version is not supported by this app." }
+        require(version != null && version in 1..11) { "This backup version is not supported by this app." }
         if (version >= 2) {
             require("pauses" in document) { "This version 2 backup is missing its pause history." }
             (document["habits"] as? JsonArray)?.forEach { entry ->

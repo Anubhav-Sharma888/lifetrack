@@ -24,6 +24,9 @@ Room **does** enforce these foreign keys at runtime (the declarations are valida
 
 ## 2. Tables
 
+*(Schema 12 addition, Prompt 2):* `goal_schedule_revisions` — one audit row per rescheduled calendar date: `id` PK, `entityType` (TASK/MILESTONE/PHASE/GOAL), `entityUuid` (no foreign key by design — the entity row may be deleted independently and the repository removes its history explicitly), `field`, `formerDate`/`newDate` (nullable LocalDates), `scope` (SINGLE/SHIFT_DEPENDENTS), `changedAt`. Indexes on `entityUuid` and `(entityUuid, field, changedAt)`. Backup format v11 carries it (`goalScheduleRevisions`, `(NEVER)`); restore inserts it last; the original plan stays recoverable via the earliest revision per (entity, field). Written only by the explicit reschedule operations and the editors- saves when dates change — never by plain metadata saves.
+
+
 ### 2.1 `goals`
 
 | Column | Type | Notes |

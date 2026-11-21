@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -40,7 +41,8 @@ import kotlinx.coroutines.launch
 import kotlin.math.sin
 
 @Composable
-fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, vm: HabitViewModel = hiltViewModel()) {
+fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, vm: HabitViewModel = hiltViewModel(),
+                 goalsVm: GoalViewModel = hiltViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     val nav = rememberNavController()
     // Lives ABOVE the app-lock gate: route saveable state (editor drafts, scroll positions) survives
@@ -68,7 +70,9 @@ fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, vm: HabitView
     }
     val launchImport = { importLauncher.launch(arrayOf("application/json", "text/json", "text/plain", "application/octet-stream")) }
     DisposableEffect(owner) {
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) vm.refreshToday() }
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) { vm.refreshToday(); goalsVm.refreshToday() }
+        }
         owner.lifecycle.addObserver(observer)
         onDispose { owner.lifecycle.removeObserver(observer) }
     }
@@ -97,6 +101,12 @@ fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, vm: HabitView
             }
         }
     }
+    // Goal roadmaps share the app-level snackbar for their save/confirm messages.
+    LaunchedEffect(goalsVm) {
+        goalsVm.events.collect { event ->
+            if (event is UiEvent.Message) scope.launch { snackbar.showSnackbar(event.text) }
+        }
+    }
     // Achievement celebrations: one subtle snackbar + confetti per newly earned milestone.
     LaunchedEffect(Unit) {
         vm.achievementCelebration.collect { progress ->
@@ -111,12 +121,13 @@ fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, vm: HabitView
             Scaffold(
                 snackbarHost = { SnackbarHost(snackbar) },
                 bottomBar = {
-                    if (route in listOf("today", "activities", "analytics", "settings")) {
+                    if (route in listOf("today", "activities", "analytics", "goals", "settings")) {
                         NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                             listOf(
                                 Triple("today", "Today", Icons.Outlined.CheckCircle),
-                                Triple("activities", "Activities", Icons.Outlined.DirectionsRun),
+                                Triple("activities", "Activities", Icons.AutoMirrored.Outlined.DirectionsRun),
                                 Triple("analytics", "Analytics", Icons.Outlined.Insights),
+                                Triple("goals", "Goals", Icons.Outlined.Flag),
                                 Triple("settings", "Settings", Icons.Outlined.Settings)
                             ).forEach { (destination, label, icon) ->
                                 NavigationBarItem(
@@ -158,6 +169,15 @@ fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, vm: HabitView
                     }
                     composable("edit/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) {
                         HabitEditorScreen(it.arguments!!.getLong("id"), state, vm, onBack = { nav.popBackStack() })
+                    }
+                    // ---- Goal Roadmaps (Version 2) ----
+                    composable("goals") { GoalsScreen(goalsVm, onAdd = { nav.navigate("goalEdit/0") }, onOpen = { nav.navigate("goal/$it") }) }
+                    composable("goal/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) {
+                        val id = it.arguments!!.getLong("id")
+                        GoalDetailScreen(id, goalsVm, onBack = { nav.popBackStack() }, onEdit = { nav.navigate("goalEdit/$id") })
+                    }
+                    composable("goalEdit/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) {
+                        GoalEditorScreen(it.arguments!!.getLong("id"), goalsVm, today = state.today, onBack = { nav.popBackStack() })
                     }
                 }
             }

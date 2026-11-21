@@ -67,7 +67,7 @@ class DatabaseMigrationTest {
                 DatabaseMigrations.MIGRATION_3_4, DatabaseMigrations.MIGRATION_4_5,
                 DatabaseMigrations.MIGRATION_5_6, DatabaseMigrations.MIGRATION_6_7,
                 DatabaseMigrations.MIGRATION_7_8, DatabaseMigrations.MIGRATION_8_9,
-                DatabaseMigrations.MIGRATION_9_10, DatabaseMigrations.MIGRATION_10_11
+                DatabaseMigrations.MIGRATION_9_10, DatabaseMigrations.MIGRATION_10_11, DatabaseMigrations.MIGRATION_11_12
             )
             .allowMainThreadQueries().build()
         try {
@@ -128,7 +128,7 @@ class DatabaseMigrationTest {
             assertEquals(today, pause.startDate)
             assertNull(pause.endDate)
             assertEquals("2026-10", migrated.dao().allFreezes().single().month)
-            assertEquals(11, migrated.openHelper.readableDatabase.version)
+            assertEquals(12, migrated.openHelper.readableDatabase.version)
             assertTrue("Version-3 activity tables start empty after migration from version 1", migrated.dao().allActivities().isEmpty())
             // MIGRATION_4_5 added the tracking columns; the migrated schema must apply their defaults.
             // (Opening schema 5 at all proves Room accepted the migrated structure — a mismatch would throw.)
@@ -146,12 +146,12 @@ class DatabaseMigrationTest {
 
     // ---- Every old install reaches the new release: each exported era walks the full chain ----
 
-    @Test fun everyExportedSchemaVersionStillMigratesForwardToVersionEleven() = runBlocking {
+    @Test fun everyExportedSchemaVersionStillMigratesForwardToVersionTwelve() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         // Any supported install — not just the oldest one — must reach schema 11. Room validates
         // every end state against the compiled schema when it opens, so a broken middle leg,
         // a dropped column or a default mismatch anywhere on the chain fails here.
-        for (startVersion in 2..10) {
+        for (startVersion in 2..11) {
             val name = "lifetrack-era-$startVersion-${System.nanoTime()}.db"
             buildDatabaseAt(context, name, startVersion) { db -> seedEraRows(db, startVersion) }
             val migrated = migrateForward(context, name)
@@ -184,7 +184,9 @@ class DatabaseMigrationTest {
                 assertTrue(migrated.goalDao().allMilestones().isEmpty())
                 assertTrue(migrated.goalDao().allTasks().isEmpty())
                 assertTrue(migrated.goalDao().allDependencies().isEmpty())
-                assertEquals(11, migrated.openHelper.readableDatabase.version)
+                // MIGRATION_11_12 mints the schedule-history table empty for every era.
+                assertTrue(migrated.goalDao().allScheduleRevisions().isEmpty())
+                assertEquals(12, migrated.openHelper.readableDatabase.version)
             } finally {
                 migrated.close()
                 context.deleteDatabase(name)
@@ -194,7 +196,7 @@ class DatabaseMigrationTest {
 
     // ---- Per-era legs: each feature's own migration, seeded with rows of that era ----
 
-    @Test fun versionSixRowsGainStrictSmartStreakDefaultsWhenMigratingToEleven() = runBlocking {
+    @Test fun versionSixRowsGainStrictSmartStreakDefaultsWhenMigratingToTwelve() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         val name = "lifetrack-era-six-${System.nanoTime()}.db"
         buildDatabaseAt(context, name, 6) { db -> seedEraRows(db, 6) }
@@ -209,7 +211,7 @@ class DatabaseMigrationTest {
             assertEquals(75, habit.partialCreditPercent)
             assertTrue("Streak protections start empty after migration", migrated.dao().allStreakProtections().isEmpty())
             assertEquals(19L, migrated.dao().allLogs().single().id)
-            assertEquals(11, migrated.openHelper.readableDatabase.version)
+            assertEquals(12, migrated.openHelper.readableDatabase.version)
         } finally {
             migrated.close()
             context.deleteDatabase(name)
@@ -364,6 +366,12 @@ class DatabaseMigrationTest {
                 goalTaskDependencies.contains("FOREIGN KEY(dependentTaskId) REFERENCES goal_tasks(id)") &&
                     goalTaskDependencies.contains("FOREIGN KEY(prerequisiteTaskId) REFERENCES goal_tasks(id)") &&
                     goalTaskDependencies.contains("ON DELETE CASCADE"))
+            // Schedule history is uuid-bound audit data: no foreign key by design (its record
+            // rows may be deleted independently), pinned here like the reflections/acks tables.
+            val scheduleRevisions = ddlOf("goal_schedule_revisions")
+            assertTrue("goal_schedule_revisions must exist", scheduleRevisions.isNotBlank())
+            assertFalse("goal_schedule_revisions must declare no foreign key (found: $scheduleRevisions)",
+                scheduleRevisions.contains("FOREIGN KEY"))
             listOf("goals", "goal_phases", "goal_milestones", "goal_tasks").forEach { table ->
                 val ddl = createTableSql(db, table)
                 assertTrue("$table must exist", ddl.isNotBlank())
@@ -415,13 +423,39 @@ class DatabaseMigrationTest {
             assertTrue(migrated.goalDao().allGoals().isEmpty())
             assertTrue(migrated.goalDao().allTasks().isEmpty())
             assertEquals(7L, migrated.dao().allHabits().single().id)
-            assertEquals(11, migrated.openHelper.readableDatabase.version)
+            assertEquals(12, migrated.openHelper.readableDatabase.version)
         } finally {
             migrated.close()
             context.deleteDatabase(name)
         }
     }
 
+    @Test fun versionElevenGainsTheScheduleHistoryTableAndItStartsEmptyAndUsable() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val name = "lifetrack-era-eleven-${System.nanoTime()}.db"
+        buildDatabaseAt(context, name, 11) { db -> seedEraRows(db, 11) }
+        val migrated = migrateForward(context, name)
+        try {
+            assertEquals(7L, migrated.dao().allHabits().single().id)
+            // The schedule-history table is minted by MIGRATION_11_12 itself: empty, then usable.
+            assertTrue(migrated.goalDao().allScheduleRevisions().isEmpty())
+            val goal = migrated.goalDao().insertGoal(Goal(uuid = "11111111-1111-4111-8111-111111111111", title = "Learn ML", createdAt = 100, updatedAt = 200))
+            migrated.goalDao().insertScheduleRevisions(listOf(GoalScheduleRevision(
+                entityType = "TASK", entityUuid = "aaaaaaaa-bbbb-4ccc-0001-000000000000", field = "plannedDate",
+                formerDate = seedDate, newDate = seedDate.plusDays(3), scope = "SINGLE", changedAt = 300)))
+            val revision = migrated.goalDao().allScheduleRevisions().single()
+            assertEquals("TASK", revision.entityType)
+            assertEquals(seedDate, revision.formerDate)
+            // Deleting the owning entity clears its history explicitly (the repository does this).
+            migrated.goalDao().deleteScheduleRevisionsForEntity("aaaaaaaa-bbbb-4ccc-0001-000000000000")
+            assertTrue(migrated.goalDao().allScheduleRevisions().isEmpty())
+            assertEquals(7L, migrated.dao().allHabits().single().id)
+            assertEquals(12, migrated.openHelper.readableDatabase.version)
+        } finally {
+            migrated.close()
+            context.deleteDatabase(name)
+        }
+    }
     // ---- Helpers: build a real exported schema of one era, then migrate it with Room ----
 
     private val allMigrations = arrayOf<Migration>(
@@ -429,7 +463,8 @@ class DatabaseMigrationTest {
         DatabaseMigrations.MIGRATION_3_4, DatabaseMigrations.MIGRATION_4_5,
         DatabaseMigrations.MIGRATION_5_6, DatabaseMigrations.MIGRATION_6_7,
         DatabaseMigrations.MIGRATION_7_8, DatabaseMigrations.MIGRATION_8_9,
-        DatabaseMigrations.MIGRATION_9_10, DatabaseMigrations.MIGRATION_10_11
+        DatabaseMigrations.MIGRATION_9_10, DatabaseMigrations.MIGRATION_10_11,
+        DatabaseMigrations.MIGRATION_11_12
     )
 
     private fun schemaFile(version: Int): File = listOf(

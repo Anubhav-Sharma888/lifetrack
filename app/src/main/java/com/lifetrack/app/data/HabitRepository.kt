@@ -456,8 +456,10 @@ class HabitRepository @Inject constructor(
             val goalMilestones = goalDao.allMilestones()
             val goalTasks = goalDao.allTasks()
             val goalTaskDependencies = goalDao.allDependencies()
+            val goalScheduleRevisions = goalDao.allScheduleRevisions()
             LifeTrackBackup(
                 formatVersion = when {
+                    goalScheduleRevisions.isNotEmpty() -> 11
                     goals.isNotEmpty() || goalPhases.isNotEmpty() || goalMilestones.isNotEmpty() ||
                         goalTasks.isNotEmpty() || goalTaskDependencies.isNotEmpty() -> 10
                     habits.any { com.lifetrack.app.domain.Scheduling.isConfigured(it) } -> 9
@@ -475,7 +477,8 @@ class HabitRepository @Inject constructor(
                 streakProtections = streakProtections, dailyReflections = reflections,
                 achievementAcknowledgments = acknowledgments,
                 goals = goals, goalPhases = goalPhases, goalMilestones = goalMilestones,
-                goalTasks = goalTasks, goalTaskDependencies = goalTaskDependencies
+                goalTasks = goalTasks, goalTaskDependencies = goalTaskDependencies,
+                goalScheduleRevisions = goalScheduleRevisions
             )
         }
         BackupValidator.validate(snapshot)
@@ -566,9 +569,10 @@ class HabitRepository @Inject constructor(
             dao.deleteReflections()
             // Acknowledgments are device-state with no FK either; a restore replaces them wholesale.
             dao.deleteAchievementAcknowledgments()
-            // Goal roadmaps are part of the replace-all too: edges first, then tasks, milestones,
-            // phases, goals — every child is cleared before its parent.
+            // Goal roadmaps are part of the replace-all too: history first, then edges, tasks,
+            // milestones, phases, goals — every child is cleared before its parent.
             val goalDao = db.goalDao()
+            goalDao.deleteScheduleRevisions()
             goalDao.deleteDependencies()
             goalDao.deleteTasks()
             goalDao.deleteMilestones()
@@ -592,6 +596,8 @@ class HabitRepository @Inject constructor(
             goalDao.insertMilestones(normalized.goalMilestones)
             goalDao.insertTasks(normalized.goalTasks)
             goalDao.insertDependencies(normalized.goalTaskDependencies)
+            // Schedule history is uuid-bound audit data with no foreign keys: it restores last.
+            goalDao.insertScheduleRevisions(backup.goalScheduleRevisions)
             dao.saveSettings(backup.settings.copy(appLockEnabled = keepAppLock))
         }
     } }
@@ -613,8 +619,9 @@ class HabitRepository @Inject constructor(
             dao.deleteReflections()
             // A reset restarts the achievement journey too: acknowledgments start fresh.
             dao.deleteAchievementAcknowledgments()
-            // Goal roadmaps start fresh with everything else (children before parents).
+            // Goal roadmaps start fresh with everything else (history and children before parents).
             val goalDao = db.goalDao()
+            goalDao.deleteScheduleRevisions()
             goalDao.deleteDependencies()
             goalDao.deleteTasks()
             goalDao.deleteMilestones()

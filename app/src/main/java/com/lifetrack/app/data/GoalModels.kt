@@ -233,6 +233,39 @@ data class GoalTask(
 )
 data class GoalTaskDependency(val dependentTaskId: Long, val prerequisiteTaskId: Long)
 
+/** What kind of record a schedule revision describes. The entity row itself may be deleted later —
+ *  revisions are audit rows tied to the stable uuid, never to a foreign key. */
+@Serializable
+enum class GoalScheduleEntityType { TASK, MILESTONE, PHASE, GOAL;
+    companion object {
+        fun fromStored(value: String): GoalScheduleEntityType =
+            entries.firstOrNull { it.name == value } ?: TASK
+    }
+}
+
+/**
+ * One calendar-date revision, written only by the explicit reschedule operations (never by plain
+ * form saves, which stay revision-free). Together the rows answer: which record changed, its
+ * former date, its new date, when, and within which operation scope. The original plan stays
+ * recoverable: the earliest revision per (entity, field) carries the original date. Actual
+ * completion records are never written here and never rewritten by a reschedule.
+ */
+@Serializable
+@Entity(
+    tableName = "goal_schedule_revisions",
+    indices = [Index("entityUuid"), Index(value = ["entityUuid", "field", "changedAt"])]
+)
+data class GoalScheduleRevision(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val entityType: String,
+    val entityUuid: String,
+    val field: String,
+    @Serializable(with = LocalDateSerializer::class) val formerDate: LocalDate?,
+    @Serializable(with = LocalDateSerializer::class) val newDate: LocalDate?,
+    val scope: String,
+    val changedAt: Long
+)
+
 /** Canonical 8-4-4-4-12 hex form. UUID.fromString is too permissive for record identity. */
 private val UUID_PATTERN = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
@@ -253,6 +286,32 @@ object GoalValidator {
     const val MAX_MILESTONES = 1_000
     const val MAX_TASKS = 5_000
     const val MAX_DEPENDENCIES = 10_000
+    const val MAX_SCHEDULE_REVISIONS = 20_000
+
+    /** Legitimate revision shapes: which field each entity type may reschedule. */
+    val REVISED_FIELDS = mapOf(
+        GoalScheduleEntityType.TASK to setOf("plannedDate", "deadline"),
+        GoalScheduleEntityType.MILESTONE to setOf("targetDate"),
+        GoalScheduleEntityType.PHASE to setOf("plannedStartDate", "plannedEndDate"),
+        GoalScheduleEntityType.GOAL to setOf("targetDate")
+    )
+
+    fun validateScheduleRevision(revision: GoalScheduleRevision, today: LocalDate = LocalDate.now()) {
+        require(isCanonicalUuid(revision.entityUuid)) { "Schedule revisions must reference canonical identifiers." }
+        val type = GoalScheduleEntityType.entries.firstOrNull { it.name == revision.entityType }
+        require(type != null) { "Unknown schedule revision entity type." }
+        require(revision.field in REVISED_FIELDS.getValue(type)) { "A $type record cannot reschedule this field." }
+        require(revision.scope in setOf("SINGLE", "SHIFT_DEPENDENTS")) { "Unknown schedule revision scope." }
+        listOf(revision.formerDate, revision.newDate).forEach { date ->
+            require(date == null || (date >= BackupValidator.earliestDate && date <= today.plusYears(100))) {
+                "Schedule revision dates must be between 1900 and 100 years from today."
+            }
+        }
+        require(revision.changedAt >= 0) { "Invalid schedule revision timestamp." }
+        // formerDate and newDate carry at most one null between them: a reschedule always has a
+        // former value or sets a first value, and clearing produces (date → null) — never both null.
+        require(revision.formerDate != null || revision.newDate != null) { "A schedule revision must record a date." }
+    }
 
     private fun validCalendarDate(date: LocalDate?, today: LocalDate): Boolean =
         date == null || (date >= BackupValidator.earliestDate && date <= today.plusYears(100))

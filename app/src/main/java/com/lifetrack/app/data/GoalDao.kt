@@ -68,6 +68,9 @@ interface GoalDao {
     // ---- Tasks ----
     @Query("SELECT * FROM goal_tasks WHERE goalId = :goalId ORDER BY sortOrder, id")
     fun observeTasksForGoal(goalId: Long): Flow<List<GoalTask>>
+    // Hub summaries need one query for every goal, never per-goal N+1 reads.
+    @Query("SELECT * FROM goal_tasks ORDER BY goalId, sortOrder, id") fun observeAllTasks(): Flow<List<GoalTask>>
+    @Query("SELECT * FROM goal_phases ORDER BY goalId, sortOrder, id") fun observeAllPhases(): Flow<List<GoalPhase>>
     @Query("SELECT * FROM goal_tasks WHERE id = :id") suspend fun task(id: Long): GoalTask?
     @Query("SELECT * FROM goal_tasks WHERE uuid = :uuid") suspend fun taskByUuid(uuid: String): GoalTask?
     @Query("SELECT * FROM goal_tasks WHERE goalId = :goalId ORDER BY sortOrder, id")
@@ -109,4 +112,27 @@ interface GoalDao {
     )
     suspend fun deleteDependenciesForGoal(goalId: Long)
     @Query("DELETE FROM goal_task_dependencies") suspend fun deleteDependencies()
+
+    // ---- Schedule revisions ----
+    @Query(
+        "SELECT * FROM goal_schedule_revisions WHERE entityUuid IN (SELECT uuid FROM goal_tasks WHERE goalId = :goalId) " +
+            "OR entityUuid IN (SELECT uuid FROM goal_milestones WHERE goalId = :goalId) " +
+            "OR entityUuid IN (SELECT uuid FROM goal_phases WHERE goalId = :goalId) " +
+            "OR entityUuid IN (SELECT uuid FROM goals WHERE id = :goalId) ORDER BY changedAt, id"
+    )
+    fun observeRevisionsForGoal(goalId: Long): Flow<List<GoalScheduleRevision>>
+    @Query("SELECT * FROM goal_schedule_revisions WHERE entityUuid = :entityUuid AND field = :field ORDER BY changedAt, id")
+    suspend fun revisionsForEntityField(entityUuid: String, field: String): List<GoalScheduleRevision>
+    @Query("SELECT * FROM goal_schedule_revisions ORDER BY changedAt, id") suspend fun allScheduleRevisions(): List<GoalScheduleRevision>
+    @Insert suspend fun insertScheduleRevisions(revisions: List<GoalScheduleRevision>)
+    @Query("DELETE FROM goal_schedule_revisions WHERE entityUuid = :entityUuid")
+    suspend fun deleteScheduleRevisionsForEntity(entityUuid: String)
+    @Query(
+        "DELETE FROM goal_schedule_revisions WHERE entityUuid IN (SELECT uuid FROM goal_tasks WHERE goalId = :goalId) " +
+            "OR entityUuid IN (SELECT uuid FROM goal_milestones WHERE goalId = :goalId) " +
+            "OR entityUuid IN (SELECT uuid FROM goal_phases WHERE goalId = :goalId) " +
+            "OR entityUuid IN (SELECT uuid FROM goals WHERE id = :goalId)"
+    )
+    suspend fun deleteScheduleRevisionsForGoal(goalId: Long)
+    @Query("DELETE FROM goal_schedule_revisions") suspend fun deleteScheduleRevisions()
 }

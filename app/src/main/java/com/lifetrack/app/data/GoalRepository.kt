@@ -1,7 +1,9 @@
 package com.lifetrack.app.data
 
 import androidx.room.withTransaction
+import com.lifetrack.app.domain.GoalTimeline
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import java.time.LocalDate
 import java.util.UUID
 import javax.inject.Inject
@@ -30,10 +32,17 @@ class GoalRepository @Inject constructor(private val db: AppDatabase) {
     fun milestones(goalId: Long): Flow<List<GoalMilestone>> = dao.observeMilestonesForGoal(goalId)
     fun tasks(goalId: Long): Flow<List<GoalTask>> = dao.observeTasksForGoal(goalId)
     fun dependencies(goalId: Long): Flow<List<GoalTaskDependency>> = dao.observeDependenciesForGoal(goalId)
+    fun scheduleHistory(goalId: Long): Flow<List<GoalScheduleRevision>> = dao.observeRevisionsForGoal(goalId)
+    // Hub summaries read one query for every goal — never per-goal N+1 reads.
+    val allTasks: Flow<List<GoalTask>> = dao.observeAllTasks()
+    val allPhases: Flow<List<GoalPhase>> = dao.observeAllPhases()
 
     // ---- Goals ----
 
-    suspend fun saveGoal(goal: Goal): Goal = db.withTransaction {
+    /** [recordScheduleHistory] writes revision rows for changed schedule fields (the editor's
+     *  Save button sets it; plain programmatic saves stay revision-free). Comparison happens
+     *  against the pre-save row inside the transaction, so the editor path records history too. */
+    suspend fun saveGoal(goal: Goal, recordScheduleHistory: Boolean = false): Goal = db.withTransaction {
         val today = LocalDate.now()
         val existing = if (goal.id == 0L) null else dao.goal(goal.id)
         require(goal.id == 0L || existing != null) { "This goal no longer exists." }
@@ -73,6 +82,11 @@ class GoalRepository @Inject constructor(private val db: AppDatabase) {
             createdAt = existing?.createdAt ?: now, updatedAt = now
         )
         GoalValidator.validateGoal(normalized, today)
+        if (existing != null && recordScheduleHistory && existing.targetDate != normalized.targetDate) {
+            dao.insertScheduleRevisions(listOf(revision(
+                GoalScheduleEntityType.GOAL, normalized.uuid, "targetDate",
+                existing.targetDate, normalized.targetDate, "SINGLE", now)))
+        }
         if (existing == null) normalized.copy(id = dao.insertGoal(normalized)) else { dao.updateGoal(normalized); normalized }
     }
 
@@ -85,9 +99,12 @@ class GoalRepository @Inject constructor(private val db: AppDatabase) {
         ))
     }
 
-    /** Removes the goal and its whole tree. Children go first, explicitly, in one transaction. */
+    /** Removes the goal and its whole tree. History and children go first, explicitly, in one transaction. */
     suspend fun deleteGoal(id: Long) = db.withTransaction {
         require(dao.goal(id) != null) { "This goal has already been deleted." }
+        // Revision cleanup precedes the child deletes: the history query resolves uuids through
+        // the (still-present) child rows.
+        dao.deleteScheduleRevisionsForGoal(id)
         dao.deleteDependenciesForGoal(id)
         dao.deleteTasksForGoal(id)
         dao.deleteMilestonesForGoal(id)
@@ -97,7 +114,8 @@ class GoalRepository @Inject constructor(private val db: AppDatabase) {
 
     // ---- Phases ----
 
-    suspend fun savePhase(phase: GoalPhase): GoalPhase = db.withTransaction {
+    /** [recordScheduleHistory] writes revision rows for changed schedule fields (see [saveGoal]). */
+    suspend fun savePhase(phase: GoalPhase, recordScheduleHistory: Boolean = false): GoalPhase = db.withTransaction {
         val today = LocalDate.now()
         val existing = if (phase.id == 0L) null else dao.phase(phase.id)
         require(phase.id == 0L || existing != null) { "This phase no longer exists." }
@@ -131,21 +149,33 @@ class GoalRepository @Inject constructor(private val db: AppDatabase) {
             createdAt = existing?.createdAt ?: now, updatedAt = now
         )
         GoalValidator.validatePhase(normalized, setOf(phase.goalId), today)
+        if (existing != null && recordScheduleHistory) {
+            val revisions = mutableListOf<GoalScheduleRevision>()
+            if (existing.plannedStartDate != normalized.plannedStartDate) revisions.add(revision(
+                GoalScheduleEntityType.PHASE, normalized.uuid, "plannedStartDate",
+                existing.plannedStartDate, normalized.plannedStartDate, "SINGLE", now))
+            if (existing.plannedEndDate != normalized.plannedEndDate) revisions.add(revision(
+                GoalScheduleEntityType.PHASE, normalized.uuid, "plannedEndDate",
+                existing.plannedEndDate, normalized.plannedEndDate, "SINGLE", now))
+            if (revisions.isNotEmpty()) dao.insertScheduleRevisions(revisions)
+        }
         if (existing == null) normalized.copy(id = dao.insertPhase(normalized)) else { dao.updatePhase(normalized); normalized }
     }
 
     /** Deleting a phase detaches, never destroys: its milestones and tasks survive as goal-level records. */
     suspend fun deletePhase(id: Long) = db.withTransaction {
-        require(dao.phase(id) != null) { "This phase has already been deleted." }
+        val phase = dao.phase(id) ?: throw IllegalArgumentException("This phase has already been deleted.")
         val now = System.currentTimeMillis()
         dao.detachMilestonesFromPhase(id, now)
         dao.detachTasksFromPhase(id, now)
+        dao.deleteScheduleRevisionsForEntity(phase.uuid)
         dao.deletePhaseById(id)
     }
 
     // ---- Milestones ----
 
-    suspend fun saveMilestone(milestone: GoalMilestone): GoalMilestone = db.withTransaction {
+    /** [recordScheduleHistory] writes revision rows for changed schedule fields (see [saveGoal]). */
+    suspend fun saveMilestone(milestone: GoalMilestone, recordScheduleHistory: Boolean = false): GoalMilestone = db.withTransaction {
         val today = LocalDate.now()
         val existing = if (milestone.id == 0L) null else dao.milestone(milestone.id)
         require(milestone.id == 0L || existing != null) { "This milestone no longer exists." }
@@ -181,19 +211,26 @@ class GoalRepository @Inject constructor(private val db: AppDatabase) {
         )
         val phaseOwnership = milestone.phaseId?.let { mapOf(it to milestone.goalId) } ?: emptyMap()
         GoalValidator.validateMilestone(normalized, setOf(milestone.goalId), phaseOwnership, today)
+        if (existing != null && recordScheduleHistory && existing.targetDate != normalized.targetDate) {
+            dao.insertScheduleRevisions(listOf(revision(
+                GoalScheduleEntityType.MILESTONE, normalized.uuid, "targetDate",
+                existing.targetDate, normalized.targetDate, "SINGLE", now)))
+        }
         if (existing == null) normalized.copy(id = dao.insertMilestone(normalized)) else { dao.updateMilestone(normalized); normalized }
     }
 
     /** Deleting a milestone detaches its tasks; the tasks survive as goal- or phase-level work. */
     suspend fun deleteMilestone(id: Long) = db.withTransaction {
-        require(dao.milestone(id) != null) { "This milestone has already been deleted." }
+        val milestone = dao.milestone(id) ?: throw IllegalArgumentException("This milestone has already been deleted.")
         dao.detachTasksFromMilestone(id, System.currentTimeMillis())
+        dao.deleteScheduleRevisionsForEntity(milestone.uuid)
         dao.deleteMilestoneById(id)
     }
 
     // ---- Tasks ----
 
-    suspend fun saveTask(task: GoalTask): GoalTask = db.withTransaction {
+    /** [recordScheduleHistory] writes revision rows for changed schedule fields (see [saveGoal]). */
+    suspend fun saveTask(task: GoalTask, recordScheduleHistory: Boolean = false): GoalTask = db.withTransaction {
         val today = LocalDate.now()
         val existing = if (task.id == 0L) null else dao.task(task.id)
         require(task.id == 0L || existing != null) { "This task no longer exists." }
@@ -235,13 +272,24 @@ class GoalRepository @Inject constructor(private val db: AppDatabase) {
         val phaseOwnership = task.phaseId?.let { mapOf(it to task.goalId) } ?: emptyMap()
         val milestoneOwnership = task.milestoneId?.let { mapOf(it to task.goalId) } ?: emptyMap()
         GoalValidator.validateTask(normalized, setOf(task.goalId), phaseOwnership, milestoneOwnership, today)
+        if (existing != null && recordScheduleHistory) {
+            val revisions = mutableListOf<GoalScheduleRevision>()
+            if (existing.plannedDate != normalized.plannedDate) revisions.add(revision(
+                GoalScheduleEntityType.TASK, normalized.uuid, "plannedDate",
+                existing.plannedDate, normalized.plannedDate, "SINGLE", now))
+            if (existing.deadline != normalized.deadline) revisions.add(revision(
+                GoalScheduleEntityType.TASK, normalized.uuid, "deadline",
+                existing.deadline, normalized.deadline, "SINGLE", now))
+            if (revisions.isNotEmpty()) dao.insertScheduleRevisions(revisions)
+        }
         if (existing == null) normalized.copy(id = dao.insertTask(normalized)) else { dao.updateTask(normalized); normalized }
     }
 
-    /** Removing a task also removes its edges: no dangling dependency rows survive. */
+    /** Removing a task also removes its edges and schedule history: no dangling rows survive. */
     suspend fun deleteTask(id: Long) = db.withTransaction {
-        require(dao.task(id) != null) { "This task has already been deleted." }
+        val task = dao.task(id) ?: throw IllegalArgumentException("This task has already been deleted.")
         dao.deleteDependenciesForTask(id)
+        dao.deleteScheduleRevisionsForEntity(task.uuid)
         dao.deleteTaskById(id)
     }
 
@@ -317,4 +365,159 @@ class GoalRepository @Inject constructor(private val db: AppDatabase) {
             byId.getValue(id).let { task -> dao.setTaskSortOrder(id, index, nextTimestamp(now, task.createdAt, task.updatedAt)) }
         }
     }
+
+    // ---- Rescheduling ----
+    //
+    // Only these explicit operations write schedule history — plain form saves stay revision-free.
+    // Every operation records one revision row per changed date field (former → new, with the
+    // operation scope), updates the record in the same transaction, and never touches completion
+    // records: a reschedule can never rewrite when work actually happened.
+
+    private fun revision(entityType: GoalScheduleEntityType, entityUuid: String, field: String,
+                         formerDate: LocalDate?, newDate: LocalDate?, scope: String, changedAt: Long) =
+        GoalScheduleRevision(
+            entityType = entityType.name, entityUuid = entityUuid, field = field,
+            formerDate = formerDate, newDate = newDate, scope = scope, changedAt = changedAt
+        )
+
+    private fun requireCalendarDate(date: LocalDate?, today: LocalDate, label: String) {
+        require(date == null || (date >= BackupValidator.earliestDate && date <= today.plusYears(100))) {
+            "$label must be between 1900 and 100 years from today."
+        }
+    }
+
+    /** Moves one task's planning dates. An explicit move may touch a completed task's planning
+     *  metadata (its completion record stays untouched); only this single scope allows that —
+     *  batch shifts skip completed dependents entirely. */
+    suspend fun rescheduleTask(taskId: Long, plannedDate: LocalDate?, deadline: LocalDate?,
+                               scope: String = "SINGLE") = db.withTransaction {
+        val task = dao.task(taskId) ?: throw IllegalArgumentException("This task no longer exists.")
+        val today = LocalDate.now()
+        requireCalendarDate(plannedDate, today, "Planned dates")
+        requireCalendarDate(deadline, today, "Deadlines")
+        require(plannedDate == null || deadline == null || !plannedDate.isAfter(deadline)) {
+            "A task cannot be planned after its deadline."
+        }
+        val now = nextTimestamp(System.currentTimeMillis(), task.createdAt, task.updatedAt)
+        val revisions = mutableListOf<GoalScheduleRevision>()
+        if (task.plannedDate != plannedDate) revisions.add(revision(GoalScheduleEntityType.TASK, task.uuid, "plannedDate", task.plannedDate, plannedDate, scope, now))
+        if (task.deadline != deadline) revisions.add(revision(GoalScheduleEntityType.TASK, task.uuid, "deadline", task.deadline, deadline, scope, now))
+        val updated = task.copy(plannedDate = plannedDate, deadline = deadline, updatedAt = now)
+        GoalValidator.validateTask(updated, setOf(task.goalId),
+            task.phaseId?.let { mapOf(it to task.goalId) } ?: emptyMap(),
+            task.milestoneId?.let { mapOf(it to task.goalId) } ?: emptyMap(), today)
+        if (revisions.isNotEmpty()) dao.insertScheduleRevisions(revisions)
+        dao.updateTask(updated)
+    }
+
+    /** Moves the task and shifts every transitively dependent task that still needs work by the
+     *  same day deltas, transactionally, with one revision row per changed field. Completed and
+     *  skipped dependents keep their recorded dates; unrelated tasks are never touched. */
+    suspend fun shiftDependentTasks(taskId: Long, newPlannedDate: LocalDate?, newDeadline: LocalDate?) = db.withTransaction {
+        val moved = dao.task(taskId) ?: throw IllegalArgumentException("This task no longer exists.")
+        val today = LocalDate.now()
+        requireCalendarDate(newPlannedDate, today, "Planned dates")
+        requireCalendarDate(newDeadline, today, "Deadlines")
+        require(moved.plannedDate == null || newPlannedDate == null || !newPlannedDate.isAfter(newDeadline ?: moved.deadline ?: newPlannedDate)) {
+            "A task cannot be planned after its deadline."
+        }
+        val now = nextTimestamp(System.currentTimeMillis(), moved.createdAt, moved.updatedAt)
+        val revisions = mutableListOf<GoalScheduleRevision>()
+        if (moved.plannedDate != newPlannedDate) revisions.add(revision(GoalScheduleEntityType.TASK, moved.uuid, "plannedDate", moved.plannedDate, newPlannedDate, "SHIFT_DEPENDENTS", now))
+        if (moved.deadline != newDeadline) revisions.add(revision(GoalScheduleEntityType.TASK, moved.uuid, "deadline", moved.deadline, newDeadline, "SHIFT_DEPENDENTS", now))
+        val updatedMoved = moved.copy(plannedDate = newPlannedDate, deadline = newDeadline, updatedAt = now)
+        GoalValidator.validateTask(updatedMoved, setOf(moved.goalId),
+            moved.phaseId?.let { mapOf(it to moved.goalId) } ?: emptyMap(),
+            moved.milestoneId?.let { mapOf(it to moved.goalId) } ?: emptyMap(), today)
+        dao.updateTask(updatedMoved)
+        val goalTasks = dao.tasksForGoal(moved.goalId)
+        // The preview deltas come from the ORIGINAL dates — passing the already-updated row would
+        // compute a zero-day shift and silently move nothing.
+        val shifts = GoalTimeline.shiftPreview(moved, goalTasks, dao.allDependencies(), newPlannedDate, newDeadline)
+        // Name an infeasible dependent before any write: the batch must abort as a whole, and the
+        // user deserves to know WHICH task the shift would strand past its own deadline.
+        shifts.firstOrNull { it.plannedDate != null && it.deadline != null && it.plannedDate.isAfter(it.deadline) }
+            ?.let { infeasible ->
+                throw IllegalArgumentException(
+                    "Moving this task would plan \"${infeasible.title}\" after its own deadline. " +
+                        "Move it first, or shift its deadline too."
+                )
+            }
+        shifts.forEach { shift ->
+            val dependent = goalTasks.firstOrNull { it.id == shift.taskId } ?: return@forEach
+            val dependentNow = nextTimestamp(now, dependent.createdAt, dependent.updatedAt)
+            if (dependent.plannedDate != shift.plannedDate) revisions.add(revision(GoalScheduleEntityType.TASK, dependent.uuid, "plannedDate", dependent.plannedDate, shift.plannedDate, "SHIFT_DEPENDENTS", dependentNow))
+            if (dependent.deadline != shift.deadline) revisions.add(revision(GoalScheduleEntityType.TASK, dependent.uuid, "deadline", dependent.deadline, shift.deadline, "SHIFT_DEPENDENTS", dependentNow))
+            val updated = dependent.copy(plannedDate = shift.plannedDate, deadline = shift.deadline, updatedAt = dependentNow)
+            GoalValidator.validateTask(updated, setOf(dependent.goalId),
+                dependent.phaseId?.let { mapOf(it to dependent.goalId) } ?: emptyMap(),
+                dependent.milestoneId?.let { mapOf(it to dependent.goalId) } ?: emptyMap(), today)
+            dao.updateTask(updated)
+        }
+        if (revisions.isNotEmpty()) dao.insertScheduleRevisions(revisions)
+    }
+
+    /** Moves a milestone deadline. Achievement records are never altered by a reschedule. */
+    suspend fun rescheduleMilestone(milestoneId: Long, targetDate: LocalDate?) = db.withTransaction {
+        val milestone = dao.milestone(milestoneId) ?: throw IllegalArgumentException("This milestone no longer exists.")
+        val today = LocalDate.now()
+        requireCalendarDate(targetDate, today, "Milestone deadlines")
+        val now = nextTimestamp(System.currentTimeMillis(), milestone.createdAt, milestone.updatedAt)
+        val revisions = if (milestone.targetDate != targetDate) listOf(
+            revision(GoalScheduleEntityType.MILESTONE, milestone.uuid, "targetDate", milestone.targetDate, targetDate, "SINGLE", now)
+        ) else emptyList()
+        val updated = milestone.copy(targetDate = targetDate, updatedAt = now)
+        GoalValidator.validateMilestone(updated, setOf(milestone.goalId),
+            milestone.phaseId?.let { mapOf(it to milestone.goalId) } ?: emptyMap(), today)
+        if (revisions.isNotEmpty()) dao.insertScheduleRevisions(revisions)
+        dao.updateMilestone(updated)
+    }
+
+    /** Moves a phase's planned window; overlapping and reordered windows stay legal. */
+    suspend fun reschedulePhase(phaseId: Long, plannedStartDate: LocalDate?, plannedEndDate: LocalDate?) = db.withTransaction {
+        val phase = dao.phase(phaseId) ?: throw IllegalArgumentException("This phase no longer exists.")
+        val today = LocalDate.now()
+        requireCalendarDate(plannedStartDate, today, "Phase start dates")
+        requireCalendarDate(plannedEndDate, today, "Phase end dates")
+        require(plannedStartDate == null || plannedEndDate == null || !plannedStartDate.isAfter(plannedEndDate)) {
+            "A phase cannot end before it starts."
+        }
+        val now = nextTimestamp(System.currentTimeMillis(), phase.createdAt, phase.updatedAt)
+        val revisions = mutableListOf<GoalScheduleRevision>()
+        if (phase.plannedStartDate != plannedStartDate) revisions.add(revision(GoalScheduleEntityType.PHASE, phase.uuid, "plannedStartDate", phase.plannedStartDate, plannedStartDate, "SINGLE", now))
+        if (phase.plannedEndDate != plannedEndDate) revisions.add(revision(GoalScheduleEntityType.PHASE, phase.uuid, "plannedEndDate", phase.plannedEndDate, plannedEndDate, "SINGLE", now))
+        val updated = phase.copy(plannedStartDate = plannedStartDate, plannedEndDate = plannedEndDate, updatedAt = now)
+        GoalValidator.validatePhase(updated, setOf(phase.goalId), today)
+        if (revisions.isNotEmpty()) dao.insertScheduleRevisions(revisions)
+        dao.updatePhase(updated)
+    }
+
+    /** Extends or moves the goal's own target date; tasks and phases are never touched silently. */
+    suspend fun rescheduleGoal(goalId: Long, targetDate: LocalDate?) = db.withTransaction {
+        val goal = dao.goal(goalId) ?: throw IllegalArgumentException("This goal no longer exists.")
+        val today = LocalDate.now()
+        requireCalendarDate(targetDate, today, "Target dates")
+        val now = nextTimestamp(System.currentTimeMillis(), goal.createdAt, goal.updatedAt)
+        val revisions = if (goal.targetDate != targetDate) listOf(
+            revision(GoalScheduleEntityType.GOAL, goal.uuid, "targetDate", goal.targetDate, targetDate, "SINGLE", now)
+        ) else emptyList()
+        val updated = goal.copy(targetDate = targetDate, updatedAt = now)
+        GoalValidator.validateGoal(updated, today)
+        if (revisions.isNotEmpty()) dao.insertScheduleRevisions(revisions)
+        dao.updateGoal(updated)
+    }
+
+    /** The schedule history for one goal, oldest first: the earliest row per (entity, field) holds
+     *  the original planned date. */
+    suspend fun scheduleRevisionsForEntity(entityUuid: String, field: String): List<GoalScheduleRevision> =
+        dao.revisionsForEntityField(entityUuid, field)
+
+    /** One goal as an observable flow, for editor screens that stay live while editing. */
+    fun observeGoal(id: Long): Flow<Goal?> = dao.observeGoals().map { goals -> goals.firstOrNull { it.id == id } }
+    suspend fun goalById(id: Long): Goal? = dao.goal(id)
+    suspend fun phaseById(id: Long): GoalPhase? = dao.phase(id)
+    suspend fun milestoneById(id: Long): GoalMilestone? = dao.milestone(id)
+    suspend fun taskById(id: Long): GoalTask? = dao.task(id)
+    suspend fun phasesForGoal(goalId: Long): List<GoalPhase> = dao.phasesForGoal(goalId)
+    suspend fun tasksForGoal(goalId: Long): List<GoalTask> = dao.tasksForGoal(goalId)
 }

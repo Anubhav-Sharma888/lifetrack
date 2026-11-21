@@ -117,4 +117,15 @@ object DatabaseMigrations {
             db.execSQL("CREATE INDEX IF NOT EXISTS `index_goal_task_dependencies_prerequisiteTaskId` ON `goal_task_dependencies` (`prerequisiteTaskId`)")
         }
     }
+
+    /** Schedule history arrives in version 12: one audit row per rescheduled calendar date, tied
+     *  to the record's stable uuid (no foreign key — the entity row may later be deleted, and the
+     *  repository removes its history explicitly). Purely additive; starts empty. */
+    val MIGRATION_11_12 = object : Migration(11, 12) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `goal_schedule_revisions` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `entityType` TEXT NOT NULL, `entityUuid` TEXT NOT NULL, `field` TEXT NOT NULL, `formerDate` INTEGER, `newDate` INTEGER, `scope` TEXT NOT NULL, `changedAt` INTEGER NOT NULL)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_goal_schedule_revisions_entityUuid` ON `goal_schedule_revisions` (`entityUuid`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_goal_schedule_revisions_entityUuid_field_changedAt` ON `goal_schedule_revisions` (`entityUuid`, `field`, `changedAt`)")
+        }
+    }
 }

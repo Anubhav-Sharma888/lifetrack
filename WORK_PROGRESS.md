@@ -5,6 +5,54 @@
 
 ---
 
+# Session 15 (Version 2, Prompt 2/8) — Goal Roadmaps UI, timeline engine, non-destructive rescheduling
+
+## What was built (this session, uncommitted → committing at end)
+
+- **Timeline engine** (`domain/GoalTimeline.kt`, pure Kotlin, calendar-safe): snapshot classification for every task (OVERDUE/DUE_TODAY/UPCOMING/UNSCHEDULED + exact calendar-day delays incl. month/leap boundaries), phase windows (current/past/future, overlaps legal), milestone deadlines, dependency blocking (SKIPPED prerequisite satisfies its gate — a read-time policy Prompt 3 may revisit), timing conflicts (dependent planned before an unresolved prerequisite's deadline — displayed, never auto-repaired), deterministic Kahn topological order (null on cycles), batch shift previews, and originalPlannedDates recovery from history. Definitions documented in the KDoc and pinned by 25 engine tests against fixed dates.
+- **Schema 12** (additive `MIGRATION_11_12`, `12.json` exported): `goal_schedule_revisions` — one audit row per rescheduled date (entityType/entityUuid/field/formerDate/newDate/scope/changedAt; uuid-bound, NO FK by design; explicit history cleanup on entity deletes). **Backup format v11** carries it (`@EncodeDefault(NEVER)`; v3–v10 plain exports stay key-free; export cascade v11-first; replace-all clears revisions first and restores them last; app lock untouched).
+- **Rescheduling operations** (`GoalRepository`): `rescheduleTask`/`rescheduleMilestone`/`reschedulePhase`/`rescheduleGoal` (one revision row per changed field, former→new, scoped; completion records never rewritten) and `shiftDependentTasks` (moves the task + incomplete transitive dependents by the same deltas transactionally; completed/skipped dependents keep their dates; an infeasible dependent is NAMED and the whole batch aborts with no writes).
+- **UI**: **Goals hub** as a 5th bottom destination (Option A documented: discoverability + room to scale for Prompt 5 sessions; cards = title → status → honest counts → current/next phase; filters Active/Planned/Completed/Archived/All; invitation empty state, no fabricated example data), **Goal editor** route (`rememberSaveable` drafts surviving rotation/lock cycles, blank-title/length/date validation, optional planned-start and target-date toggles), **Goal detail** (overview + honest counts, vertical timeline from the snapshot, phase cards with up/down reorder, milestone rows, tasks grouped by phase with blocked/overdue/due-today/finished-late/originally-planned markers, archive/delete confirms), **dialog suite** with the Prompt 9 shell (custom Dialog + Surface + 85% cap) upgraded with an ALWAYS-VISIBLE footer so Save/Cancel never scroll out of reach; task editor carries dependency add/remove; Move dialogs show live dependent-shift previews with an infeasibility guard.
+- **ViewModel** (`GoalViewModel`): hub state from single-query `allTasks`/`allPhases` flows (no N+1), cold detail combine chain per goal, `launchOperation` busy-gating (no double submissions) with inline live-region errors and shared-snackbar messages, up/down reorder helpers.
+- **Tests**: `GoalTimelineTest` 25, `GoalRescheduleTest` 18, `GoalScreensTest` 11 (Robolectric compose against the real ViewModel + Room; PAUSED-looper pumping; LazyColumn scroll-awareness; no picker-driven tests — device QA owns those).
+
+## Design decisions (lead)
+
+- **Navigation Option A** (bottom destination) over a hub entry point: discoverability with a 5-item M3 NavigationBar at 360dp (72dp/item ≥ 48dp targets), and sessions (Prompt 5) will extend the same register.
+- **Schedule history as a revision table** (not blobs on entities): normalized, bounded (20,000 cap), uuid-keyed for the Prompt 4 partial import, included in backups from day one.
+- **Editors write history too**: `saveX(recordScheduleHistory = true)` compares against the pre-save row inside the transaction, so a date changed through any editor — not only the Move dialogs — lands in the audit trail.
+- **Honest progress only**: counts ("3 of 12 tasks", "1 overdue") — no weighted percentages with no basis (Prompt 3 owns real progress semantics).
+
+## Defects found and fixed this session
+
+- **Shift-preview delta bug (production, caught by tests pre-gate)**: `shiftDependentTasks` passed the already-updated task to `shiftPreview`, computing zero-day deltas — dependents silently never moved. Fixed to pass the original row; regression-pinned.
+- **Dialog Save buttons scrolled out of reach** (caught by UI tests): the shell now has a fixed footer — Save/Delete/Cancel always visible and clickable on short viewports.
+- **Deleted-goal flake**: in-flight Room queries could outlive a cancelled scope into `db.close()`, surfacing as the NEXT test's failure; teardown now pumps the looper before closing.
+
+## Test evidence (updated as gates run)
+
+- Focused: GoalTimelineTest 25/25, GoalRescheduleTest 18/18, GoalScreensTest 11/11, DatabaseMigrationTest 9/9 (incl. the new era-11 leg), GoalBackupTest 38/38, DailyReflectionBackupTest gate moved 11→12 — all green at the pinned heap, 2 workers, `--no-parallel --no-daemon`, BelowNormal, RAM monitored.
+- **Full gate: `BUILD SUCCESSFUL in 17m 50s` — testDebugUnitTest 446/446 across 30 suites, 0 failures, 0 skipped + lintDebug 0 errors / 27 warnings (identical to the Prompt 1 baseline — one ComposableNaming finding on a private helper was fixed by rename and re-verified: assembleDebug + lint green, editor suites rerun green) + assembleDebug APK.** A stale v1 expectation was caught and updated (DailyReflectionBackupTest asserted formatVersion 11 rejected — this branch now supports v11; gate moved to 12). Limits verified live: 2 workers, `--no-parallel --no-daemon`, pinned `-Xmx3g` (compiles at ≤2 GB free used the capped `-Xmx1200m` in-process profile), BelowNormal priority, RAM monitored throughout; one doomed compile launch was stopped safely before completion (own process only).
+
+## Reviews (this session)
+
+- `independent-reviewer` (strictly read-only, post-implementation): **0 Critical, 2 High, 4 Medium, 6 Low, 1 informational** + an explicit verified-clean list (migration DDL vs 12.json column-by-column, backup v11 gates and ordering, state-machine integrity through the UI, no N+1, v1.x regression surface, engine definitions). All actionable findings fixed and re-gated:
+  - **H1** — editor date changes never wrote revisions (the VM compared against the already-saved row; four dead `rescheduleX` calls). Fixed: `saveX(recordScheduleHistory)` compares pre-save state inside the transaction; wrappers use it; pinned by new repository tests.
+  - **H2** — `DatabaseMigrationTest` still ended at schema 11. Fixed: `MIGRATION_11_12` in both chains, versions pinned at 12, era loop 2..11, new era-11 leg (empty → usable → explicit history delete), revision-table no-FK + both indexes pinned in the DDL test.
+  - **M1** — a shift could strand a dependent past its own deadline with a generic failure after a clean-looking preview. Fixed: the repository names the offending dependent and aborts whole (test-pinned); the dialog shows the infeasibility and disables Move.
+  - **M2** — Move-dialog drafts were unkeyed (state could bleed between entities). Fixed: keyed by entity id like the editors.
+  - **M3** — deleting from inside an editor morphed the dialog into its Add variant. Fixed: deletes dismiss the dialog via an onSuccess callback; failures stay visible inline.
+  - **M4** — the goal editor silently stamped a planned start onto goals that had none. Fixed: the planned start is now an explicit toggle, mirroring the target date.
+  - **L1/L2/L3/L4/L6** — detail/editor screens refresh `today` on resume; status radios offer only `GoalTransitions`-legal options; the prerequisite list pre-filters cycle-forming candidates (`GoalTimeline.wouldCreateCycle`, engine-tested); the overpromising move test now actually opens the dialog and asserts the disabled no-op Move; `originalPlannedDates` consolidated into the engine (production-dead helpers removed).
+  - **L5 + informational (documented, not changed)** — orphaned imported revisions survive goal deletes by design (uuid-bound audit rows; pruning belongs with Prompt 4's uuid matching) and shift propagation through completed intermediates is the intended chain semantics (both documented).
+
+## Deferred (later prompts, deliberately)
+
+- Progress engine + milestone verification UX + habit links (Prompt 3, additive schema), Goal Plan JSON (Prompts 3–4), sessions/reminders (Prompt 5), goal analytics (Prompt 6), UX/security passes (Prompt 7), release (Prompt 8).
+- Known Robolectric limits recorded: M3 DatePicker day grids never compose (device QA), and detail flows need explicit looper pumping in tests.
+
+---
+
 # Session 14 (Version 2, Prompt 1/8) — Requirements, architecture, Goal Roadmaps data foundation
 
 ## What was built (this session, uncommitted → committing at end)

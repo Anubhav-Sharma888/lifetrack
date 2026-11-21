@@ -1,4 +1,4 @@
-# LifeTrack Version 2 — Implementation Roadmap
+| 1 | Requirements + Database Foundation | Full PRD, architecture, data model; Room schema 11 (goals/phases/milestones/tasks/dependencies + UUID identity); `GoalRepository` with state machines, referential integrity, dependency cycle detection; backup format v10 export/import/reset; migration 10→11 + era tests; docs | — | ✅ Complete (7bb165e) |# LifeTrack Version 2 — Implementation Roadmap
 
 **Branch:** `version-2` (branched from the v1.11.0-preview.1 tip of `main`, starting commit `e97c8b9653303efb5a026f03c482c61e40c1fd33`) · **Target release:** `2.1.0` · **First prerelease:** `v2.1.0-preview.1` (Prompt 8)
 
@@ -7,7 +7,7 @@ Eight consolidated prompts. Each session implements, validates, reviews and comm
 | # | Prompt | Delivers | Depends on | Status |
 |---|---|---|---|---|
 | 1 | Requirements + Database Foundation | Full PRD, architecture, data model; Room schema 11 (goals/phases/milestones/tasks/dependencies + UUID identity); `GoalRepository` with state machines, referential integrity, dependency cycle detection; backup format v10 export/import/reset; migration 10→11 + era tests; docs | — | ✅ **This prompt** |
-| 2 | Goal UI + Timeline Engine | Goal hub, goal create/edit, goal detail, phase/milestone/task management, timeline calculations, dependency-aware readiness, rescheduling, navigation integration | 1 | ⬜ Not started |
+| 2 | Goal UI + Timeline Engine | Goals hub (5th bottom destination), goal editor, goal detail with phases/milestones/tasks, vertical timeline, dependency management, non-destructive rescheduling with schedule history (schema 12, backup v11), navigation integration | 1 | ✅ **This prompt** |
 | 3 | Progress Tracking + AI JSON Specification | Task completion UX, milestone verification, progress calculations, habit↔goal links (additive schema 12), Goal Plan JSON schema + parser + sample exports | 2 | ⬜ Not started |
 | 4 | Import Preview + Transactional Partial Import | Import preview UI, duplicate detection by UUID, conflict resolution (keep existing / keep imported / copy / skip), transactional merge with rollback | 3 | ⬜ Not started |
 | 5 | Study Sessions + Reminders | Session planning, start reminders, completion prompts, background scheduling, permission handling | 1 (identity), 2 (UI entry) | ⬜ Not started |
