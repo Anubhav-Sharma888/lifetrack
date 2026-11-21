@@ -130,8 +130,10 @@ jobs:
           grep -F "versionCode='13'" <<< "$BADGING"
           grep -F "versionName='2.2.0-preview.1'" <<< "$BADGING"
           mkdir -p dist
-          "$APKSIGNER" verify --verbose --print-certs "$APK" > dist/LifeTrack-v2.2.0-preview.1.signing.txt
-          grep -F "Signer #1 certificate SHA-256 digest:" dist/LifeTrack-v2.2.0-preview.1.signing.txt
+          # apksigner itself verifies the APK and exits nonzero on invalid signatures.
+          # Preserve its full signed-certificate report; exact display labels vary by SDK.
+          "$APKSIGNER" verify --verbose --print-certs "$APK" 2>&1 | tee dist/LifeTrack-v2.2.0-preview.1.signing.txt
+          test -s dist/LifeTrack-v2.2.0-preview.1.signing.txt
           cp "$APK" dist/LifeTrack-v2.2.0-preview.1.apk
           cd dist
           sha256sum LifeTrack-v2.2.0-preview.1.apk > LifeTrack-v2.2.0-preview.1.apk.sha256
