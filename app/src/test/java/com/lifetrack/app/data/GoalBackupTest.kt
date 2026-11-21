@@ -44,18 +44,21 @@ class GoalBackupTest {
         title = "Read the textbook chapter", sortOrder = 1, createdAt = 100, updatedAt = 200
     )
 
+    private val habitLink = GoalHabitLink(goalId = 1, habitId = 1, createdAt = 250)
+
     private fun backup(
         goals: List<Goal> = listOf(goal),
         phases: List<GoalPhase> = listOf(phase),
         milestones: List<GoalMilestone> = listOf(milestone),
         tasks: List<GoalTask> = listOf(task, prerequisite),
         dependencies: List<GoalTaskDependency> = listOf(dependency),
+        links: List<GoalHabitLink> = emptyList(),
         formatVersion: Int = 10
     ) = LifeTrackBackup(
         formatVersion = formatVersion, exportedAt = 300, habits = listOf(habit), logs = emptyList(),
         settings = AppSettings(), freezes = emptyList(),
         goals = goals, goalPhases = phases, goalMilestones = milestones, goalTasks = tasks,
-        goalTaskDependencies = dependencies
+        goalTaskDependencies = dependencies, goalHabitLinks = links
     )
 
     private fun invalid(value: LifeTrackBackup, messagePart: String? = null) {
@@ -113,7 +116,7 @@ class GoalBackupTest {
         assertTrue(exception is SerializationException || exception is IllegalArgumentException)
     }
 
-    @Test fun `decode accepts supported versions up to ten`() {
+    @Test fun `decode accepts supported versions including the current one`() {
         val restored = BackupValidator.decode(BackupValidator.json.encodeToString(backup()), today)
         assertEquals(10, restored.formatVersion)
         assertEquals(listOf(goal), restored.goals)
@@ -294,6 +297,36 @@ class GoalBackupTest {
         assertEquals("Trimmed", GoalValidator.normalizeForImport(phase.copy(name = " Trimmed ")).name)
         assertEquals("Trimmed", GoalValidator.normalizeForImport(task.copy(title = " Trimmed ")).title)
         assertEquals("Trimmed", GoalValidator.normalizeForImport(milestone.copy(title = " Trimmed ")).title)
+    }
+
+    // ---- Habit-goal links (v12) ----
+
+    @Test fun `habit-goal links ride version twelve exports and round trip`() {
+        val original = backup(links = listOf(habitLink), formatVersion = 12)
+        BackupValidator.validate(original, today)
+        val restored = BackupValidator.json.decodeFromString<LifeTrackBackup>(BackupValidator.json.encodeToString(original))
+        assertEquals(original, restored)
+        assertEquals(listOf(habitLink), restored.goalHabitLinks)
+    }
+
+    @Test fun `links require backup version twelve`() =
+        invalid(backup(links = listOf(habitLink), formatVersion = 11), "Habit-goal links require backup version 12")
+
+    @Test fun `a link to a missing habit is rejected`() =
+        invalid(backup(links = listOf(habitLink.copy(habitId = 99)), formatVersion = 12), "missing habit")
+
+    @Test fun `a link to a missing goal is rejected`() =
+        invalid(backup(links = listOf(habitLink.copy(goalId = 99)), formatVersion = 12), "missing goal")
+
+    @Test fun `duplicate habit-goal links are rejected`() =
+        invalid(backup(links = listOf(habitLink, habitLink.copy(createdAt = 999)), formatVersion = 12), "Duplicate habit-goal links")
+
+    @Test fun `a negative link timestamp is rejected`() =
+        invalid(backup(links = listOf(habitLink.copy(createdAt = -1)), formatVersion = 12), "Invalid habit-link timestamp")
+
+    @Test fun `plain exports without links stay key-free`() {
+        val document = Json.parseToJsonElement(BackupValidator.json.encodeToString(backup())).jsonObject
+        assertFalse("Habit-goal links must stay out of link-free exports", "goalHabitLinks" in document)
     }
 
     /** Deterministic canonical UUID per index, unique across any test list. */

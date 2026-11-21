@@ -3,6 +3,7 @@ package com.lifetrack.app.data
 import androidx.room.withTransaction
 import com.lifetrack.app.domain.GoalTimeline
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.time.LocalDate
 import java.util.UUID
@@ -103,8 +104,10 @@ class GoalRepository @Inject constructor(private val db: AppDatabase) {
     suspend fun deleteGoal(id: Long) = db.withTransaction {
         require(dao.goal(id) != null) { "This goal has already been deleted." }
         // Revision cleanup precedes the child deletes: the history query resolves uuids through
-        // the (still-present) child rows.
+        // the (still-present) child rows. Link rows are removed explicitly too (the habit side
+        // of the association relies on its declared CASCADE).
         dao.deleteScheduleRevisionsForGoal(id)
+        dao.deleteGoalHabitLinksForGoal(id)
         dao.deleteDependenciesForGoal(id)
         dao.deleteTasksForGoal(id)
         dao.deleteMilestonesForGoal(id)
@@ -520,4 +523,83 @@ class GoalRepository @Inject constructor(private val db: AppDatabase) {
     suspend fun taskById(id: Long): GoalTask? = dao.task(id)
     suspend fun phasesForGoal(goalId: Long): List<GoalPhase> = dao.phasesForGoal(goalId)
     suspend fun tasksForGoal(goalId: Long): List<GoalTask> = dao.tasksForGoal(goalId)
+    suspend fun milestonesForGoal(goalId: Long): List<GoalMilestone> = dao.milestonesForGoal(goalId)
+
+    // ---- Habit links (read-only supporting association, Prompt 3) ----
+    //
+    // A link records that an existing habit's recurring effort supports a goal. It never writes
+    // habit data: habit logs, streaks, scheduling and achievements stay owned by the habit system,
+    // and consistency signals are read through read-only queries. One goal may carry several
+    // habits and one habit may support several goals; deleting either side removes only the link.
+
+    /** Supporting-habit links for one goal, as an observable flow. */
+    fun habitLinks(goalId: Long): Flow<List<GoalHabitLink>> = dao.observeLinksForGoal(goalId)
+    fun allHabitLinks(): Flow<List<GoalHabitLink>> = dao.observeGoalHabitLinks()
+
+    /** Links [habitId] as supporting [goalId]. Rejected: missing records, duplicates, unbounded
+     *  per-goal growth. Archived habits may remain linked — historical effort stays visible. */
+    suspend fun linkHabit(goalId: Long, habitId: Long): GoalHabitLink = db.withTransaction {
+        val goal = dao.goal(goalId) ?: throw IllegalArgumentException("This goal no longer exists.")
+        val habit = db.dao().habit(habitId) ?: throw IllegalArgumentException("The selected habit no longer exists.")
+        require(dao.goalHabitLink(goalId, habitId) == null) {
+            "\"${habit.name}\" already supports \"${goal.title}\"."
+        }
+        val linked = dao.observeLinksForGoal(goalId).first()
+        require(linked.size < MAX_HABIT_LINKS_PER_GOAL) {
+            "A goal cannot support more than $MAX_HABIT_LINKS_PER_GOAL habits."
+        }
+        val link = GoalHabitLink(goalId = goalId, habitId = habitId, createdAt = System.currentTimeMillis())
+        dao.insertGoalHabitLink(link)
+        link
+    }
+
+    /** Removes a supporting-habit link. Idempotent: removing an absent link changes nothing. */
+    suspend fun unlinkHabit(goalId: Long, habitId: Long) = db.withTransaction {
+        dao.deleteGoalHabitLink(goalId, habitId)
+    }
+
+    suspend fun goalHabitLinks(): List<GoalHabitLink> = dao.allGoalHabitLinks()
+
+    /** Read-only supporting-habit activity signal, derived entirely from habit data: total
+     *  completions, completions in the trailing window, and the most recent completed day. */
+    suspend fun habitActivity(habitId: Long, windowDays: Long = HABIT_ACTIVITY_WINDOW_DAYS): HabitActivitySignal {
+        val habit = db.dao().habit(habitId) ?: throw IllegalArgumentException("The selected habit no longer exists.")
+        val logs = db.dao().habitLogs(habitId)
+        return habitActivitySignal(habit, logs, LocalDate.now(), windowDays)
+    }
+
+    data class HabitActivitySignal(
+        val habitId: Long,
+        val habitName: String,
+        val isArchived: Boolean,
+        val totalCompletions: Int,
+        val completionsInWindow: Int,
+        val lastCompletedDate: LocalDate?
+    )
+
+    companion object {
+        /** Bounded per-goal link count: real roadmaps link a handful of habits; the cap prevents
+         *  unbounded growth without blocking ordinary use. The backup layer enforces its own
+         *  total-document cap. */
+        const val MAX_HABIT_LINKS_PER_GOAL = 50
+
+        /** Trailing window, in days, of the supporting-habit activity signal shown on goal details. */
+        const val HABIT_ACTIVITY_WINDOW_DAYS = 28L
+
+        /** Pure supporting-habit activity computation — the single source both the repository read
+         *  path and the detail UI (which feeds already-collected flows) use, so the honest signal
+         *  can never drift between layers. */
+        fun habitActivitySignal(habit: Habit, logs: List<HabitLog>, today: LocalDate,
+                                windowDays: Long = HABIT_ACTIVITY_WINDOW_DAYS): HabitActivitySignal {
+            val completed = logs.filter { it.status == LogStatus.COMPLETED }
+            return HabitActivitySignal(
+                habitId = habit.id,
+                habitName = habit.name,
+                isArchived = habit.isArchived,
+                totalCompletions = completed.size,
+                completionsInWindow = completed.count { it.date > today.minusDays(windowDays) },
+                lastCompletedDate = completed.maxOfOrNull { it.date }
+            )
+        }
+    }
 }

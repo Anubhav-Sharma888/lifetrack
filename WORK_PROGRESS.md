@@ -1,7 +1,59 @@
 # LifeTrack — Work Progress
 
-**Version 2 line (current):** branch `version-2` (from `main` tip `e97c8b9653303efb5a026f03c482c61e40c1fd33`), target release 2.1.0, eight-prompt roadmap in [`docs/V2_ROADMAP.md`](docs/V2_ROADMAP.md).
+**Version 2 line (current):** branch `version-2` (from `main` tip `e97c8b9653303efb5a026f03c482c61e40c1fd33`), eight-prompt roadmap in [`docs/V2_ROADMAP.md`](docs/V2_ROADMAP.md); per-prompt previews are published by ChatGPT (v2.2.0-preview.1 after Prompt 2 ✅, v2.3.0-preview.1 after Prompt 3).
 **Version 1 line (archived):** sessions 1–13 (2026-11-15 → 2026-11-20) shipped v1.6.0 → v1.11.0-preview.1 on `develop/achievements`/`main` — CSV export, directional tracking, app lock, Smart Streaks, mood/journal, achievements, flexible scheduling, UI/UX refinement ×2, integration QA + release hardening. Session logs preserved below. Backup at `D:\LifeTracker-backup` (untouched).
+
+---
+
+# Session 16 (Version 2, Prompt 3/8) — Goal progress engine, task completion UX, milestone verification, habit–goal links, Goal Plan JSON contract
+
+## What was built (this session, uncommitted → committing at end)
+
+- **Progress engine** (`domain/GoalProgress.kt`, pure Kotlin, no Android imports): `TaskBreakdown` (completed / inProgress / skipped / incomplete → `notDone`), `MilestoneBreakdown`, `PhaseProgress`/`GoalProgress` with completion rates that are **null when not measurable** (no tasks ⇒ "not yet measurable", never a fabricated 100%), and `readyForReview` as a **derived view** (requires every task COMPLETED — skipped is bypass, not completion — and every milestone ACHIEVED; null when the plan has neither). Read-time only; nothing stores or auto-promotes a "ready" state.
+- **Prerequisite-gate policy** (`GoalTimeline.PrerequisiteGate` + `PrerequisiteView`): `SATISFIED_COMPLETED` / `SATISFIED_BYPASSED` / `PENDING` — a skipped prerequisite satisfies its dependents' gates but is never counted as completion; `TaskView` now carries per-prerequisite gate labels.
+- **Schema 13** (additive `MIGRATION_12_13`, `13.json` exported): `goal_habit_links` — composite PK (goalId, habitId), `createdAt`, CASCADE both sides, index on `habitId`. **Backup format v12** carries the list (`goalHabitLinks`, `(NEVER)`); export cascade 12-first; import validates references/caps/duplicate pairs; replace-all clears links first and restores them after goals+habits; reset clears them; the version gate moved 11→12 in the gate test.
+- **Habit linking** (`GoalRepository`): `linkHabit` (duplicate rejection "already supports", per-goal cap 50, total cap 10,000 shared with backup validation), `unlinkHabit` (idempotent), link flows, and `habitActivity` **read-only** signals (total/window completions, last completion date, archived flag) — goal code never writes habit logs.
+- **UI** (`GoalDetailScreen`, `GoalDialogs`, `GoalsScreen`): Progress card (labeled rates, honest counts, "not yet measurable" empty state, ready-for-review banner), task quick actions (Start/Done/Reopen/Restore driving the same repository transitions), per-prerequisite gate labels ("Needs: X (done)/(bypassed)/(pending)"), milestone Verify/Reopen through an explicit confirmation dialog that names incomplete supporting work, Supporting Habits section with an unlinked-habit picker, and hub cards that show "Task progress: N% (x of y complete)" only when measurable.
+- **GoalViewModel**: detail chain extended with the habit-links and today combines; hot resilient StateFlow (`selectGoal` → `flatMapLatest` → `retryWhen` backoff → `catch` degrade to null, FlowPreview opted in); read-only `HabitRepository` passthroughs; `setTaskStatus` / `setMilestoneVerification` / `linkHabit` / `unlinkHabit` operations with friendly inline errors.
+- **Goal Plan JSON** (`data/GoalPlanDocument.kt` + docs + fixtures): standalone contract — `kind: "lifetrack.goal-plan"`, `schemaVersion: 1`, ≤ 2 MB, depth ≤ 64, caps 500 phases / 1,000 milestones / 5,000 tasks / 10,000 dependencies. Strict bounded offline parser (BOM strip, size/depth pre-checks, exact-kind check, independent schema-version check, `ignoreUnknownKeys = false`, then semantic validation: canonical UUIDs, lengths, ranges, global identity uniqueness, reference resolution, proven stack-DFS acyclicity). **No status/completion fields exist in the schema** — fabricated history is unrepresentable, and unknown keys (e.g. a crafted `completedAt`) are rejected loudly. Exporter produces a re-importable plan from a persisted goal (round-trip identity pinned). Valid fixtures (24-week ML plan, simple goal, overlapping phases) and 5 invalid fixtures are executed by the parser tests. Docs: [`docs/GOAL_PLAN_FORMAT.md`](docs/GOAL_PLAN_FORMAT.md), [`docs/GOAL_PLAN_AI_PROMPT.md`](docs/GOAL_PLAN_AI_PROMPT.md), [`docs/goal-plan.schema.json`](docs/goal-plan.schema.json).
+
+## Design decisions (lead)
+
+- **Rates are nullable, not zero**: an empty plan renders "not yet measurable" instead of 100% — the honest-progress principle carried into the math.
+- **Ready-for-review is a view, never a state**: no silent promotion anywhere; the banner appears only when all tasks are COMPLETED and all milestones ACHIEVED.
+- **Association-only links**: the table stores no semantics; signals are computed fresh at read time. Whether a habit completion ever contributes toward a goal stays an open product question (roadmap updated accordingly).
+- **Goal Plan is a separate document type**: own kind + schemaVersion, never restorable as a backup, no row ids; the parser is UI-free and the import preview/merge UI is deliberately Prompt 4.
+
+## Defects found and fixed this session
+
+- **Prompt 2 review finding (H1) fixed here**: editor date changes never wrote schedule history — `savePhase/saveMilestone/saveTask` gained `recordScheduleHistory` (editors pass `datesChanged`), and the dead `saveGoalWithDates` reschedule was replaced with a history-writing save. Pinned by repository tests.
+- **Test-side**: the progress fixture created only 2 of the 3 tasks its "1 of 3" assertion expected; the move-dialog test asserted a lazy-list row before scrolling into the (now longer) detail list — fixed with a state-gated wait + explicit scroll, not a sleep.
+- **VM**: the `retryWhen` import was silently dropped by a CRLF-unsafe patch — caught by compile, fixed explicitly with the `FlowPreview` opt-in.
+- **Fixture bug**: the 24-week ML plan carried an 11-hex-char UUID group — rejected by the validator as intended after the fixture was corrected, then accepted.
+
+## Test evidence (final gates, post-review source, this machine)
+
+- **Full gate: `BUILD SUCCESSFUL in 24m 3s` — testDebugUnitTest 505/505 across 33 suites, 0 failures, 0 errors, 0 skipped + lintDebug 0 errors / 27 warnings / 4 hints (identical to the Prompt 1–2 baseline) + assembleDebug APK (24.6 MB).** P2 baseline was 446 tests — Prompt 3 adds 59. Limits verified live: 2 workers, `--no-parallel --no-daemon`, pinned `-Xmx3g`, BelowNormal priority via the runner script, RAM monitored throughout.
+- Focused (earlier rounds, all green): `GoalProgressTest` 13/13, `GoalHabitLinkTest` 13/13 (incl. the review-added real-path v12 export cascade test), `GoalPlanParserTest` 21/21 (fixtures + rejections + exporter round trip), `GoalScreensTest` 15/15 (after the two test-side fixes above), `GoalTimelineTest` 26/26, `GoalRescheduleTest` 18/18, `GoalBackupTest` 45/45, `DatabaseMigrationTest` 10/10 (incl. the era-12 leg and FK/index DDL assertions for `goal_habit_links`), `DailyReflectionBackupTest` (version gate moved 11→12).
+
+## Reviews (this session)
+
+- `independent-reviewer` (strictly read-only, post-implementation, full diff vs 497e705): **0 Critical, 0 High, 1 Medium, 4 Low, 6 Informational** + a verified-clean list covering the migration DDL vs 13.json column-by-column, backup v12 gates and cascade ordering, link caps/referential validation, GoalProgress math (null rates, skipped-not-completed readiness), PrerequisiteGate mapping, plan-parser bounds/strictness/DFS, VM chain resilience, UI state guard and no-auto-completion invariants.
+- All actionable findings fixed and re-gated (final gate above):
+  - **M1** — the v12 export cascade was unpinned through the real path: added `GoalHabitLinkTest` "the real export path promotes the format to twelve when links exist" (revisions + link → 12, proving links outrank revisions in the cascade).
+  - **L3** — link-delete policy now matches the docs: `deleteGoal` removes the goal's link rows explicitly; the habit side relies on the declared CASCADE (HabitRepository never touches goal tables outside lifecycle ops); `GoalHabitLink` KDoc corrected.
+  - **L4** — one honest-signal source: `GoalRepository.habitActivitySignal` (pure, window constant `HABIT_ACTIVITY_WINDOW_DAYS = 28`) now backs both the repository read path and the detail screen's `HabitLinkRow` — the duplicated inline computation is gone.
+  - **L5** — dead `GoalViewModel.habitLinksForGoal` removed.
+  - **L1/I5** — Prompt 4 obligation recorded (importer must run converted records through `GoalValidator` entity-level checks incl. date ranges — V2_ARCHITECTURE §7.2); stale comment ("reach schema 11" → 13), stale test name, duplicated comment block cleaned.
+  - **I1** — a non-primitive `"kind"` value now gets the friendly "not a Goal Plan" message instead of kotlinx's raw error.
+  - **L2 (recorded, not churned)** — `DateField`'s `LocalDate.now()` default is pre-existing Prompt 2 code (provenance verified via diff hunks, outside this diff); fixing it would churn 11 verified call sites with zero testable surface (the M3 day grid never composes). Recorded for the Prompt 7 UX pass.
+
+## Device QA / deferred
+
+- TalkBack traversal order across the new Progress card, quick actions and Supporting Habits section; large-font reflow of the gate labels; the milestone-verify dialog IME/contrast on device.
+- Carried-over Prompt 2 convention deviation (found by the Prompt 3 review, pre-existing — not introduced here): `GoalDialogs.kt` `DateField` calls `LocalDate.now()` for the DatePicker's initial-selection default and year range instead of receiving `state.today`. Unreachable from tests (the M3 day grid never composes under Robolectric); fix belongs with the Prompt 7 UX pass, which owns the editor-dialog polish.
+- The Goal Plan parser validates document-level structure and date ordering but not the full-backup calendar-date ranges — the Prompt 4 importer must run converted records through `GoalValidator`'s entity-level checks before writing (recorded in V2_ARCHITECTURE §7.2).
+- Weekly-quota-style period analytics and any habit-completion→goal contribution rule remain deferred (open product decisions).
 
 ---
 

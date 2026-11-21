@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lifetrack.local/goal-plan.schema.json",
+  "title": "LifeTrack Goal Plan (schemaVersion 1)",
+  "description": "A standalone, AI-generated Goal Plan document. Proposed plans only: no completion history is representable. Distinct from a full LifeTrack backup.",
+  "type": "object",
+  "required": ["kind", "schemaVersion", "planId", "goal"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": { "const": "lifetrack.goal-plan" },
+    "schemaVersion": { "const": 1 },
+    "planId": { "$ref": "#/$defs/uuid" },
+    "goal": { "$ref": "#/$defs/goal" },
+    "phases": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/phase" } },
+    "milestones": { "type": "array", "maxItems": 1000, "items": { "$ref": "#/$defs/milestone" } },
+    "tasks": { "type": "array", "maxItems": 5000, "items": { "$ref": "#/$defs/task" } },
+    "dependencies": { "type": "array", "maxItems": 10000, "items": { "$ref": "#/$defs/dependency" } }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "date": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "description": { "type": "string", "maxLength": 2000 },
+    "goal": {
+      "type": "object",
+      "required": ["uuid", "title"],
+      "additionalProperties": false,
+      "properties": {
+        "uuid": { "$ref": "#/$defs/uuid" },
+        "title": { "$ref": "#/$defs/title" },
+        "description": { "$ref": "#/$defs/description" },
+        "category": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "priority": { "enum": ["LOW", "MEDIUM", "HIGH"] },
+        "plannedStartDate": { "$ref": "#/$defs/date" },
+        "targetDate": { "$ref": "#/$defs/date" }
+      }
+    },
+    "phase": {
+      "type": "object",
+      "required": ["uuid", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "uuid": { "$ref": "#/$defs/uuid" },
+        "name": { "$ref": "#/$defs/title" },
+        "description": { "$ref": "#/$defs/description" },
+        "order": { "type": "integer", "minimum": 0 },
+        "plannedStartDate": { "$ref": "#/$defs/date" },
+        "plannedEndDate": { "$ref": "#/$defs/date" }
+      }
+    },
+    "milestone": {
+      "type": "object",
+      "required": ["uuid", "title"],
+      "additionalProperties": false,
+      "properties": {
+        "uuid": { "$ref": "#/$defs/uuid" },
+        "title": { "$ref": "#/$defs/title" },
+        "description": { "$ref": "#/$defs/description" },
+        "phaseUuid": { "$ref": "#/$defs/uuid" },
+        "targetDate": { "$ref": "#/$defs/date" }
+      }
+    },
+    "task": {
+      "type": "object",
+      "required": ["uuid", "title"],
+      "additionalProperties": false,
+      "properties": {
+        "uuid": { "$ref": "#/$defs/uuid" },
+        "title": { "$ref": "#/$defs/title" },
+        "description": { "$ref": "#/$defs/description" },
+        "order": { "type": "integer", "minimum": 0 },
+        "phaseUuid": { "$ref": "#/$defs/uuid" },
+        "milestoneUuid": { "$ref": "#/$defs/uuid" },
+        "plannedDate": { "$ref": "#/$defs/date" },
+        "deadline": { "$ref": "#/$defs/date" },
+        "estimatedMinutes": { "type": "integer", "minimum": 1, "maximum": 10080 }
+      }
+    },
+    "dependency": {
+      "type": "object",
+      "required": ["taskUuid", "prerequisiteUuid"],
+      "additionalProperties": false,
+      "properties": {
+        "taskUuid": { "$ref": "#/$defs/uuid" },
+        "prerequisiteUuid": { "$ref": "#/$defs/uuid" }
+      }
+    }
+  }
+}

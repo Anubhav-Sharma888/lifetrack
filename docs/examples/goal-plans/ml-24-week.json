@@ -1,0 +1,268 @@
+{
+  "kind": "lifetrack.goal-plan",
+  "schemaVersion": 1,
+  "planId": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "goal": {
+    "uuid": "8c9e6679-7425-40de-944b-e07fc1f90ae7",
+    "title": "Learn machine learning",
+    "description": "A 24-week study plan covering mathematical foundations, programming practice, core machine learning and a final integration project. Working steadily each week matters more than any guarantee of mastery - the plan is a map, not a promise.",
+    "category": "Study",
+    "priority": "HIGH",
+    "plannedStartDate": "2026-11-23",
+    "targetDate": "2027-05-09"
+  },
+  "phases": [
+    {
+      "uuid": "9c9e6679-7425-40de-944b-e07fc1f90ae1",
+      "name": "Mathematical foundations (weeks 1-6)",
+      "description": "Linear algebra, probability and calculus basics with weekly problem sets.",
+      "order": 0,
+      "plannedStartDate": "2026-11-23",
+      "plannedEndDate": "2027-01-03"
+    },
+    {
+      "uuid": "9c9e6679-7425-40de-944b-e07fc1f90ae2",
+      "name": "Python and programming (weeks 5-10, overlapping)",
+      "description": "Python fundamentals, NumPy and pandas - starts while mathematics is finishing.",
+      "order": 1,
+      "plannedStartDate": "2026-12-21",
+      "plannedEndDate": "2027-02-07"
+    },
+    {
+      "uuid": "9c9e6679-7425-40de-944b-e07fc1f90ae3",
+      "name": "Core machine learning (weeks 11-20)",
+      "description": "Regression, classification, model evaluation and feature engineering with scikit-learn.",
+      "order": 2,
+      "plannedStartDate": "2027-02-08",
+      "plannedEndDate": "2027-04-18"
+    },
+    {
+      "uuid": "9c9e6679-7425-40de-944b-e07fc1f90ae4",
+      "name": "Integration project (weeks 21-24)",
+      "description": "One complete end-to-end pipeline: dataset, model, evaluation and write-up.",
+      "order": 3,
+      "plannedStartDate": "2027-04-19",
+      "plannedEndDate": "2027-05-09"
+    }
+  ],
+  "milestones": [
+    {
+      "uuid": "9c9e6679-7425-40de-944b-e07fc1f90b01",
+      "title": "Comfortable with linear algebra basics",
+      "phaseUuid": "9c9e6679-7425-40de-944b-e07fc1f90ae1",
+      "targetDate": "2026-12-13"
+    },
+    {
+      "uuid": "9c9e6679-7425-40de-944b-e07fc1f90b02",
+      "title": "First data-cleaning notebook completed",
+      "phaseUuid": "9c9e6679-7425-40de-944b-e07fc1f90ae2",
+      "targetDate": "2027-01-24"
+    },
+    {
+      "uuid": "9c9e6679-7425-40de-944b-e07fc1f90b03",
+      "title": "Trained and evaluated a first classifier",
+      "phaseUuid": "9c9e6679-7425-40de-944b-e07fc1f90ae3",
+      "targetDate": "2027-03-14"
+    },
+    {
+      "uuid": "9c9e6679-7425-40de-944b-e07fc1f90b04",
+      "title": "End-to-end project written up",
+      "phaseUuid": "9c9e6679-7425-40de-944b-e07fc1f90ae4",
+      "targetDate": "2027-05-09"
+    }
+  ],
+  "tasks": [
+    {
+      "uuid": "9c9e6679-7425-40de-944b-e07fc1f90c01",
+      "title": "Set up a study notebook environment",
+      "phaseUuid": "9c9e6679-7425-40de-944b-e07fc1f90ae1",
+      "order": 0,
+      "plannedDate": "2026-11-23",
+      "deadline": "2026-11-29",
+      "estimatedMinutes": 60
+    },
+    {
+      "uuid": "9c9e6679-7425-40de-944b-e07fc1f90c02",
+      "title": "Vectors and matrices: read + exercises",
+      "phaseUuid": "9c9e6679-7425-40de-944b-e07fc1f90ae1",
+      "order": 1,
+      "plannedDate": "2026-11-30",
+      "deadline": "2026-12-06",
+      "estimatedMinutes": 180
+    },
+    {
+      "uuid": "9c9e6679-7425-40de-944b-e07fc1f90c03",
+      "title": "Linear maps and transformations exercises",
+      "phaseUuid": "9c9e6679-7425-40de-944b-e07fc1f90ae1",
+      "order": 2,
+      "plannedDate": "2026-12-07",
+      "deadline": "2026-12-13",
+      "estimatedMinutes": 180
+    },
+    {
+      "uuid": "9c9e6679-7425-40de-944b-e07fc1f90c04",
+      "title": "Probability basics: read + exercises",
+      "phaseUuid": "9c9e6679-7425-40de-944b-e07fc1f90ae1",
+      "order": 3,
+      "plannedDate": "2026-12-14",
+      "deadline": "2026-12-20",
+      "estimatedMinutes": 180
+    },
+    {
+      "uuid": "9c9e6679-7425-40de-944b-e07fc1f90c05",
+      "title": "Calculus refresher: derivatives and gradients",
+      "phaseUuid": "9c9e6679-7425-40de-944b-e07fc1f90ae1",
+      "order": 4,
+      "plannedDate": "2026-12-21",
+      "deadline": "2026-12-27",
+      "estimatedMinutes": 180
+    },
+    {
+      "uuid": "9c9e6679-7425-40de-944b-e07fc1f90c06",
+      "title": "Weekly problem sets 1-4 review",
+      "phaseUuid": "9c9e6679-7425-40de-944b-e07fc1f90ae1",
+      "order": 5,
+      "plannedDate": "2026-12-28",
+      "deadline": "2027-01-03",
+      "estimatedMinutes": 240
+    },
+    {
+      "uuid": "9c9e6679-7425-40de-944b-e07fc1f90c07",
+      "title": "Python fundamentals: syntax and data structures",
+      "phaseUuid": "9c9e6679-7425-40de-944b-e07fc1f90ae2",
+      "order": 6,
+      "plannedDate": "2026-12-21",
+      "deadline": "2026-12-27",
+      "estimatedMinutes": 120
+    },
+    {
+      "uuid": "9c9e6679-7425-40de-944b-e07fc1f90c08",
+      "title": "NumPy arrays and broadcasting practice",
+      "phaseUuid": "9c9e6679-7425-40de-944b-e07fc1f90ae2",
+      "order": 7,
+      "plannedDate": "2026-12-28",
+      "deadline": "2027-01-10",
+      "estimatedMinutes": 150
+    },
+    {
+      "uuid": "9c9e6679-7425-40de-944b-e07fc1f90c09",
+      "title": "Pandas data frames: loading and filtering",
+      "phaseUuid": "9c9e6679-7425-40de-944b-e07fc1f90ae2",
+      "order": 8,
+      "plannedDate": "2027-01-11",
+      "deadline": "2027-01-24",
+      "estimatedMinutes": 150
+    },
+    {
+      "uuid": "9c9e6679-7425-40de-944b-e07fc1f90c10",
+      "title": "First data-cleaning notebook",
+      "phaseUuid": "9c9e6679-7425-40de-944b-e07fc1f90ae2",
+      "order": 9,
+      "plannedDate": "2027-01-18",
+      "deadline": "2027-01-31",
+      "estimatedMinutes": 180
+    },
+    {
+      "uuid": "9c9e6679-7425-40de-944b-e07fc1f90c11",
+      "title": "Regression: linear and polynomial",
+      "phaseUuid": "9c9e6679-7425-40de-944b-e07fc1f90ae3",
+      "order": 10,
+      "plannedDate": "2027-02-08",
+      "deadline": "2027-02-21",
+      "estimatedMinutes": 180
+    },
+    {
+      "uuid": "9c9e6679-7425-40de-944b-e07fc1f90c12",
+      "title": "Classification: logistic regression and trees",
+      "phaseUuid": "9c9e6679-7425-40de-944b-e07fc1f90ae3",
+      "order": 11,
+      "plannedDate": "2027-02-22",
+      "deadline": "2027-03-07",
+      "estimatedMinutes": 180
+    },
+    {
+      "uuid": "9c9e6679-7425-40de-944b-e07fc1f90c13",
+      "title": "Model evaluation: train/test splits and metrics",
+      "phaseUuid": "9c9e6679-7425-40de-944b-e07fc1f90ae3",
+      "order": 12,
+      "plannedDate": "2027-03-01",
+      "deadline": "2027-03-14",
+      "estimatedMinutes": 150
+    },
+    {
+      "uuid": "9c9e6679-7425-40de-944b-e07fc1f90c14",
+      "title": "Feature engineering practice",
+      "phaseUuid": "9c9e6679-7425-40de-944b-e07fc1f90ae3",
+      "order": 13,
+      "plannedDate": "2027-03-15",
+      "deadline": "2027-03-28",
+      "estimatedMinutes": 150
+    },
+    {
+      "uuid": "9c9e6679-7425-40de-944b-e07fc1f90c15",
+      "title": "Unsupervised learning: clustering",
+      "phaseUuid": "9c9e6679-7425-40de-944b-e07fc1f90ae3",
+      "order": 14,
+      "plannedDate": "2027-03-29",
+      "deadline": "2027-04-11",
+      "estimatedMinutes": 150
+    },
+    {
+      "uuid": "9c9e6679-7425-40de-944b-e07fc1f90c16",
+      "title": "Choose an integration project dataset",
+      "phaseUuid": "9c9e6679-7425-40de-944b-e07fc1f90ae4",
+      "order": 15,
+      "plannedDate": "2027-04-19",
+      "deadline": "2027-04-25",
+      "estimatedMinutes": 90
+    },
+    {
+      "uuid": "9c9e6679-7425-40de-944b-e07fc1f90c17",
+      "title": "Build the end-to-end pipeline",
+      "phaseUuid": "9c9e6679-7425-40de-944b-e07fc1f90ae4",
+      "order": 16,
+      "plannedDate": "2027-04-26",
+      "deadline": "2027-05-02",
+      "estimatedMinutes": 300
+    },
+    {
+      "uuid": "9c9e6679-7425-40de-944b-e07fc1f90c18",
+      "title": "Evaluate results and write the project summary",
+      "phaseUuid": "9c9e6679-7425-40de-944b-e07fc1f90ae4",
+      "order": 17,
+      "plannedDate": "2027-05-03",
+      "deadline": "2027-05-09",
+      "estimatedMinutes": 180
+    }
+  ],
+  "dependencies": [
+    {
+      "taskUuid": "9c9e6679-7425-40de-944b-e07fc1f90c03",
+      "prerequisiteUuid": "9c9e6679-7425-40de-944b-e07fc1f90c02"
+    },
+    {
+      "taskUuid": "9c9e6679-7425-40de-944b-e07fc1f90c07",
+      "prerequisiteUuid": "9c9e6679-7425-40de-944b-e07fc1f90c01"
+    },
+    {
+      "taskUuid": "9c9e6679-7425-40de-944b-e07fc1f90c10",
+      "prerequisiteUuid": "9c9e6679-7425-40de-944b-e07fc1f90c09"
+    },
+    {
+      "taskUuid": "9c9e6679-7425-40de-944b-e07fc1f90c11",
+      "prerequisiteUuid": "9c9e6679-7425-40de-944b-e07fc1f90c06"
+    },
+    {
+      "taskUuid": "9c9e6679-7425-40de-944b-e07fc1f90c13",
+      "prerequisiteUuid": "9c9e6679-7425-40de-944b-e07fc1f90c12"
+    },
+    {
+      "taskUuid": "9c9e6679-7425-40de-944b-e07fc1f90c17",
+      "prerequisiteUuid": "9c9e6679-7425-40de-944b-e07fc1f90c15"
+    },
+    {
+      "taskUuid": "9c9e6679-7425-40de-944b-e07fc1f90c18",
+      "prerequisiteUuid": "9c9e6679-7425-40de-944b-e07fc1f90c17"
+    }
+  ]
+}

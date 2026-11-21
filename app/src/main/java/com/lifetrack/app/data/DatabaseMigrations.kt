@@ -128,4 +128,15 @@ object DatabaseMigrations {
             db.execSQL("CREATE INDEX IF NOT EXISTS `index_goal_schedule_revisions_entityUuid_field_changedAt` ON `goal_schedule_revisions` (`entityUuid`, `field`, `changedAt`)")
         }
     }
+
+    /** Habit-goal links arrive in version 13 (Prompt 3): a many-to-many supporting association
+     *  between goals and existing habits. Declared CASCADEs run in both directions — deleting a
+     *  goal removes only its links and preserves habits; deleting a habit removes only its links
+     *  and preserves goals. Purely additive; starts empty. */
+    val MIGRATION_12_13 = object : Migration(12, 13) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `goal_habit_links` (`goalId` INTEGER NOT NULL, `habitId` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`goalId`, `habitId`), FOREIGN KEY(`goalId`) REFERENCES `goals`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE, FOREIGN KEY(`habitId`) REFERENCES `habits`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_goal_habit_links_habitId` ON `goal_habit_links` (`habitId`)")
+        }
+    }
 }

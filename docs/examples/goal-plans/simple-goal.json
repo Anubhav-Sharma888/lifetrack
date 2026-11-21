@@ -1,0 +1,47 @@
+{
+  "kind": "lifetrack.goal-plan",
+  "schemaVersion": 1,
+  "planId": "11111111-2222-4333-8444-555566667777",
+  "goal": {
+    "uuid": "aaaaaaaa-0000-4000-8000-000000000001",
+    "title": "Read one book per month",
+    "description": "A small, concrete reading habit goal.",
+    "category": "Personal",
+    "priority": "LOW"
+  },
+  "phases": [
+    {
+      "uuid": "aaaaaaaa-0000-4000-8000-000000000002",
+      "name": "First month",
+      "order": 0
+    }
+  ],
+  "milestones": [
+    {
+      "uuid": "aaaaaaaa-0000-4000-8000-000000000003",
+      "title": "Finish the first book",
+      "phaseUuid": "aaaaaaaa-0000-4000-8000-000000000002"
+    }
+  ],
+  "tasks": [
+    {
+      "uuid": "aaaaaaaa-0000-4000-8000-000000000004",
+      "title": "Pick the book",
+      "phaseUuid": "aaaaaaaa-0000-4000-8000-000000000002",
+      "order": 0
+    },
+    {
+      "uuid": "aaaaaaaa-0000-4000-8000-000000000005",
+      "title": "Read 30 minutes daily",
+      "phaseUuid": "aaaaaaaa-0000-4000-8000-000000000002",
+      "order": 1
+    },
+    {
+      "uuid": "aaaaaaaa-0000-4000-8000-000000000006",
+      "title": "Write a short summary",
+      "phaseUuid": "aaaaaaaa-0000-4000-8000-000000000002",
+      "order": 2
+    }
+  ],
+  "dependencies": []
+}

@@ -287,6 +287,7 @@ object GoalValidator {
     const val MAX_TASKS = 5_000
     const val MAX_DEPENDENCIES = 10_000
     const val MAX_SCHEDULE_REVISIONS = 20_000
+    const val MAX_HABIT_LINKS = 10_000
 
     /** Legitimate revision shapes: which field each entity type may reschedule. */
     val REVISED_FIELDS = mapOf(
@@ -485,3 +486,36 @@ object GoalValidator {
         title = task.title.trim(), description = task.description?.trim()?.takeIf { it.isNotEmpty() }
     )
 }
+
+/**
+ * A read-only supporting link between a goal and an existing habit (Prompt 3): the habit's
+ * recurring effort supports the goal, but completing the habit never completes a task, a
+ * milestone or the goal, and habit logs remain owned by the habit system. Many-to-many: one goal
+ * may carry several habits and one habit may support several goals — per-goal summaries may show
+ * the same habit as context, while any global productivity accounting deduplicates by the
+ * original habit/log identity. Deleting either side removes the link rows through the declared
+ * CASCADEs (runtime-enforced and migration-test-pinned): `GoalRepository.deleteGoal` removes a
+ * goal's links explicitly for deterministic ordering, while the habit side relies on the CASCADE
+ * because `HabitRepository` does not touch goal tables outside its lifecycle operations.
+ */
+@Serializable
+@Entity(
+    tableName = "goal_habit_links",
+    primaryKeys = ["goalId", "habitId"],
+    foreignKeys = [
+        ForeignKey(
+            entity = Goal::class, parentColumns = ["id"], childColumns = ["goalId"],
+            onDelete = ForeignKey.CASCADE
+        ),
+        ForeignKey(
+            entity = Habit::class, parentColumns = ["id"], childColumns = ["habitId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("habitId")]
+)
+data class GoalHabitLink(
+    val goalId: Long,
+    val habitId: Long,
+    val createdAt: Long
+)

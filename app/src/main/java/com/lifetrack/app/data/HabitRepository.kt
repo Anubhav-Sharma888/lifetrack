@@ -457,8 +457,10 @@ class HabitRepository @Inject constructor(
             val goalTasks = goalDao.allTasks()
             val goalTaskDependencies = goalDao.allDependencies()
             val goalScheduleRevisions = goalDao.allScheduleRevisions()
+            val goalHabitLinks = goalDao.allGoalHabitLinks()
             LifeTrackBackup(
                 formatVersion = when {
+                    goalHabitLinks.isNotEmpty() -> 12
                     goalScheduleRevisions.isNotEmpty() -> 11
                     goals.isNotEmpty() || goalPhases.isNotEmpty() || goalMilestones.isNotEmpty() ||
                         goalTasks.isNotEmpty() || goalTaskDependencies.isNotEmpty() -> 10
@@ -478,7 +480,8 @@ class HabitRepository @Inject constructor(
                 achievementAcknowledgments = acknowledgments,
                 goals = goals, goalPhases = goalPhases, goalMilestones = goalMilestones,
                 goalTasks = goalTasks, goalTaskDependencies = goalTaskDependencies,
-                goalScheduleRevisions = goalScheduleRevisions
+                goalScheduleRevisions = goalScheduleRevisions,
+                goalHabitLinks = goalHabitLinks
             )
         }
         BackupValidator.validate(snapshot)
@@ -572,6 +575,7 @@ class HabitRepository @Inject constructor(
             // Goal roadmaps are part of the replace-all too: history first, then edges, tasks,
             // milestones, phases, goals — every child is cleared before its parent.
             val goalDao = db.goalDao()
+            goalDao.deleteGoalHabitLinks()
             goalDao.deleteScheduleRevisions()
             goalDao.deleteDependencies()
             goalDao.deleteTasks()
@@ -598,6 +602,9 @@ class HabitRepository @Inject constructor(
             goalDao.insertDependencies(normalized.goalTaskDependencies)
             // Schedule history is uuid-bound audit data with no foreign keys: it restores last.
             goalDao.insertScheduleRevisions(backup.goalScheduleRevisions)
+            // Links restore after both goals and habits exist (declared CASCADEs run in both
+            // directions); each references a validated goal and habit row.
+            backup.goalHabitLinks.forEach { goalDao.insertGoalHabitLink(it) }
             dao.saveSettings(backup.settings.copy(appLockEnabled = keepAppLock))
         }
     } }
@@ -621,6 +628,7 @@ class HabitRepository @Inject constructor(
             dao.deleteAchievementAcknowledgments()
             // Goal roadmaps start fresh with everything else (history and children before parents).
             val goalDao = db.goalDao()
+            goalDao.deleteGoalHabitLinks()
             goalDao.deleteScheduleRevisions()
             goalDao.deleteDependencies()
             goalDao.deleteTasks()

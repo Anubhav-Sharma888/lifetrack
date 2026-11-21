@@ -135,4 +135,17 @@ interface GoalDao {
     )
     suspend fun deleteScheduleRevisionsForGoal(goalId: Long)
     @Query("DELETE FROM goal_schedule_revisions") suspend fun deleteScheduleRevisions()
+
+    // ---- Habit links (read-only supporting-habit association, Prompt 3) ----
+    @Query("SELECT * FROM goal_habit_links ORDER BY goalId, createdAt, habitId") fun observeGoalHabitLinks(): Flow<List<GoalHabitLink>>
+    @Query("SELECT * FROM goal_habit_links WHERE goalId = :goalId ORDER BY createdAt, habitId")
+    fun observeLinksForGoal(goalId: Long): Flow<List<GoalHabitLink>>
+    @Query("SELECT * FROM goal_habit_links WHERE goalId = :goalId AND habitId = :habitId")
+    suspend fun goalHabitLink(goalId: Long, habitId: Long): GoalHabitLink?
+    @Query("SELECT * FROM goal_habit_links ORDER BY goalId, createdAt, habitId") suspend fun allGoalHabitLinks(): List<GoalHabitLink>
+    @Insert suspend fun insertGoalHabitLink(link: GoalHabitLink)
+    @Query("DELETE FROM goal_habit_links WHERE goalId = :goalId AND habitId = :habitId")
+    suspend fun deleteGoalHabitLink(goalId: Long, habitId: Long)
+    @Query("DELETE FROM goal_habit_links WHERE goalId = :goalId") suspend fun deleteGoalHabitLinksForGoal(goalId: Long)
+    @Query("DELETE FROM goal_habit_links") suspend fun deleteGoalHabitLinks()
 }

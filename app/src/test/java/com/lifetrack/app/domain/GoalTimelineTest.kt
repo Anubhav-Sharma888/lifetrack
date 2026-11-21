@@ -213,8 +213,8 @@ class GoalTimelineTest {
             task(5),
             task(6)
         ), dependencies = listOf(
-            GoalTaskDependency(5, 1), // completed prerequisite: satisfied
-            GoalTaskDependency(6, 2), // skipped prerequisite: explicit waiver satisfies the gate
+            GoalTaskDependency(5, 1), // completed prerequisite: satisfied by completion
+            GoalTaskDependency(6, 2), // skipped prerequisite: satisfied as an intentional bypass
             GoalTaskDependency(4, 3)  // in-progress prerequisite: still blocking
         ))
         assertFalse(state.tasks.first { it.task.id == 5L }.blocked)
@@ -222,6 +222,11 @@ class GoalTimelineTest {
         val blocked = state.tasks.first { it.task.id == 4L }
         assertTrue(blocked.blocked)
         assertEquals(listOf("Task 3"), blocked.blockingTaskTitles)
+        // The gate policy distinguishes completion from intentional bypass explicitly.
+        val gates = state.tasks.associate { it.task.id to it.prerequisites.map { p -> p.gate } }
+        assertEquals(listOf(GoalTimeline.PrerequisiteGate.SATISFIED_COMPLETED), gates.getValue(5L))
+        assertEquals(listOf(GoalTimeline.PrerequisiteGate.SATISFIED_BYPASSED), gates.getValue(6L))
+        assertEquals(listOf(GoalTimeline.PrerequisiteGate.PENDING), gates.getValue(4L))
     }
 
     @Test fun `timing conflicts flag a dependent planned before its prerequisite finishes`() {

@@ -59,10 +59,15 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifetrack.app.data.GoalMilestone
+import com.lifetrack.app.data.GoalRepository
+import com.lifetrack.app.data.Habit
+import com.lifetrack.app.data.HabitLog
 import com.lifetrack.app.data.GoalPhase
 import com.lifetrack.app.data.GoalTask
 import com.lifetrack.app.data.GoalTaskStatus
+import com.lifetrack.app.domain.GoalProgress
 import com.lifetrack.app.domain.GoalTimeline
+import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
 /**
@@ -77,14 +82,16 @@ internal fun GoalDetailScreen(goalId: Long, vm: GoalViewModel, onBack: () -> Uni
     // The goal is selected on the hot detail StateFlow: switching screens switches the chain, and
     // recompositions read the conflated value instead of restarting a cold collection.
     LaunchedEffect(goalId) { vm.selectGoal(goalId) }
-    val detail by vm.detail.collectAsStateWithLifecycle()
+    val detailState by vm.detail.collectAsStateWithLifecycle()
+    val habitRecords by vm.habitRecords.collectAsStateWithLifecycle(initialValue = emptyList())
+    val habitLogRecords by vm.habitLogRecords.collectAsStateWithLifecycle(initialValue = emptyList())
     val busy by vm.busy.collectAsStateWithLifecycle()
     val operationError by vm.operationError.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { vm.clearOperationError() }
     // State for THIS route only: while a fresh selection loads (or after the id changed), the hot
     // flow still holds the previous goal's value — it must never render or feed actions here.
-    val state = detail?.takeIf { it.goal.id == goalId }
-    var dialog by rememberSaveable { mutableStateOf("") } // "", "phase", "milestone", "task", "moveTask", "moveMilestone", "movePhase", "archive", "deleteGoal"
+    val state: GoalDetailState? = detailState?.takeIf { it.goal.id == goalId }
+    var dialog by rememberSaveable { mutableStateOf("") } // "", "phase", "milestone", "task", "moveTask", "moveMilestone", "movePhase", "verifyMilestone", "linkHabit", "archive", "deleteGoal"
     var selectedPhaseId by rememberSaveable { mutableStateOf(0L) }
     var selectedMilestoneId by rememberSaveable { mutableStateOf(0L) }
     var selectedTaskId by rememberSaveable { mutableStateOf(0L) }
@@ -118,6 +125,7 @@ internal fun GoalDetailScreen(goalId: Long, vm: GoalViewModel, onBack: () -> Uni
                     onDelete = { dialog = "deleteGoal" },
                     onMoveDeadline = { dialog = "moveGoalDeadline" })
             }
+            item(key = "progress") { ProgressSection(state, dateFormatter) }
             item(key = "timeline") { TimelineSection(state, dateFormatter) }
             item(key = "phases-header") {
                 SectionHeader("Phases") { TextButton(enabled = !busy, onClick = {
@@ -148,7 +156,8 @@ internal fun GoalDetailScreen(goalId: Long, vm: GoalViewModel, onBack: () -> Uni
                 items(state.milestones, key = { "milestone-${it.milestone.id}" }) { view ->
                     MilestoneRow(view, dateFormatter, busy, vm,
                         onEdit = { selectedMilestoneId = view.milestone.id; dialog = "milestone" },
-                        onMoveDeadline = { selectedMilestoneId = view.milestone.id; dialog = "moveMilestone" })
+                        onMoveDeadline = { selectedMilestoneId = view.milestone.id; dialog = "moveMilestone" },
+                        onVerify = { selectedMilestoneId = view.milestone.id; dialog = "verifyMilestone" })
                 }
             }
             item(key = "tasks-header") {
@@ -180,10 +189,27 @@ internal fun GoalDetailScreen(goalId: Long, vm: GoalViewModel, onBack: () -> Uni
                     }
                 }
             }
+            item(key = "habits-header") {
+                SectionHeader("Supporting Habits") { TextButton(enabled = !busy, onClick = {
+                    dialog = "linkHabit"
+                }) { Text("Link a habit") } }
+            }
+            if (state.habitLinks.isEmpty()) {
+                item(key = "habits-empty") {
+                    EmptyLine("No supporting habits yet. Link an existing habit to see its consistency next to this goal — completing it never completes a task.")
+                }
+            } else {
+                items(state.habitLinks, key = { "habit-link-${it.habitId}" }) { link ->
+                    val habit = habitRecords.firstOrNull { it.id == link.habitId }
+                    if (habit != null) {
+                        HabitLinkRow(habit, habitLogRecords.filter { it.habitId == link.habitId },
+                            state.today, busy, onUnlink = { vm.unlinkHabit(goalId, link.habitId) })
+                    }
+                }
+            }
         }
-
-        val phases = state.phases.map { it.phase }
-        val milestones = state.milestones.map { it.milestone }
+        val phases = state?.phases?.map { it.phase } ?: emptyList()
+        val milestones = state?.milestones?.map { it.milestone } ?: emptyList()
         when (dialog) {
             "phase" -> PhaseEditorDialog(goalId, phases.firstOrNull { it.id == selectedPhaseId }, vm,
                 operationError, onDismiss = { dialog = "" })
@@ -203,6 +229,21 @@ internal fun GoalDetailScreen(goalId: Long, vm: GoalViewModel, onBack: () -> Uni
                     state.originalPlannedDates[view.task.uuid], vm, operationError) { dialog = "" }
             }
             "moveGoalDeadline" -> MoveGoalTargetDialog(state.goal, vm, operationError) { dialog = "" }
+            "verifyMilestone" -> milestones.firstOrNull { it.id == selectedMilestoneId }?.let { milestone ->
+                MilestoneVerifyDialog(
+                    milestone = milestone,
+                    supportingTasks = state.tasks.map { it.task }.filter { it.milestoneId == milestone.id },
+                    vm = vm,
+                    operationError = operationError,
+                    onDismiss = { dialog = "" })
+            }
+            "linkHabit" -> HabitPickerDialog(
+                goalId = goalId,
+                linkedHabitIds = state.habitLinks.map { it.habitId },
+                habits = habitRecords,
+                vm = vm,
+                operationError = operationError,
+                onDismiss = { dialog = "" })
             "archive" -> ConfirmDialog(
                 title = if (state.goal.isArchived) "Restore this goal?" else "Archive this goal?",
                 body = if (state.goal.isArchived)
@@ -404,7 +445,8 @@ private fun PhaseCard(view: GoalTimeline.PhaseView, dateFormatter: DateTimeForma
 
 @Composable
 private fun MilestoneRow(view: GoalTimeline.MilestoneView, dateFormatter: DateTimeFormatter, busy: Boolean,
-                         vm: GoalViewModel, onEdit: () -> Unit, onMoveDeadline: () -> Unit) {
+                         vm: GoalViewModel, onEdit: () -> Unit, onMoveDeadline: () -> Unit,
+                         onVerify: () -> Unit) {
     val milestone = view.milestone
     val achieved = milestone.status == com.lifetrack.app.data.MilestoneStatus.ACHIEVED.name
     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -425,6 +467,7 @@ private fun MilestoneRow(view: GoalTimeline.MilestoneView, dateFormatter: DateTi
                     color = MaterialTheme.colorScheme.secondary)
             }
         }
+        TextButton(enabled = !busy, onClick = onVerify) { Text(if (achieved) "Reopen" else "Verify") }
         TextButton(enabled = !busy, onClick = onMoveDeadline) { Text("Move") }
         TextButton(enabled = !busy, onClick = onEdit) { Text("Edit") }
     }
@@ -443,8 +486,16 @@ private fun TaskRow(view: GoalTimeline.TaskView, originalPlannedDate: java.time.
         task.status == GoalTaskStatus.IN_PROGRESS.name -> "In progress"
         else -> "Not started"
     }
+    val gateLabels = view.prerequisites.map { prerequisite ->
+        "Needs: " + prerequisite.title + when (prerequisite.gate) {
+            GoalTimeline.PrerequisiteGate.SATISFIED_COMPLETED -> " (done)"
+            GoalTimeline.PrerequisiteGate.SATISFIED_BYPASSED -> " (bypassed)"
+            GoalTimeline.PrerequisiteGate.PENDING -> " (pending)"
+        }
+    }
     val markers = buildList {
         if (view.blocked) add("Blocked by ${view.blockingTaskTitles.firstOrNull() ?: "prerequisites"}")
+        gateLabels.forEach { add(it) }
         if (view.timingConflict) add("Timing conflict")
         if (view.urgency == GoalTimeline.Urgency.OVERDUE) add("${view.daysOverdue}d overdue")
         if (view.urgency == GoalTimeline.Urgency.DUE_TODAY) add("Due today")
@@ -475,6 +526,17 @@ private fun TaskRow(view: GoalTimeline.TaskView, originalPlannedDate: java.time.
                     }, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         }
+        // One-tap status action for the state the task is in (Prompt 3 quick actions); the row
+        // keeps Move/Edit for planning. The repository state machine owns every transition.
+        val quickAction = when (GoalTaskStatus.fromStored(task.status)) {
+            GoalTaskStatus.NOT_STARTED -> "Start" to GoalTaskStatus.IN_PROGRESS
+            GoalTaskStatus.IN_PROGRESS -> "Done" to GoalTaskStatus.COMPLETED
+            GoalTaskStatus.COMPLETED -> "Reopen" to GoalTaskStatus.NOT_STARTED
+            GoalTaskStatus.SKIPPED -> "Restore" to GoalTaskStatus.NOT_STARTED
+        }
+        TextButton(enabled = !busy, onClick = { vm.setTaskStatus(task.id, quickAction.second) }) {
+            Text(quickAction.first)
+        }
         TextButton(enabled = !busy, onClick = onMoveDates) { Text("Move") }
         TextButton(enabled = !busy, onClick = onEdit) { Text("Edit") }
     }
@@ -499,5 +561,93 @@ private fun ConfirmDialog(title: String, body: String, confirmLabel: String, bus
                 }
             }
         }
+    }
+}
+
+/**
+ * The Progress section: transparent, clearly labeled counts from [GoalProgress]. Task completion
+ * (with skipped work kept in the denominator), milestone achievement, and the derived "ready for
+ * review" suggestion are shown as separate facts — never one weighted score, never a silent
+ * completion write.
+ */
+@Composable
+private fun ProgressSection(state: GoalDetailState, dateFormatter: DateTimeFormatter) {
+    val progress = GoalProgress.goalProgress(
+        state.tasks.map { it.task },
+        state.milestones.map { it.milestone }
+    )
+    val taskRateLabel = when (val rate = progress.taskCompletionRate) {
+        null -> "Tasks: not yet measurable — no tasks defined"
+        else -> "Task progress: $rate% (${progress.tasks.completed} of ${progress.tasks.total} complete)"
+    }
+    val milestoneRateLabel = when (val rate = progress.milestoneAchievementRate) {
+        null -> "Milestones: none defined"
+        else -> "Milestone progress: $rate% (${progress.milestones.achieved} of ${progress.milestones.total} achieved)"
+    }
+    val description = buildString {
+        append(taskRateLabel).append(". ")
+        append(milestoneRateLabel).append(". ")
+        append("Tasks: ${progress.tasks.completed} completed, ${progress.tasks.skipped} skipped, " +
+            "${progress.tasks.notDone} not done. ")
+        append("Milestones: ${progress.milestones.pending} pending. ")
+        if (progress.readyForReview == true) append("All required work complete — ready for review.")
+    }
+    Card(
+        shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.fillMaxWidth()
+            .semantics(mergeDescendants = true) { contentDescription = description }
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Progress", style = MaterialTheme.typography.titleMedium)
+            Text(taskRateLabel, style = MaterialTheme.typography.bodyMedium)
+            Text(milestoneRateLabel, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                "Tasks: ${progress.tasks.completed} completed · ${progress.tasks.skipped} skipped · " +
+                    "${progress.tasks.notDone} not done",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (progress.readyForReview == true) {
+                Text(
+                    "All required work complete — ready for review.",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
+}
+
+/** One linked supporting habit with an honest, clearly labeled read-only activity signal. */
+@Composable
+private fun HabitLinkRow(habit: Habit, logs: List<HabitLog>, today: LocalDate, busy: Boolean,
+                         onUnlink: () -> Unit) {
+    val dateFormatter = rememberRowDateFormatter()
+    val activity = GoalRepository.habitActivitySignal(habit, logs, today)
+    val signal = when {
+        activity.totalCompletions == 0 -> "No completed check-ins yet"
+        else -> "${activity.totalCompletions} completed check-ins · " +
+            "${activity.completionsInWindow} in the last ${GoalRepository.HABIT_ACTIVITY_WINDOW_DAYS} days" +
+            (activity.lastCompletedDate?.let { " · last ${it.format(dateFormatter)}" } ?: "")
+    }
+    val rowDescription = "${habit.name}. Supporting habit" +
+        (if (habit.isArchived) ", archived" else "") + ". $signal."
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 4.dp)
+            .semantics(mergeDescendants = true) { contentDescription = rowDescription },
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(habit.name, style = MaterialTheme.typography.bodyMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (habit.isArchived) Text("Archived", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(signal, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        TextButton(enabled = !busy, onClick = onUnlink) { Text("Unlink") }
     }
 }

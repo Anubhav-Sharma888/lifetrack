@@ -17,7 +17,9 @@ import androidx.compose.ui.test.performTextInput
 import androidx.lifecycle.viewModelScope
 import androidx.room.Room
 import com.lifetrack.app.data.AppDatabase
+import com.lifetrack.app.data.HabitRepository
 import com.lifetrack.app.data.GoalRepository
+import com.lifetrack.app.data.MilestoneStatus
 import com.lifetrack.app.data.GoalTask
 import com.lifetrack.app.data.GoalTaskStatus
 import java.time.LocalDate
@@ -25,6 +27,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -57,8 +61,9 @@ class GoalScreensTest {
     fun prepare() {
         val context = RuntimeEnvironment.getApplication()
         db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).allowMainThreadQueries().build()
+        val habitRepository = HabitRepository(db, context)
         repository = GoalRepository(db)
-        vm = GoalViewModel(repository)
+        vm = GoalViewModel(repository, habitRepository)
     }
 
     @After
@@ -77,7 +82,7 @@ class GoalScreensTest {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (!condition() && System.currentTimeMillis() < deadline) {
             shadowOf(Looper.getMainLooper()).idle()
-            compose.waitForIdle()
+            try { compose.waitForIdle() } catch (e: AssertionError) { /* keep pumping through transient idle failures */ }
             // Executor threads (Room queries) land their results between pumps.
             Thread.sleep(100)
         }
@@ -282,7 +287,12 @@ class GoalScreensTest {
             goal.id
         }
         compose.setContent { MaterialTheme { GoalDetailScreen(goalId, vm, onBack = {}, onEdit = {}) } }
-        awaitSettled("the goal detail to load") { compose.onAllNodesWithText("Originally planned", substring = true).fetchSemanticsNodes().isNotEmpty() }
+        // Wait on the STATE, not the semantics tree: the Prompt 3 detail list carries progress and
+        // supporting-habit sections above the tasks, so the row only exists in the semantics tree
+        // once it is scrolled into the lazy viewport. State first, then scroll, then assert.
+        awaitSettled("the goal detail to load") { vm.detail.value?.goal?.id == goalId }
+        compose.waitForIdle()
+        scrollTo("Study")
         compose.onNodeWithText("Originally planned ${today.minusDays(10)}", substring = true).assertIsDisplayed()
         scrollTo("Move")
         compose.onNodeWithText("Move").performClick()
@@ -294,5 +304,97 @@ class GoalScreensTest {
         assertTrue("The dialog Move is disabled for an unchanged move",
             moveNodes.any { it.config.contains(androidx.compose.ui.semantics.SemanticsProperties.Disabled) })
         compose.onNodeWithText("Cancel").performClick()
+    }
+
+    @Test
+    fun taskQuickActionsCompleteReopenAndRecordTimestamps() = runBlocking {
+        val goalId = runBlocking {
+            repository.saveGoal(com.lifetrack.app.data.Goal(uuid = "", title = "Learn ML")).id
+        }
+        val taskId = runBlocking {
+            repository.saveTask(com.lifetrack.app.data.GoalTask(uuid = "", goalId = goalId, title = "Study vectors"))
+        }.id
+        setDetailContent(goalId, "Learn ML")
+        scrollTo("Start")
+        compose.onNodeWithText("Start").performClick()
+        waitUntilIdle()
+        scrollTo("Done")
+        compose.onNodeWithText("Done").performClick()
+        waitUntilIdle()
+        val completed = runBlocking { db.goalDao().task(taskId)!! }
+        assertEquals(GoalTaskStatus.COMPLETED, GoalTaskStatus.fromStored(completed.status))
+        assertNotNull(completed.completedAt)
+        scrollTo("Reopen")
+        compose.onNodeWithText("Reopen").performClick()
+        waitUntilIdle()
+        val reopened = runBlocking { db.goalDao().task(taskId)!! }
+        assertEquals(GoalTaskStatus.NOT_STARTED, GoalTaskStatus.fromStored(reopened.status))
+        assertNull(reopened.completedAt)
+    }
+
+    @Test
+    fun milestoneVerificationRequiresExplicitConfirmationWithIncompleteWork() = runBlocking {
+        val goalId = runBlocking {
+            val goal = repository.saveGoal(com.lifetrack.app.data.Goal(uuid = "", title = "Learn ML"))
+            repository.saveMilestone(com.lifetrack.app.data.GoalMilestone(uuid = "", goalId = goal.id, title = "Algebra done"))
+            repository.saveTask(com.lifetrack.app.data.GoalTask(uuid = "", goalId = goal.id, milestoneId = 1L, title = "Problem set"))
+            goal.id
+        }
+        setDetailContent(goalId, "Learn ML")
+        scrollTo("Verify")
+        compose.onNodeWithText("Verify").performClick()
+        awaitSettled("the verify dialog to open") { compose.onAllNodesWithText("Confirm achieved").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("1 supporting task(s) are not completed", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("Confirm achieved").performClick()
+        waitUntilIdle()
+        val milestone = runBlocking { db.goalDao().allMilestones().single() }
+        assertEquals(MilestoneStatus.ACHIEVED, MilestoneStatus.fromStored(milestone.status))
+        assertNotNull(milestone.achievedAt)
+        scrollTo("Reopen")
+        compose.onNodeWithText("Reopen").performClick()
+        awaitSettled("the reopen dialog to open") { compose.onAllNodesWithText("Reopen milestone").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Reopen milestone").performClick()
+        waitUntilIdle()
+        val reopened = runBlocking { db.goalDao().allMilestones().single() }
+        assertEquals(MilestoneStatus.PENDING, MilestoneStatus.fromStored(reopened.status))
+        assertNull(reopened.achievedAt)
+    }
+
+    @Test
+    fun supportingHabitsLinkUnlinkAndShowHonestSignals() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val habitRepository = HabitRepository(db, context)
+        val habit = runBlocking { habitRepository.saveHabit(com.lifetrack.app.data.Habit(name = "Study 60 minutes daily", startDate = today)) }
+        val goalId = runBlocking { repository.saveGoal(com.lifetrack.app.data.Goal(uuid = "", title = "Learn ML")).id }
+        setDetailContent(goalId, "Learn ML")
+        scrollTo("Link a habit")
+        compose.onNodeWithText("Link a habit").performClick()
+        awaitSettled("the picker to open") { compose.onAllNodesWithText("Study 60 minutes daily").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Study 60 minutes daily").performClick()
+        waitUntilIdle()
+        compose.onNodeWithText("No completed check-ins yet", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("Unlink").performClick()
+        waitUntilIdle()
+        compose.onNodeWithText("No supporting habits yet", substring = true).assertIsDisplayed()
+        assertEquals(0, runBlocking { db.goalDao().allGoalHabitLinks().size })
+    }
+
+    @Test
+    fun progressSectionShowsCountsAndLabeledRates() {
+        runBlocking {
+        val goalId = runBlocking {
+            val goal = repository.saveGoal(com.lifetrack.app.data.Goal(uuid = "", title = "Learn ML"))
+            val a = repository.saveTask(com.lifetrack.app.data.GoalTask(uuid = "", goalId = goal.id, title = "A"))
+            val b = repository.saveTask(com.lifetrack.app.data.GoalTask(uuid = "", goalId = goal.id, title = "B", sortOrder = 1))
+            repository.saveTask(com.lifetrack.app.data.GoalTask(uuid = "", goalId = goal.id, title = "C", sortOrder = 2))
+            repository.saveTask(a.copy(status = GoalTaskStatus.COMPLETED.name))
+            repository.saveTask(b.copy(status = GoalTaskStatus.SKIPPED.name))
+            goal.id
+        }
+        setDetailContent(goalId, "Learn ML")
+        scrollTo("Progress")
+        compose.onNodeWithText("Task progress: 33% (1 of 3 complete)").assertExists()
+        compose.onNodeWithText("Tasks: 1 completed · 1 skipped · 1 not done", substring = true).assertIsDisplayed()
+        }
     }
 }

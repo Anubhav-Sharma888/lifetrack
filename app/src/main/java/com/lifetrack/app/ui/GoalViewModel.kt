@@ -6,16 +6,21 @@ import com.lifetrack.app.data.Goal
 import com.lifetrack.app.data.GoalMilestone
 import com.lifetrack.app.data.GoalPhase
 import com.lifetrack.app.data.GoalRepository
+import com.lifetrack.app.data.GoalHabitLink
 import com.lifetrack.app.data.GoalScheduleRevision
 import com.lifetrack.app.data.GoalStatus
 import com.lifetrack.app.data.GoalTask
 import com.lifetrack.app.data.GoalTaskDependency
 import com.lifetrack.app.data.GoalTaskStatus
+import com.lifetrack.app.data.Habit
+import com.lifetrack.app.data.HabitLog
+import com.lifetrack.app.data.HabitRepository
 import com.lifetrack.app.domain.GoalTimeline
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,6 +33,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -61,6 +67,8 @@ data class GoalDetailState(
     val milestones: List<GoalTimeline.MilestoneView>,
     val tasks: List<GoalTimeline.TaskView>,
     val dependencies: List<GoalTaskDependency>,
+    /** Supporting-habit links for this goal (read-only association; habit data stays in the habit system). */
+    val habitLinks: List<GoalHabitLink>,
     /** Original planned dates by task uuid, recovered from the earliest schedule revision. */
     val originalPlannedDates: Map<String, LocalDate>
 ) {
@@ -70,7 +78,10 @@ data class GoalDetailState(
 }
 
 @HiltViewModel
-class GoalViewModel @Inject constructor(private val repository: GoalRepository) : ViewModel() {
+class GoalViewModel @Inject constructor(
+    private val repository: GoalRepository,
+    private val habits: HabitRepository
+) : ViewModel() {
     private val today = MutableStateFlow(LocalDate.now())
     private val _filter = MutableStateFlow(GoalFilter.ACTIVE)
     private val _events = MutableSharedFlow<UiEvent>(extraBufferCapacity = 16)
@@ -99,6 +110,11 @@ class GoalViewModel @Inject constructor(private val repository: GoalRepository) 
 
     /** Live goal stream for the editor screen. */
     fun observeGoalForEditor(id: Long): Flow<Goal?> = repository.observeGoal(id)
+
+    // Read-only habit data for the Supporting Habits section: goal features read habit records
+    // and never write them (logs, streaks and scheduling stay owned by the habit system).
+    val habitRecords: Flow<List<Habit>> = habits.habits
+    val habitLogRecords: Flow<List<HabitLog>> = habits.logs
 
     private fun matches(filter: GoalFilter, goal: Goal): Boolean = when (filter) {
         GoalFilter.ALL -> true
@@ -139,18 +155,30 @@ class GoalViewModel @Inject constructor(private val repository: GoalRepository) 
      *  killing a cold collection; recovery happens when the upstream restarts (a subscriber gap
      *  longer than the WhileSubscribed grace, or a fresh selection) — not on the next invalidation.
      *  `null` = loading, deleted goal, or last attempt failed; the UI renders its not-found state. */
-    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class, kotlinx.coroutines.FlowPreview::class)
     val detail: StateFlow<GoalDetailState?> = selectedGoalId.flatMapLatest { goalId ->
         if (goalId == null) flowOf(null)
         else combine(repository.observeGoal(goalId), repository.phases(goalId), repository.milestones(goalId),
             repository.tasks(goalId), repository.dependencies(goalId)) { goal, phases, milestones, tasks, dependencies ->
             DetailCore(goal, phases, milestones, tasks, dependencies)
         }.combine(repository.scheduleHistory(goalId)) { core, history -> core to history }
-            .combine(today) { (core, history), currentToday ->
-                core.goal?.let { goal -> buildDetail(goal, core.phases, core.milestones, core.tasks, core.dependencies, history, currentToday) }
+            .combine(repository.habitLinks(goalId)) { (core, history), links -> Triple(core, history, links) }
+            .combine(today) { (core, history, links), currentToday ->
+                core.goal?.let { goal ->
+                    buildDetail(goal, core.phases, core.milestones, core.tasks, core.dependencies, links, history, currentToday)
+                }
             }
             // A fresh selection must not display the previous goal's state while its chain loads.
             .onStart { emit(null) }
+            // A transient failure must not kill the chain for the rest of the session: degrade to
+            // null, then retry with backoff (the application's background-flow convention). retry
+            // wraps the raw chain so a recovered subscription resumes live updates; the trailing
+            // catch is a final safety net that also degrades to the not-found render.
+            .retryWhen { error, attempt ->
+                if (error is CancellationException) throw error
+                delay(minOf(5_000L, 100L * (attempt + 1)))
+                true
+            }
             .catch { error ->
                 if (error is CancellationException) throw error
                 emit(null)
@@ -159,11 +187,12 @@ class GoalViewModel @Inject constructor(private val repository: GoalRepository) 
 
     private fun buildDetail(goal: Goal, phases: List<GoalPhase>, milestones: List<GoalMilestone>,
                             tasks: List<GoalTask>, dependencies: List<GoalTaskDependency>,
-                            history: List<GoalScheduleRevision>, currentToday: LocalDate): GoalDetailState {
+                            habitLinks: List<GoalHabitLink>, history: List<GoalScheduleRevision>,
+                            currentToday: LocalDate): GoalDetailState {
         val snapshot = GoalTimeline.snapshot(goal, phases, milestones, tasks, dependencies, currentToday, ZoneId.systemDefault())
         return GoalDetailState(
             goal = goal, today = currentToday, phases = snapshot.phases, milestones = snapshot.milestones,
-            tasks = snapshot.tasks, dependencies = dependencies,
+            tasks = snapshot.tasks, dependencies = dependencies, habitLinks = habitLinks,
             originalPlannedDates = GoalTimeline.originalPlannedDates(history)
         )
     }
@@ -255,6 +284,45 @@ class GoalViewModel @Inject constructor(private val repository: GoalRepository) 
             if (task.id == 0L) "Task added" else "Task saved"
         }, onSuccess = onSaved)
     }
+
+    /** One-tap status action from the task row. Routes through the repository state machine:
+     *  completion stamps the instant, reopening clears it, deleted tasks surface as errors. */
+    fun setTaskStatus(taskId: Long, status: GoalTaskStatus) {
+        launchOperation(operation = {
+            val task = repository.taskById(taskId) ?: throw IllegalArgumentException("This task no longer exists.")
+            repository.saveTask(task.copy(status = status.name))
+            when (status) {
+                GoalTaskStatus.COMPLETED -> "Task completed"
+                GoalTaskStatus.IN_PROGRESS -> "Task started"
+                GoalTaskStatus.SKIPPED -> "Task skipped"
+                GoalTaskStatus.NOT_STARTED -> "Task reopened"
+            }
+        })
+    }
+
+    /** Explicit milestone verification: achievement is the user's confirmed outcome, never
+     *  derived from task completion. Reopening clears the achievement instant. */
+    fun setMilestoneVerification(milestoneId: Long, achieved: Boolean) {
+        launchOperation(operation = {
+            val milestone = repository.milestoneById(milestoneId)
+                ?: throw IllegalArgumentException("This milestone no longer exists.")
+            repository.saveMilestone(milestone.copy(
+                status = if (achieved) com.lifetrack.app.data.MilestoneStatus.ACHIEVED.name
+                else com.lifetrack.app.data.MilestoneStatus.PENDING.name
+            ))
+            if (achieved) "Milestone achieved" else "Milestone reopened"
+        })
+    }
+
+    fun linkHabit(goalId: Long, habitId: Long) = launchOperation(operation = {
+        repository.linkHabit(goalId, habitId)
+        "Habit linked to this goal"
+    })
+
+    fun unlinkHabit(goalId: Long, habitId: Long) = launchOperation(operation = {
+        repository.unlinkHabit(goalId, habitId)
+        "Habit unlinked"
+    })
 
     fun deleteTask(id: Long, onDeleted: () -> Unit = {}) {
         launchOperation(operation = {

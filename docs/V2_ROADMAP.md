@@ -1,19 +1,19 @@
-| 1 | Requirements + Database Foundation | Full PRD, architecture, data model; Room schema 11 (goals/phases/milestones/tasks/dependencies + UUID identity); `GoalRepository` with state machines, referential integrity, dependency cycle detection; backup format v10 export/import/reset; migration 10→11 + era tests; docs | — | ✅ Complete (7bb165e) |# LifeTrack Version 2 — Implementation Roadmap
+# LifeTrack Version 2 — Implementation Roadmap
 
-**Branch:** `version-2` (branched from the v1.11.0-preview.1 tip of `main`, starting commit `e97c8b9653303efb5a026f03c482c61e40c1fd33`) · **Target release:** `2.1.0` · **First prerelease:** `v2.1.0-preview.1` (Prompt 8)
+**Branch:** `version-2` (from the v1.11.0-preview.1 tip of `main`, starting commit `e97c8b9653303efb5a026f03c482c61e40c1fd33`) · **Release policy:** each prompt lands a preview published by ChatGPT (v2.2.0-preview.1 after Prompt 2, v2.3.0-preview.1 after Prompt 3, … v2.8.0-preview.1 after Prompt 8). ZCode owns development and validation only.
 
 Eight consolidated prompts. Each session implements, validates, reviews and commits its own scope; later prompts never silently absorb earlier ones.
 
 | # | Prompt | Delivers | Depends on | Status |
 |---|---|---|---|---|
-| 1 | Requirements + Database Foundation | Full PRD, architecture, data model; Room schema 11 (goals/phases/milestones/tasks/dependencies + UUID identity); `GoalRepository` with state machines, referential integrity, dependency cycle detection; backup format v10 export/import/reset; migration 10→11 + era tests; docs | — | ✅ **This prompt** |
-| 2 | Goal UI + Timeline Engine | Goals hub (5th bottom destination), goal editor, goal detail with phases/milestones/tasks, vertical timeline, dependency management, non-destructive rescheduling with schedule history (schema 12, backup v11), navigation integration | 1 | ✅ **This prompt** |
-| 3 | Progress Tracking + AI JSON Specification | Task completion UX, milestone verification, progress calculations, habit↔goal links (additive schema 12), Goal Plan JSON schema + parser + sample exports | 2 | ⬜ Not started |
-| 4 | Import Preview + Transactional Partial Import | Import preview UI, duplicate detection by UUID, conflict resolution (keep existing / keep imported / copy / skip), transactional merge with rollback | 3 | ⬜ Not started |
-| 5 | Study Sessions + Reminders | Session planning, start reminders, completion prompts, background scheduling, permission handling | 1 (identity), 2 (UI entry) | ⬜ Not started |
-| 6 | Session Recovery + Goal Analytics | Confirmation/partial/snooze/missed-session handling, rescheduling, planned-vs-actual analytics, delay calculations | 5 | ⬜ Not started |
-| 7 | UX, Accessibility and Security | Visual refinement, accessibility pass, navigation polish, performance, security audit, privacy review, edge cases | 2–6 | ⬜ Not started |
-| 8 | Integration, QA and Release | Full regression, migration verification, backup restoration testing, device QA, versioning, CI, APK, GitHub prerelease, final report | 7 | ⬜ Not started |
+| 1 | Requirements + Database Foundation (no APK) | Full PRD, architecture, data model; Room schema 11 (goals/phases/milestones/tasks/dependencies + UUID identity); `GoalRepository` with state machines, referential integrity, dependency cycle detection; backup format v10 export/import/reset; migration 10→11 + era tests; docs | — | ✅ **This prompt** |
+| 2 | Goal UI + Timeline Engine (v2.2.0-preview.1 — published by ChatGPT) | Goals hub (5th bottom destination), goal editor, goal detail with phases/milestones/tasks, vertical timeline, dependency management, non-destructive rescheduling with schedule history (schema 12, backup v11), navigation integration | 1 | ✅ Complete (497e705) |
+| 3 | Progress Tracking + AI JSON Specification (v2.3.0-preview.1) | Progress engine + honest counts, task completion UX, milestone verification, habit↔goal links (additive schema 13, backup v12), Goal Plan JSON schema + strict parser + fixtures + docs | 2 | ✅ **This prompt** |
+| 4 | Import Preview + Transactional Partial Import (v2.4.0-preview.1) | Import preview UI, duplicate detection by UUID, conflict resolution (keep existing / keep imported / copy / skip), transactional merge with rollback | 3 | ⬜ Not started |
+| 5 | Study Sessions + Reminders (v2.5.0-preview.1) | Session planning, start reminders, completion prompts, background scheduling, permission handling | 1 (identity), 2 (UI entry) | ⬜ Not started |
+| 6 | Session Recovery + Goal Analytics (v2.6.0-preview.1) | Confirmation/partial/snooze/missed-session handling, rescheduling, planned-vs-actual analytics, delay calculations | 5 | ⬜ Not started |
+| 7 | UX, Accessibility and Security (v2.7.0-preview.1) | Visual refinement, accessibility pass, navigation polish, performance, security audit, privacy review, edge cases | 2–6 | ⬜ Not started |
+| 8 | Integration, QA and Release (v2.8.0-preview.1) | Full regression, migration verification, backup restoration testing, device QA, versioning, CI, APK, GitHub prerelease, final report | 7 | ⬜ Not started |
 
 ## Cross-prompt contracts already fixed by Prompt 1
 
@@ -22,7 +22,7 @@ Eight consolidated prompts. Each session implements, validates, reviews and comm
 - **Backup discipline**: additive versioned lists with `@EncodeDefault(NEVER)`; per-version gates in `validate` + `decode`; replace-all restore with parents-before-children inserts; sessions/links follow the same pattern (schemas 12+).
 - **Validation caps** (PRD §10) are shared constants in `GoalValidator`; new features reuse them rather than inventing limits.
 - **Data safety**: no destructive migration anywhere in the chain; every multi-table write is one transaction; goal operations never touch habit tables.
-- **Deferred deliberately**: habit↔goal link table (Prompt 3, additive schema 12 — invariants in V2_ARCHITECTURE §3); study-session persistence design (V2_ARCHITECTURE §7.3); SKIPPED-satisfies-dependency-gate read-time policy (Prompt 3); weekly-quota-style goal period analytics (Prompt 6, needs product decisions).
+- **Resolved from the deferred list (Prompt 3)**: habit↔goal link table shipped as schema 13 (association only, invariants in V2_ARCHITECTURE §3); the SKIPPED-satisfies-dependency-gate policy shipped read-time (SATISFIED_BYPASSED — bypass satisfies the gate, never counts as completion). Still deferred: study-session persistence design (V2_ARCHITECTURE §7.3); weekly-quota-style goal period analytics (Prompt 6, needs product decisions); whether a habit completion ever contributes to a goal (open product question, association-only for now).
 
 ## Release gates (Prompt 8)
 

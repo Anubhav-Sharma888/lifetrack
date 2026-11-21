@@ -154,6 +154,11 @@ private fun GoalCard(card: GoalCardState, dateFormatter: DateTimeFormatter, modi
                 }
             }
             Text(summary, style = MaterialTheme.typography.bodyMedium)
+            card.goal.let { g ->
+                val rate = com.lifetrack.app.domain.GoalProgress.completionRate(card.completedTasks, card.totalTasks)
+                if (rate != null) Text("Task progress: $rate% (${card.completedTasks} of ${card.totalTasks} tasks complete)",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             card.currentPhaseName?.let {
                 Text("Current phase: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             } ?: card.nextPhaseName?.let {

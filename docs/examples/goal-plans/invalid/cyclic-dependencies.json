@@ -1,0 +1,14 @@
+{
+  "kind": "lifetrack.goal-plan",
+  "schemaVersion": 1,
+  "planId": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "goal": { "uuid": "8c9e6679-7425-40de-944b-e07fc1f90ae7", "title": "Cycle" },
+  "tasks": [
+    { "uuid": "9c9e6679-7425-40de-944b-e07fc1f90c01", "title": "A" },
+    { "uuid": "9c9e6679-7425-40de-944b-e07fc1f90c02", "title": "B" }
+  ],
+  "dependencies": [
+    { "taskUuid": "9c9e6679-7425-40de-944b-e07fc1f90c01", "prerequisiteUuid": "9c9e6679-7425-40de-944b-e07fc1f90c02" },
+    { "taskUuid": "9c9e6679-7425-40de-944b-e07fc1f90c02", "prerequisiteUuid": "9c9e6679-7425-40de-944b-e07fc1f90c01" }
+  ]
+}

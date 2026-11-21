@@ -40,12 +40,20 @@ object GoalTimeline {
     enum class Urgency { OVERDUE, DUE_TODAY, UPCOMING, UNSCHEDULED }
 
     /** One task row of the timeline snapshot: persisted facts plus derived, defined display state. */
+    /** Explicit prerequisite-gate policy (Prompt 3 product decision): COMPLETED satisfies by
+     *  completion; SKIPPED satisfies as an intentional bypass — which is NOT completion and never
+     *  inflates progress; NOT_STARTED and IN_PROGRESS leave the gate unsatisfied. */
+    enum class PrerequisiteGate { SATISFIED_COMPLETED, SATISFIED_BYPASSED, PENDING }
+
+    data class PrerequisiteView(val taskId: Long, val title: String, val gate: PrerequisiteGate)
+
     data class TaskView(
         val task: GoalTask,
         val urgency: Urgency,
         val daysOverdue: Long,
         val blocked: Boolean,
         val blockingTaskTitles: List<String>,
+        val prerequisites: List<PrerequisiteView>,
         val timingConflict: Boolean,
         val completedAfterDeadline: Boolean
     )
@@ -103,6 +111,20 @@ object GoalTimeline {
                 .filter { it.needsWork() }
             task.id to blocking
         }
+        // Per-prerequisite gate states, exposing completed vs bypassed vs pending explicitly.
+        val prerequisiteViews = tasks.associate { task ->
+            val views = prerequisites[task.id].orEmpty()
+                .mapNotNull { prerequisiteId -> tasksById[prerequisiteId] }
+                .map { prerequisite ->
+                    val gate = when (GoalTaskStatus.fromStored(prerequisite.status)) {
+                        GoalTaskStatus.COMPLETED -> PrerequisiteGate.SATISFIED_COMPLETED
+                        GoalTaskStatus.SKIPPED -> PrerequisiteGate.SATISFIED_BYPASSED
+                        else -> PrerequisiteGate.PENDING
+                    }
+                    PrerequisiteView(prerequisite.id, titles.getValue(prerequisite.id), gate)
+                }
+            task.id to views
+        }
         val completedBy = dependencies.filter { edge ->
             statusById[edge.prerequisiteTaskId] in setOf(GoalTaskStatus.COMPLETED.name, GoalTaskStatus.SKIPPED.name)
         }.map { it.dependentTaskId }.toSet()
@@ -129,6 +151,7 @@ object GoalTimeline {
                 daysOverdue = if (urgency == Urgency.OVERDUE) ChronoUnit.DAYS.between(task.deadline, today) else 0,
                 blocked = needsWork && blocking.isNotEmpty(),
                 blockingTaskTitles = blocking.map { titles.getValue(it.id) },
+                prerequisites = prerequisiteViews.getValue(task.id),
                 timingConflict = conflict,
                 completedAfterDeadline = task.completedAt != null && task.deadline != null &&
                     completionDate(task.completedAt, zone).isAfter(task.deadline)

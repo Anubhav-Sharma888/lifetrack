@@ -48,6 +48,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lifetrack.app.data.GoalMilestone
 import com.lifetrack.app.data.GoalPhase
 import com.lifetrack.app.data.GoalTask
+import com.lifetrack.app.data.Habit
 import com.lifetrack.app.data.GoalTaskStatus
 import com.lifetrack.app.data.MilestoneStatus
 import com.lifetrack.app.data.PhaseStatus
@@ -639,5 +640,126 @@ internal fun MoveGoalTargetDialog(
             }
             OutlinedButton(enabled = !busy, onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel") }
         }
+        })
+}
+
+/**
+ * Milestone verification (Prompt 3): shows the milestone's outcome, its supporting tasks with
+ * their completion states, and requires an explicit user confirmation to mark it achieved. If
+ * supporting tasks remain incomplete the dialog says so plainly — a deliberate confirmation, not
+ * an implication that the underlying work finished. Reopening is the explicit ACHIEVED → PENDING
+ * transition and clears the achievement instant.
+ */
+@Composable
+internal fun MilestoneVerifyDialog(
+    milestone: GoalMilestone,
+    supportingTasks: List<GoalTask>,
+    vm: GoalViewModel,
+    operationError: String?,
+    onDismiss: () -> Unit
+) {
+    val busy by vm.busy.collectAsStateWithLifecycle()
+    val achieved = milestone.status == MilestoneStatus.ACHIEVED.name
+    val completedTasks = supportingTasks.count { it.status == GoalTaskStatus.COMPLETED.name }
+    val incompleteTasks = supportingTasks.size - completedTasks
+    EditorShell(if (achieved) "Milestone achieved" else "Verify milestone", busy, onDismiss,
+        content = {
+            Text(milestone.title, style = MaterialTheme.typography.titleMedium)
+            milestone.description?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+            if (supportingTasks.isEmpty()) {
+                Text("No supporting tasks are linked to this milestone.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                Text("Supporting tasks: $completedTasks of ${supportingTasks.size} completed.",
+                    style = MaterialTheme.typography.bodyMedium)
+                supportingTasks.forEach { task ->
+                    val state = when (GoalTaskStatus.fromStored(task.status)) {
+                        GoalTaskStatus.COMPLETED -> "Completed"
+                        GoalTaskStatus.IN_PROGRESS -> "In progress"
+                        GoalTaskStatus.SKIPPED -> "Skipped"
+                        GoalTaskStatus.NOT_STARTED -> "Not started"
+                    }
+                    Text("· ${task.title} — $state", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (achieved) {
+                    Text("Achieved " + java.time.Instant.ofEpochMilli(milestone.achievedAt ?: 0)
+                        .atZone(java.time.ZoneId.systemDefault()).toLocalDate() +
+                        ". Reopening clears the achievement record.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (!achieved && incompleteTasks > 0) {
+                    Text("$incompleteTasks supporting task(s) are not completed. Marking the milestone " +
+                            "achieved records YOUR confirmation that the outcome was met — it will not " +
+                            "claim the unfinished tasks were done.",
+                        color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                }
+            }
+            OperationErrorLine(operationError)
+        },
+        footer = {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                if (achieved) {
+                    Button(enabled = !busy,
+                        onClick = { vm.setMilestoneVerification(milestone.id, false); onDismiss() },
+                        modifier = Modifier.weight(1f)) { Text("Reopen milestone") }
+                } else {
+                    Button(enabled = !busy,
+                        onClick = { vm.setMilestoneVerification(milestone.id, true); onDismiss() },
+                        modifier = Modifier.weight(1f)) {
+                        if (busy) CircularProgressIndicator(Modifier.height(18.dp), strokeWidth = 2.dp)
+                        else Text(if (incompleteTasks > 0) "Confirm achieved" else "Mark achieved")
+                    }
+                }
+                OutlinedButton(enabled = !busy, onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel") }
+            }
+        })
+}
+
+/**
+ * Link an existing habit as a goal's supporting effort (Prompt 3). Lists only not-yet-linked
+ * habits; linking is a read-only association and never duplicates a habit record.
+ */
+@Composable
+internal fun HabitPickerDialog(
+    goalId: Long,
+    linkedHabitIds: List<Long>,
+    habits: List<Habit>,
+    vm: GoalViewModel,
+    operationError: String?,
+    onDismiss: () -> Unit
+) {
+    val busy by vm.busy.collectAsStateWithLifecycle()
+    val candidates = habits.filter { habit -> habit.id !in linkedHabitIds }
+    EditorShell("Link a supporting habit", busy, onDismiss,
+        content = {
+            if (candidates.isEmpty()) {
+                Text("Every habit is already linked to this goal, or no habits exist yet. Create " +
+                        "habits on the Today screen — they can support any goal without being recreated.",
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                Text("Completing a linked habit supports the goal — it never completes a task or the goal.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                candidates.forEach { habit ->
+                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).selectableRow(false, !busy) {
+                        vm.linkHabit(goalId, habit.id)
+                    }, verticalAlignment = Alignment.CenterVertically) {
+                        Spacer(Modifier.width(10.dp))
+                        Column {
+                            Text(habit.name, style = MaterialTheme.typography.bodyMedium)
+                            if (habit.isArchived) Text("Archived — historical effort stays visible",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+            OperationErrorLine(operationError)
+        },
+        footer = {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(enabled = !busy, onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel") }
+            }
         })
 }

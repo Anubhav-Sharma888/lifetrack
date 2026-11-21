@@ -1,0 +1,77 @@
+{
+  "kind": "lifetrack.goal-plan",
+  "schemaVersion": 1,
+  "planId": "22222222-3333-4444-8555-666677778888",
+  "goal": {
+    "uuid": "bbbbbbbb-0000-4000-8000-000000000001",
+    "title": "Get ready for a 10K run",
+    "category": "Fitness",
+    "priority": "MEDIUM",
+    "plannedStartDate": "2027-01-04",
+    "targetDate": "2027-05-02"
+  },
+  "phases": [
+    {
+      "uuid": "bbbbbbbb-0000-4000-8000-000000000002",
+      "name": "Base building",
+      "plannedStartDate": "2027-01-04",
+      "plannedEndDate": "2027-02-14",
+      "order": 0
+    },
+    {
+      "uuid": "bbbbbbbb-0000-4000-8000-000000000003",
+      "name": "Speed work",
+      "plannedStartDate": "2027-02-01",
+      "plannedEndDate": "2027-03-28",
+      "order": 1
+    },
+    {
+      "uuid": "bbbbbbbb-0000-4000-8000-000000000004",
+      "name": "Taper and race",
+      "plannedStartDate": "2027-04-12",
+      "plannedEndDate": "2027-05-02",
+      "order": 2
+    }
+  ],
+  "milestones": [
+    {
+      "uuid": "bbbbbbbb-0000-4000-8000-000000000005",
+      "title": "Run 5K without stopping",
+      "phaseUuid": "bbbbbbbb-0000-4000-8000-000000000002",
+      "targetDate": "2027-02-14"
+    },
+    {
+      "uuid": "bbbbbbbb-0000-4000-8000-000000000006",
+      "title": "Complete a practice 10K",
+      "phaseUuid": "bbbbbbbb-0000-4000-8000-000000000003",
+      "targetDate": "2027-03-28"
+    }
+  ],
+  "tasks": [
+    {
+      "uuid": "bbbbbbbb-0000-4000-8000-000000000007",
+      "title": "Three easy runs per week",
+      "phaseUuid": "bbbbbbbb-0000-4000-8000-000000000002",
+      "order": 0,
+      "deadline": "2027-02-14",
+      "estimatedMinutes": 150
+    },
+    {
+      "uuid": "bbbbbbbb-0000-4000-8000-000000000008",
+      "title": "One interval session per week",
+      "phaseUuid": "bbbbbbbb-0000-4000-8000-000000000003",
+      "order": 1,
+      "deadline": "2027-03-28",
+      "estimatedMinutes": 60
+    },
+    {
+      "uuid": "bbbbbbbb-0000-4000-8000-000000000009",
+      "title": "Reduce volume in the final two weeks",
+      "phaseUuid": "bbbbbbbb-0000-4000-8000-000000000004",
+      "order": 2,
+      "deadline": "2027-05-01",
+      "estimatedMinutes": 90
+    }
+  ],
+  "dependencies": []
+}
