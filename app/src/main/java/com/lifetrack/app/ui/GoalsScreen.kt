@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.UploadFile
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material3.Card
@@ -25,6 +26,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SuggestionChip
@@ -51,13 +53,22 @@ import java.util.Locale
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun GoalsScreen(vm: GoalViewModel, onAdd: () -> Unit, onOpen: (Long) -> Unit) {
+internal fun GoalsScreen(vm: GoalViewModel, onAdd: () -> Unit, onOpen: (Long) -> Unit, onImport: () -> Unit) {
     val hub by vm.hub.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { vm.refreshToday() }
     val dateFormatter = rememberRowDateFormatter()
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Goals") }) },
+        topBar = {
+            TopAppBar(
+                title = { Text("Goals") },
+                actions = {
+                    IconButton(onClick = onImport) {
+                        Icon(Icons.Outlined.UploadFile, contentDescription = "Import Goal Plan")
+                    }
+                }
+            )
+        },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = onAdd,
@@ -70,7 +81,7 @@ internal fun GoalsScreen(vm: GoalViewModel, onAdd: () -> Unit, onOpen: (Long) ->
             FilterRow(hub.filter, vm::setFilter)
             when {
                 !hub.loaded -> Unit
-                hub.databaseEmpty -> GoalsEmptyState(onAdd)
+                hub.databaseEmpty -> GoalsEmptyState(onAdd, onImport)
                 hub.cards.isEmpty() -> Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("Nothing here yet", style = MaterialTheme.typography.titleLarge)
@@ -189,7 +200,7 @@ internal fun StatusBadge(statusLabel: String, archived: Boolean) {
 }
 
 @Composable
-private fun GoalsEmptyState(onAdd: () -> Unit) {
+private fun GoalsEmptyState(onAdd: () -> Unit, onImport: () -> Unit) {
     Column(
         Modifier.fillMaxSize().padding(32.dp),
         verticalArrangement = Arrangement.Center,
@@ -208,6 +219,8 @@ private fun GoalsEmptyState(onAdd: () -> Unit) {
         )
         Spacer(Modifier.height(24.dp))
         SuggestionChip(onClick = onAdd, label = { Text("Create your first goal") })
+        Spacer(Modifier.height(8.dp))
+        SuggestionChip(onClick = onImport, label = { Text("Import a Goal Plan file") })
     }
 }
 

@@ -171,13 +171,18 @@ fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, vm: HabitView
                         HabitEditorScreen(it.arguments!!.getLong("id"), state, vm, onBack = { nav.popBackStack() })
                     }
                     // ---- Goal Roadmaps (Version 2) ----
-                    composable("goals") { GoalsScreen(goalsVm, onAdd = { nav.navigate("goalEdit/0") }, onOpen = { nav.navigate("goal/$it") }) }
+                    composable("goals") { GoalsScreen(goalsVm, onAdd = { nav.navigate("goalEdit/0") }, onOpen = { nav.navigate("goal/$it") }, onImport = { nav.navigate("goalImport") }) }
                     composable("goal/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) {
                         val id = it.arguments!!.getLong("id")
                         GoalDetailScreen(id, goalsVm, onBack = { nav.popBackStack() }, onEdit = { nav.navigate("goalEdit/$id") })
                     }
                     composable("goalEdit/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) {
                         GoalEditorScreen(it.arguments!!.getLong("id"), goalsVm, today = state.today, onBack = { nav.popBackStack() })
+                    }
+                    composable("goalImport") {
+                        GoalPlanImportScreen(onBack = { nav.popBackStack() }, onViewGoal = { goalId ->
+                            nav.navigate("goal/$goalId") { popUpTo("goals") }
+                        })
                     }
                 }
             }

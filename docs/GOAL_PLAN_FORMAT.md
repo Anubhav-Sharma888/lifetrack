@@ -86,5 +86,5 @@ as instants or timestamps. Dates may be in the past or future; planned dates des
 ## File limits
 
 Files must be ≤ 2 MB, JSON nesting depth ≤ 64, and all collection caps above apply. Parsing
-performs no database writes; importing (with preview and conflict resolution) is a separate,
-later operation.
+performs no database writes; the in-app import (preview, conflict decisions, one transactional
+apply) is a separate, explicitly confirmed operation.

@@ -41,6 +41,8 @@ data/GoalRepository.kt    transactional CRUD, state machines, dependency graph c
                           reschedule + history writes, habit links + read-only activity signals
 data/GoalPlanDocument.kt  Goal Plan JSON contract: document model, bounded strict parser,
                           validator, exporter (Prompt 3)
+data/GoalPlanImport.kt    import pipeline: bounded file reader, classification, decision
+                          resolution, transactional merge (Prompt 4)
 domain/GoalTimeline.kt    pure snapshot/classification/shift engine (Prompt 2)
 domain/GoalProgress.kt    pure progress math: breakdowns, rates, readiness (Prompt 3)
 data/AppDatabase.kt       version 13; dao() (habits) + goalDao() (roadmaps)
@@ -48,10 +50,12 @@ data/Backup.kt            LifeTrackBackup v10–v12 lists + validateGoalRoadmaps
 data/HabitRepository.kt   export snapshot/version cascade, replace-all import, reset (goal leg)
 ui/GoalsScreen.kt, ui/GoalDetailScreen.kt, ui/GoalDialogs.kt, ui/GoalViewModel.kt
                           goal hub, detail, editors, verification/link dialogs (Prompt 2–3)
+ui/GoalPlanImportScreen.kt, ui/GoalPlanImportViewModel.kt
+                          import flow: file pick, preview, conflict decisions, confirm (Prompt 4)
 docs/                     this document set + the Goal Plan format/schema/AI-prompt documents
 ```
 
-Deliberately **not** created: any `ui/` goal-plan import UI (Prompt 4 owns preview/merge — the Prompt 3 parser is UI-free and importable later unchanged), any session/reminder code (Prompt 5). No repository method returns a fake or a `TODO` — Prompt-4+ contracts are documented in §7 and §8 as interface sketches, not stubs in code.
+Deliberately **not** created: any session/reminder code (Prompt 5), any import-history persistence (Prompt 4 decided the goal-domain tables suffice — decisions are transient, applied or discarded). No repository method returns a fake or a `TODO` — Prompt-5+ contracts are documented in §7 and §8 as interface sketches, not stubs in code.
 
 ### 2.2 Data ownership
 
@@ -151,8 +155,18 @@ Pure `domain/GoalTimeline.kt` over persisted records: ordered phase/task views, 
 ### 7.1a Progress engine (Prompt 3, shipped)
 Pure `domain/GoalProgress.kt`: task/milestone breakdowns, percentage rates that are **null when not measurable** (no tasks ⇒ no fabricated 100%), `readyForReview` as a derived view (requires every task COMPLETED — SKIPPED is bypass, not completion — and every milestone ACHIEVED; null with no tasks and no milestones). Read-time only; nothing stores or auto-promotes a "ready" state. The dependency-gate policy lives beside it in `GoalTimeline.PrerequisiteGate`: a COMPLETED prerequisite satisfies (`SATISFIED_COMPLETED`), a SKIPPED one bypasses (`SATISFIED_BYPASSED`), anything else leaves the gate `PENDING`.
 
-### 7.2 Import preview (Prompt 4)
-`GoalPlanDocument` (shipped in Prompt 3) → validated candidate list → conflict classification by UUID → user decisions → one transaction applying decisions via repository writes. Preview reads only; the merge re-validates every record before its write. **Recorded obligation:** the Goal Plan parser validates document-level structure and ordering (planned ≤ deadline) but deliberately does not apply the full-backup calendar-date ranges — plan dates may legitimately describe the past or future. The Prompt 4 importer MUST run every converted record through `GoalValidator`'s entity-level checks (including the `earliestDate`-anchored ranges) before any write, so out-of-range dates cannot reach Room.
+### 7.2 Import preview + merge (Prompt 4, shipped as designed)
+`data/GoalPlanImport.kt` implements the pipeline the Prompt 3 contract promised: bounded file read (`GoalPlanImportFileReader`, size-capped, strict UTF-8, backup-vs-plan detection) → strict parse (`GoalPlanParser`, unchanged) → classification (`classify`, pure over one batched domain snapshot) → user decisions (`summarize`, pure: counts, blocking relationships, count caps, merged-graph acyclicity) → transactional apply (`apply`, ONE `db.withTransaction`).
+
+Decision semantics (defaults are conservative — nothing destructive is ever preselected):
+- **Keep existing** — no write; referenced records resolve to the stored rows; progress/history/links untouched.
+- **Use imported** — metadata-only update of the matched row, covering **only fields the plan actually provides** (a missing plan field is unknown intent, never permission to erase); status, completion/achievement instants, archival, uuid and row id are structurally preserved; changed dates write schedule revisions through the established repository convention.
+- **Copy as new** — fresh canonical UUIDs minted **inside the apply transaction** (scoped to the operation; the parsed document is never mutated); copies start PLANNED/PENDING/NOT_STARTED with no history; parent and dependency references remap through an explicit plan-uuid → row-id mapping. A goal-level Copy forces every record into the copy.
+- **Skip** — omitted from the write set; a skipped parent blocks its children until resolved; skipped endpoints drop their dependency edges.
+
+Identity and graph rules: matching is by canonical UUID only; a uuid owned by another entity type (`CROSS_TYPE_COLLISION`) or another goal (`FOREIGN_GOAL_OWNERSHIP`) is a structural conflict that may only be skipped or copied. The merged dependency graph (existing edges + effective plan edges) must stay acyclic — checked at preview time with an explicit-stack walk and re-proven inside the transaction by `GoalValidator.validateDependencyGraph`. Stale previews are rejected: the classification fingerprint (updatedAt + status of every matched row, and the absence of every record uuid that was new) is re-verified inside the apply transaction.
+
+The Prompt 3 recorded obligation is closed: every written record passes the shared `GoalValidator` entity-level checks, including the 1900–today+100 calendar ranges, so imported data behaves exactly like manually created data. Count caps are enforced at preview (blocked before confirm) and re-enforced inside the transaction. A failed import leaves the database byte-for-byte unchanged (transactional rollback; pinned by the partial-write rollback test at the revision-cap boundary).
 
 ### 7.3 Study sessions (Prompt 5)
 New tables (additive, schema 14+): `goal_sessions` with **planned** start/end as local date-time + the user-selected timezone id captured at creation (calendar semantics survive DST), and **actual** start/end as UTC epoch millis recorded at the moment they happen; confirmation state, partial minutes, skip reasons, and the linked goal/task identity. Sessions reference goals/tasks by row id (stable under full-backup replace-all); the partial import path remaps by UUID before writing link-bearing rows. Sessions join the full-backup envelope as a versioned additive list with their own gates; missed-session recovery is read-time, never a silent completion write.

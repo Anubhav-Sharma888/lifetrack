@@ -3,7 +3,7 @@
 Copy this template, replace the `<ANGLE-BRACKET>` variables, and give it to any AI (ChatGPT,
 Gemini, Claude…). The AI must respond with **only** the JSON file content — no commentary, no
 markdown fences — following the rules below. The result is a Goal Plan file LifeTrack can
-validate and (in a later release) import.
+validate and import (Goals → Import Goal Plan).
 
 ---
 

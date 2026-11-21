@@ -93,8 +93,8 @@ class GoalScreensTest {
 
     private fun waitUntilIdle() = awaitSettled("a running operation") { !vm.busy.value }
 
-    private fun setHubContent(onAdd: () -> Unit = {}, onOpen: (Long) -> Unit = {}) {
-        compose.setContent { MaterialTheme { GoalsScreen(vm, onAdd = onAdd, onOpen = onOpen) } }
+    private fun setHubContent(onAdd: () -> Unit = {}, onOpen: (Long) -> Unit = {}, onImport: () -> Unit = {}) {
+        compose.setContent { MaterialTheme { GoalsScreen(vm, onAdd = onAdd, onOpen = onOpen, onImport = onImport) } }
         awaitSettled("the hub to load") { vm.hub.value.loaded }
     }
 
