@@ -1,0 +1,191 @@
+name: LifeTrack v2.2.0 Preview 1 — verify and publish
+
+on:
+  push:
+    branches:
+      - release/v2.2.0-preview.1
+
+concurrency:
+  group: lifetrack-v2.2-preview-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: github.repository == 'Anubhav-Sharma888/lifetrack'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    steps:
+      - name: Checkout exact release candidate
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Verify feature provenance and release metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor e952fec13ad91b69b0dffe69beecf04b68bfba3a "$GITHUB_SHA"
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          allowed = {
+              'app/build.gradle.kts',
+              'docs/releases/v2.2.0-preview.1.md',
+              '.github/workflows/lifetrack-v2.2-preview.yml',
+          }
+          changed = set(subprocess.check_output([
+              'git', 'diff', '--name-only',
+              'e952fec13ad91b69b0dffe69beecf04b68bfba3a',
+              'HEAD',
+          ], text=True).splitlines())
+          assert changed <= allowed, f'Unexpected feature changes after Prompt 2: {changed - allowed}'
+          gradle = Path('app/build.gradle.kts')
+          content = gradle.read_text(encoding='utf-8')
+          for requirement in (
+              'versionCode = 13',
+              'versionName = "2.2.0-preview.1"',
+              'applicationId = "com.lifetrack.app"',
+          ):
+              assert requirement in content, requirement
+          # Isolate this CI-generated debug signing identity from ALL existing installs.
+          marker = '    buildTypes {\n        release {'
+          assert content.count(marker) == 1, 'Unexpected build configuration; refusing unsafe rewrite'
+          gradle.write_text(content.replace(
+              marker,
+              '    buildTypes {\n        getByName("debug") { applicationIdSuffix = ".v2p2" }\n        release {',
+              1,
+          ), encoding='utf-8')
+          manifest = Path('app/src/main/AndroidManifest.xml')
+          xml = manifest.read_text(encoding='utf-8')
+          old = 'android:label="LifeTrack"'
+          assert xml.count(old) == 1, 'Unexpected app label; refusing unsafe rewrite'
+          manifest.write_text(xml.replace(old, 'android:label="LifeTrack 2.2 Preview"', 1), encoding='utf-8')
+          PY
+          test -f docs/releases/v2.2.0-preview.1.md
+
+      - name: Set up Java 21
+        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4.7.1
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Prepare official Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d "$ANDROID_HOME"
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -1)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --install "platforms;android-36" "build-tools;35.0.0" "platform-tools"
+
+      - name: Full unit tests, lint and debug APK — sequential, resource limited
+        shell: bash
+        env:
+          GRADLE_OPTS: -Xmx512m
+        run: |
+          set -euo pipefail
+          free -m
+          nproc
+          chmod +x gradlew
+          # Assert the reduced Linux scheduling priority before starting Gradle.
+          nice -n 10 bash -c '
+            nice_value=$(ps -o ni= -p "$$" | tr -d " ")
+            echo "Verified launcher nice=$nice_value"
+            test "$nice_value" -ge 10
+            exec ./gradlew --max-workers=2 --no-parallel --no-daemon               "-Dorg.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8"               testDebugUnitTest lintDebug assembleDebug
+          '
+
+      - name: Verify test count and inspect APK identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from glob import glob
+          import xml.etree.ElementTree as ET
+          xmls = glob('app/build/test-results/testDebugUnitTest/TEST-*.xml')
+          assert xmls, 'Missing test results'
+          sums = {key: 0 for key in ('tests', 'failures', 'errors', 'skipped')}
+          for file in xmls:
+              elem = ET.parse(file).getroot()
+              for key in sums:
+                  sums[key] += int(elem.get(key, '0'))
+          print('Observed unit-test results:', sums)
+          assert sums['tests'] >= 446, 'Expected Prompt 2 regression test coverage'
+          assert sums['failures'] == 0 and sums['errors'] == 0 and sums['skipped'] == 0
+          PY
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort | tail -1)"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort | tail -1)"
+          test -x "$AAPT"
+          test -x "$APKSIGNER"
+          BADGING="$("$AAPT" dump badging "$APK")"
+          printf '%s\n' "$BADGING" | head -n 4
+          grep -F "name='com.lifetrack.app.v2p2'" <<< "$BADGING"
+          grep -F "versionCode='13'" <<< "$BADGING"
+          grep -F "versionName='2.2.0-preview.1'" <<< "$BADGING"
+          mkdir -p dist
+          "$APKSIGNER" verify --verbose --print-certs "$APK" > dist/LifeTrack-v2.2.0-preview.1.signing.txt
+          grep -F "Signer #1 certificate SHA-256 digest:" dist/LifeTrack-v2.2.0-preview.1.signing.txt
+          cp "$APK" dist/LifeTrack-v2.2.0-preview.1.apk
+          cd dist
+          sha256sum LifeTrack-v2.2.0-preview.1.apk > LifeTrack-v2.2.0-preview.1.apk.sha256
+          sha256sum -c LifeTrack-v2.2.0-preview.1.apk.sha256
+
+      - name: Upload verified candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: LifeTrack-v2.2.0-preview.1-${{ github.sha }}
+          path: dist/LifeTrack-v2.2.0-preview.1.*
+          if-no-files-found: error
+
+  publish:
+    if: github.ref == 'refs/heads/release/v2.2.0-preview.1' && github.repository == 'Anubhav-Sharma888/lifetrack'
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout release notes from the verified commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Download tested APK and reports
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: LifeTrack-v2.2.0-preview.1-${{ github.sha }}
+          path: dist
+
+      - name: Verify immutable prerelease and publish
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          TAG=v2.2.0-preview.1
+          cd dist
+          test -s LifeTrack-v2.2.0-preview.1.apk
+          sha256sum -c LifeTrack-v2.2.0-preview.1.apk.sha256
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release already exists. Refusing to overwrite." >&2
+            exit 1
+          fi
+          if gh api "repos/$GH_REPO/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag already exists. Refusing to overwrite." >&2
+            exit 1
+          fi
+          gh release create "$TAG"             LifeTrack-v2.2.0-preview.1.apk             LifeTrack-v2.2.0-preview.1.apk.sha256             LifeTrack-v2.2.0-preview.1.signing.txt             --target "$GITHUB_SHA"             --title "LifeTrack v2.2.0 Preview 1 — Goal Roadmaps"             --notes-file ../docs/releases/v2.2.0-preview.1.md             --prerelease
+          echo "Published tag $TAG targeting $GITHUB_SHA"
+          gh release view "$TAG" --json tagName,isPrerelease,url,assets
+          mkdir -p remote-verify
+          gh release download "$TAG" --dir remote-verify             --pattern 'LifeTrack-v2.2.0-preview.1.apk*'
+          cd remote-verify
+          sha256sum -c LifeTrack-v2.2.0-preview.1.apk.sha256
