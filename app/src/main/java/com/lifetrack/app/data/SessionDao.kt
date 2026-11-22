@@ -40,6 +40,14 @@ interface SessionDao {
 
     @Query("SELECT * FROM goal_sessions WHERE status = 'IN_PROGRESS'") suspend fun sessionsInProgress(): List<GoalSession>
 
+    /** Recovery candidates: past sessions still awaiting a user decision (PLANNED/IN_PROGRESS
+     *  past their planned end) plus explicit partial outcomes, oldest first. Bounded read. */
+    @Query(
+        "SELECT * FROM goal_sessions WHERE status IN ('PLANNED', 'IN_PROGRESS', 'PARTIAL') " +
+            "AND plannedStartDate <= :day ORDER BY plannedStartDate, plannedStartTime, id LIMIT :limit"
+    )
+    suspend fun recoveryCandidates(day: Long, limit: Int): List<GoalSession>
+
     @Query("SELECT * FROM goal_sessions ORDER BY plannedStartDate DESC, plannedStartTime DESC, id DESC LIMIT :limit")
     suspend fun recentSessions(limit: Int): List<GoalSession>
 

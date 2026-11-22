@@ -20,6 +20,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.lifetrack.app.MainActivity
+import com.lifetrack.app.widget.backgroundAlarmRepository
 import com.lifetrack.app.widget.backgroundRepository
 import com.lifetrack.app.widget.refreshWidgets
 import java.time.LocalDate
@@ -35,9 +36,14 @@ class HabitReminderWorker(context: Context, parameters: WorkerParameters) : Coro
         val now = LocalDateTime.now()
         val date = now.toLocalDate()
         val snapshot = repository.readSnapshot(date)
+        // Ringing-alarm habits are delivered by the exact-alarm path (Prompt 6): the periodic
+        // worker would post a second, conflicting notification for the same time.
+        val ringingHabitIds = backgroundAlarmRepository(applicationContext).habitsWithAlarms()
+            .filter { it.has }.map { it.habitId }.toSet()
         val minute = now.hour * 60 + now.minute
         val logs = snapshot.logs.filter { it.date == date }.associateBy { it.habitId }
-        snapshot.habits.filter { ReminderPolicy.isDue(it, logs[it.id], date, minute, snapshot.pauses) }.forEach { habit ->
+        snapshot.habits.filter { ReminderPolicy.isDue(it, logs[it.id], date, minute, snapshot.pauses) }
+            .filter { it.id !in ringingHabitIds }.forEach { habit ->
             if (repository.claimReminder(habit.id, date, expectedCreatedAt = habit.createdAt)) {
                 if (!notificationsAllowed(applicationContext)) {
                     repository.releaseReminderClaim(habit.id, date, habit.createdAt)

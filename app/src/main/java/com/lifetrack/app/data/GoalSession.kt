@@ -6,6 +6,8 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 import androidx.room.TypeConverter
 import androidx.room.TypeConverters
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Required
 import kotlinx.serialization.Serializable
 import java.time.LocalDate
@@ -37,7 +39,7 @@ import java.time.LocalTime
  */
 @Serializable
 enum class GoalSessionStatus {
-    PLANNED, IN_PROGRESS, COMPLETED, CANCELED;
+    PLANNED, IN_PROGRESS, COMPLETED, PARTIAL, SKIPPED, CANCELED;
     companion object {
         /** Unknown stored values fall back to PLANNED so corrupt local rows still render. */
         fun fromStored(value: String): GoalSessionStatus = entries.firstOrNull { it.name == value } ?: PLANNED
@@ -45,14 +47,23 @@ enum class GoalSessionStatus {
 }
 
 object GoalSessionTransitions {
-    /** Implemented in Prompt 5. Prompt 6 reserves: PLANNED→(MISSED, SNOOZED), recovery re-planning,
-     *  and partial-completion splits — none of which exist as states in this schema. */
+    /** Prompt 6 recovery outcomes: PARTIAL (explicitly reported incomplete work) and SKIPPED
+     *  (deliberately not done) are persisted user decisions. "Missed / needs review" stays
+     *  DERIVED read-time (planned end passed without confirmation) — a missed notification is
+     *  never proof the session was skipped, so no MISSED state exists. Snoozing is reminder
+     *  state (snoozedUntilAt/snoozeCount), never a session status. Rescheduling keeps the row
+     *  and records the original planned window (originalPlanned* fields). */
     val sessions = mapOf(
         GoalSessionStatus.PLANNED to setOf(
-            GoalSessionStatus.IN_PROGRESS, GoalSessionStatus.COMPLETED, GoalSessionStatus.CANCELED),
-        GoalSessionStatus.IN_PROGRESS to setOf(GoalSessionStatus.COMPLETED, GoalSessionStatus.CANCELED),
-        // Terminal for Prompt 5: an explicit reopen/re-plan arrives with Prompt 6's recovery engine.
+            GoalSessionStatus.IN_PROGRESS, GoalSessionStatus.COMPLETED, GoalSessionStatus.PARTIAL,
+            GoalSessionStatus.SKIPPED, GoalSessionStatus.CANCELED),
+        GoalSessionStatus.IN_PROGRESS to setOf(
+            GoalSessionStatus.COMPLETED, GoalSessionStatus.PARTIAL, GoalSessionStatus.SKIPPED,
+            GoalSessionStatus.CANCELED),
+        // Terminal outcomes: history is preserved; recovery creates NEW work instead of rewriting it.
         GoalSessionStatus.COMPLETED to emptySet(),
+        GoalSessionStatus.PARTIAL to emptySet(),
+        GoalSessionStatus.SKIPPED to emptySet(),
         GoalSessionStatus.CANCELED to emptySet()
     )
 
@@ -71,6 +82,13 @@ const val MAX_UPCOMING_SESSIONS = 500
 /** How far ahead a reminder may be scheduled, in days — bounds WorkManager work far in the future. */
 const val SCHEDULING_HORIZON_DAYS = 366
 
+/** Bounded snoozes per session occurrence (Prompt 6): prevents infinite snooze chains. */
+const val MAX_SESSION_SNOOZES = 3
+
+/** Snooze choices offered in the UI, in minutes. */
+val SESSION_SNOOZE_CHOICES_MINUTES = listOf(5, 10, 15, 30)
+
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 @Entity(
     tableName = "goal_sessions",
@@ -111,12 +129,31 @@ data class GoalSession(
     // Actual UTC evidence of user-confirmed actions (epoch millis); null until the user acts.
     @Required val actualStartAt: Long? = null,
     @Required val actualEndAt: Long? = null,
+    // User-reported minutes for a manual check-in (no instrumented start) or a partial outcome:
+    // an honest reported figure, never derived from the planned window. Null = instrumented.
+    @Required @EncodeDefault(EncodeDefault.Mode.NEVER) val reportedMinutes: Int? = null,
     @Required val status: String = GoalSessionStatus.PLANNED.name,
     @Required val goalId: Long? = null,
     @Required val phaseId: Long? = null,
     @Required val taskId: Long? = null,
     @Required val startReminder: Boolean = true,
     @Required val endCheckIn: Boolean = true,
+    // Reschedule audit: the ORIGINAL planned window survives on the row when the user moves a
+    // session (Prompt 6 recovery). The planned* fields always carry the CURRENT intent, and a
+    // moved session is never treated as if the original delay never happened.
+    @Required @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @Serializable(with = LocalDateSerializer::class) val originalPlannedStartDate: LocalDate? = null,
+    @Required @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @Serializable(with = LocalTimeSerializer::class) val originalPlannedStartTime: LocalTime? = null,
+    @Required @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @Serializable(with = LocalDateSerializer::class) val originalPlannedEndDate: LocalDate? = null,
+    @Required @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @Serializable(with = LocalTimeSerializer::class) val originalPlannedEndTime: LocalTime? = null,
+    // Reminder-snooze operational state (bounded: at most MAX_SESSION_SNOOZES per occurrence).
+    // Reminder schedule and session schedule are different facts — snoozing never rewrites the
+    // planned window. Carried on the row so a reboot cannot duplicate a snoozed reminder.
+    @Required @EncodeDefault(EncodeDefault.Mode.NEVER) val snoozedUntilAt: Long? = null,
+    @Required @EncodeDefault(EncodeDefault.Mode.NEVER) val snoozeCount: Int = 0,
     @Required val createdAt: Long = System.currentTimeMillis(),
     @Required val updatedAt: Long = createdAt
 )
@@ -191,18 +228,26 @@ object GoalSessionValidator {
         }
     }
 
-    fun validateStatusPair(status: String, actualStartAt: Long?, actualEndAt: Long?) {
+    fun validateStatusPair(status: String, actualStartAt: Long?, actualEndAt: Long?,
+                           reportedMinutes: Int? = null) {
         val state = GoalSessionStatus.fromStored(status)
         // One-directional invariants: each state requires its own evidence and forbids
         // contradictory evidence, but a CANCELED session may keep the start instant the user
-        // actually recorded before canceling — erasing it would falsify history.
+        // actually recorded before canceling — erasing it would falsify history. PARTIAL and
+        // SKIPPED are Prompt 6 recovery outcomes with their own evidence rules.
         require(state != GoalSessionStatus.IN_PROGRESS || (actualStartAt != null && actualEndAt == null)) {
             "A started session must record when it started, and only then."
         }
         require(state != GoalSessionStatus.COMPLETED || actualEndAt != null) {
             "A completed session must record when it ended, and only then."
         }
-        require(state != GoalSessionStatus.PLANNED || (actualStartAt == null && actualEndAt == null)) {
+        require(state != GoalSessionStatus.PARTIAL || (actualEndAt != null || reportedMinutes != null)) {
+            "A partial session must record either an actual end or reported minutes."
+        }
+        require(state != GoalSessionStatus.SKIPPED || (actualStartAt == null && actualEndAt == null && reportedMinutes == null)) {
+            "A skipped session carries no actual work evidence."
+        }
+        require(state != GoalSessionStatus.PLANNED || (actualStartAt == null && actualEndAt == null && reportedMinutes == null)) {
             "A planned session cannot carry actual times yet."
         }
         require(state != GoalSessionStatus.CANCELED || actualEndAt == null) {
@@ -213,6 +258,12 @@ object GoalSessionValidator {
         require(actualStartAt == null || actualEndAt == null || actualStartAt <= actualEndAt) {
             "A session cannot end before it started."
         }
+        require(reportedMinutes == null || reportedMinutes in 1..MAX_PLANNED_DURATION_MINUTES) {
+            "Reported minutes must be between 1 and 1,440."
+        }
+        // A PARTIAL outcome must genuinely fall short of its planned window: the repository
+        // passes the session's own planned minutes, so the honest "shorter than planned" rule
+        // is enforced where both figures are available (see SessionRepository.confirmOutcome).
     }
 
     fun validateAssociations(goalId: Long?, phaseId: Long?, taskId: Long?,
@@ -240,7 +291,27 @@ object GoalSessionValidator {
         validateDescription(session.description)
         validatePlannedWindow(session, today)
         validateTimezone(session.timezoneId)
-        validateStatusPair(session.status, session.actualStartAt, session.actualEndAt)
+        validateStatusPair(session.status, session.actualStartAt, session.actualEndAt, session.reportedMinutes)
+        // Reschedule audit fields: all present or all absent — set atomically by the repository.
+        val originals = listOf(session.originalPlannedStartDate, session.originalPlannedStartTime,
+            session.originalPlannedEndDate, session.originalPlannedEndTime)
+        require(originals.all { it != null } || originals.all { it == null }) {
+            "A rescheduled session must record its complete original window."
+        }
+        if (originals.all { it != null }) {
+            val endTime = session.originalPlannedEndTime!!
+            val startTime = session.originalPlannedStartTime!!
+            val endDate = session.originalPlannedEndDate!!
+            val startDate = session.originalPlannedStartDate!!
+            require(endTime.isAfter(startTime) || endDate.isAfter(startDate)) {
+                "A session's original window cannot end before or exactly when it starts."
+            }
+        }
+        require(session.snoozeCount in 0..MAX_SESSION_SNOOZES) { "Invalid session snooze count." }
+        require(session.snoozedUntilAt == null || session.snoozedUntilAt >= 0) { "Invalid snooze timestamp." }
+        require(session.snoozedUntilAt == null || session.snoozeCount > 0) {
+            "A snoozed session must carry its snooze count."
+        }
         require(session.createdAt >= 0 && session.updatedAt >= session.createdAt) { "Invalid session timestamps." }
         validateAssociations(session.goalId, session.phaseId, session.taskId, phaseGoalIds, taskGoalIds)
     }

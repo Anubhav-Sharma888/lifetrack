@@ -48,7 +48,8 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HabitEditorScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBack: () -> Unit) {
+fun HabitEditorScreen(id: Long, state: LifeTrackState, vm: HabitViewModel,
+                      alarmVm: HabitAlarmViewModel? = null, onBack: () -> Unit) {
     val original = state.habits.firstOrNull { it.id == id }
     if (id != 0L && original == null) { Column(Modifier.padding(24.dp)) { Text("This habit no longer exists."); TextButton(onClick = onBack) { Text("Back") } }; return }
     var name by rememberSaveable(id) { mutableStateOf(original?.name ?: "") }
@@ -306,6 +307,11 @@ fun HabitEditorScreen(id: Long, state: LifeTrackState, vm: HabitViewModel, onBac
             )
             HorizontalDivider(thickness = 1.dp, color = MaterialTheme.colorScheme.outlineVariant)
             val reminderApplicable = selectedMode != ScheduleMode.WEEKLY_QUOTA
+            // Ringing alarms (Prompt 6, opt-in): independent of the legacy reminder. Only shown
+            // for saved habits — a draft has no id to attach alarm definitions to yet.
+            if (id > 0 && alarmVm != null) {
+                RingingAlarmsSection(habitId = id, vm = alarmVm)
+            }
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
                     .toggleable(value = reminder && reminderApplicable, enabled = reminderApplicable, role = Role.Switch, onValueChange = { enabled ->
                         if (reminderApplicable) {

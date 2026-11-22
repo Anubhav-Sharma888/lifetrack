@@ -105,6 +105,8 @@ internal fun SessionDetailScreen(uuid: String, vm: SessionViewModel = hiltViewMo
                     GoalSessionStatus.PLANNED -> "Planned"
                     GoalSessionStatus.IN_PROGRESS -> "In progress"
                     GoalSessionStatus.COMPLETED -> "Completed"
+                    GoalSessionStatus.PARTIAL -> "Partially completed"
+                    GoalSessionStatus.SKIPPED -> "Skipped"
                     GoalSessionStatus.CANCELED -> "Canceled"
                 }
                 SessionStatusBadge(stateLabel, vm.isAwaitingReview(session))
@@ -122,10 +124,20 @@ internal fun SessionDetailScreen(uuid: String, vm: SessionViewModel = hiltViewMo
                         Text("Time zone: ${session.timezoneId}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (session.originalPlannedStartDate != null && session.originalPlannedStartTime != null) {
+                            HorizontalDivider()
+                            Text("Original planned window", style = MaterialTheme.typography.titleSmall)
+                            Text("${session.originalPlannedStartDate.format(dateFormatter)} · " +
+                                "${session.originalPlannedStartTime.format(timeFormatter)}",
+                                style = MaterialTheme.typography.bodyMedium)
+                        }
                         HorizontalDivider()
                         Text("Recorded actual times", style = MaterialTheme.typography.titleSmall)
                         Text(
                             when {
+                                session.reportedMinutes != null ->
+                                    "Reported time: ${session.reportedMinutes} minutes" +
+                                        (session.actualEndAt?.let { "\nConfirmed at: ${formatInstant(it)}" } ?: "")
                                 session.actualStartAt == null && session.actualEndAt == null ->
                                     "No recorded start or end yet — evidence appears only after your own actions."
                                 else -> "Started: ${session.actualStartAt?.let { formatInstant(it) } ?: "not recorded"}\n" +
@@ -133,26 +145,44 @@ internal fun SessionDetailScreen(uuid: String, vm: SessionViewModel = hiltViewMo
                             },
                             style = MaterialTheme.typography.bodyMedium
                         )
+                        if (session.snoozeCount > 0) {
+                            Text("Check-in snoozed: ${session.snoozeCount} times",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
+                val plannedMinutes = runCatching {
+                    java.time.Duration.between(
+                        session.plannedStartDate.atTime(session.plannedStartTime),
+                        session.plannedEndDate.atTime(session.plannedEndTime)
+                    ).toMinutes().toInt()
+                }.getOrNull()
+                val partialMinutes = ((plannedMinutes ?: 60) / 2).coerceAtLeast(1)
                 operationError?.let {
                     Text(it, color = MaterialTheme.colorScheme.error,
                         modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                 }
-                // Explicit lifecycle actions only — nothing here completes work automatically,
-                // and every control maps to a transition implemented in Prompt 5.
+                // Explicit lifecycle and recovery actions only — nothing here completes work
+                // automatically, and every control maps to a persisted state transition.
                 when (state) {
-                    GoalSessionStatus.PLANNED -> {
-                        Button(enabled = !busy, onClick = { vm.startSession(session.uuid) },
-                            modifier = Modifier.fillMaxWidth()) { Text("Start session") }
+                    GoalSessionStatus.PLANNED, GoalSessionStatus.IN_PROGRESS -> {
+                        if (state == GoalSessionStatus.PLANNED) {
+                            Button(enabled = !busy, onClick = { vm.startSession(session.uuid) },
+                                modifier = Modifier.fillMaxWidth()) { Text("Start session") }
+                        }
                         Button(enabled = !busy, onClick = { vm.confirmCompletion(session.uuid) },
                             modifier = Modifier.fillMaxWidth()) { Text("Confirm completed") }
-                        OutlinedButton(enabled = !busy, onClick = { vm.cancelSession(session.uuid) },
-                            modifier = Modifier.fillMaxWidth()) { Text("Cancel session") }
-                    }
-                    GoalSessionStatus.IN_PROGRESS -> {
-                        Button(enabled = !busy, onClick = { vm.confirmCompletion(session.uuid) },
-                            modifier = Modifier.fillMaxWidth()) { Text("Confirm completed") }
+                        Button(enabled = !busy, onClick = { vm.recordPartial(session.uuid, reportedMinutes = partialMinutes) },
+                            modifier = Modifier.fillMaxWidth()) { Text("Record partial ($partialMinutes min)") }
+                        Button(enabled = !busy, onClick = { vm.skipSession(session.uuid) },
+                            modifier = Modifier.fillMaxWidth()) { Text("Skip session") }
+                        Button(enabled = !busy, onClick = { vm.snoozeCheckIn(session.uuid, minutes = 10) },
+                            modifier = Modifier.fillMaxWidth()) { Text("Snooze check-in 10 min") }
+                        Button(enabled = !busy, onClick = {
+                            vm.rescheduleSession(session.uuid, session.plannedStartDate.plusDays(1),
+                                session.plannedStartTime, session.plannedEndDate.plusDays(1), session.plannedEndTime)
+                        }, modifier = Modifier.fillMaxWidth()) { Text("Reschedule +1 day") }
                         OutlinedButton(enabled = !busy, onClick = { vm.cancelSession(session.uuid) },
                             modifier = Modifier.fillMaxWidth()) { Text("Cancel session") }
                     }

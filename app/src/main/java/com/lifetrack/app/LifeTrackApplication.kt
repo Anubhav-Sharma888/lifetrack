@@ -22,6 +22,7 @@ class LifeTrackApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         WidgetRefreshScheduler.schedule(this)
+        com.lifetrack.app.reminder.HabitAlarmScheduler.reconcileAll(this)
         applicationScope.launch {
             repository.settings.map { it.backupReminder }.distinctUntilChanged().onEach {
                 BackupReminderScheduler.sync(this@LifeTrackApplication, it)

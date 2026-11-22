@@ -1,6 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Exact alarms: user-selected ringing alarms are a genuine alarm-clock use case. The
+         permission is runtime-declared; delivery falls back to inexact when not granted. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <application
         android:name=".LifeTrackApplication"
@@ -22,5 +29,21 @@
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/lifetrack_widget_info" />
         </receiver>
         <receiver android:name=".reminder.CompleteReminderReceiver" android:exported="false" />
+        <!-- Protected system broadcasts are deliverable to exported=false receivers; the alarm
+             fire receiver is not reachable from other apps. -->
+        <receiver android:name=".reminder.HabitAlarmReceiver" android:exported="false" />
+        <receiver android:name=".reminder.AlarmBootReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
+        <service
+            android:name=".reminder.AlarmRingService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
     </application>
 </manifest>

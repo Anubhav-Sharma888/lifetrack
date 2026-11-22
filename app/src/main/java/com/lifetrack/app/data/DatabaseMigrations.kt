@@ -166,4 +166,29 @@ object DatabaseMigrations {
             db.execSQL("CREATE INDEX IF NOT EXISTS `index_goal_sessions_taskId` ON `goal_sessions` (`taskId`)")
         }
     }
+
+    /** Session recovery arrives in version 15 (Prompt 6): explicit PARTIAL/SKIPPED outcomes,
+     *  user-reported minutes, the original planned window for auditable reschedules, and the
+     *  bounded reminder-snooze state. All columns are additive with SQL defaults; every legacy
+     *  row decodes exactly as Prompt 5 stored it. */
+    val MIGRATION_14_15 = object : Migration(14, 15) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `goal_sessions` ADD COLUMN `reportedMinutes` INTEGER")
+            db.execSQL("ALTER TABLE `goal_sessions` ADD COLUMN `originalPlannedStartDate` INTEGER")
+            db.execSQL("ALTER TABLE `goal_sessions` ADD COLUMN `originalPlannedStartTime` INTEGER")
+            db.execSQL("ALTER TABLE `goal_sessions` ADD COLUMN `originalPlannedEndDate` INTEGER")
+            db.execSQL("ALTER TABLE `goal_sessions` ADD COLUMN `originalPlannedEndTime` INTEGER")
+            db.execSQL("ALTER TABLE `goal_sessions` ADD COLUMN `snoozedUntilAt` INTEGER")
+            db.execSQL("ALTER TABLE `goal_sessions` ADD COLUMN `snoozeCount` INTEGER NOT NULL DEFAULT 0")
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `habit_alarms` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                    "`uuid` TEXT NOT NULL, `habitId` INTEGER NOT NULL, `timeMinutes` INTEGER NOT NULL, " +
+                    "`recurrence` TEXT NOT NULL, `weekdays` TEXT NOT NULL, `onceDate` INTEGER, " +
+                    "`enabled` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                    "FOREIGN KEY(`habitId`) REFERENCES `habits`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)"
+            )
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_habit_alarms_uuid` ON `habit_alarms` (`uuid`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_habit_alarms_habitId` ON `habit_alarms` (`habitId`)")
+        }
+    }
 }

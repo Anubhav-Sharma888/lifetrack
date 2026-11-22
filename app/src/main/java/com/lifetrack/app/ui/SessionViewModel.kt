@@ -10,6 +10,7 @@ import com.lifetrack.app.data.GoalSession
 import com.lifetrack.app.data.GoalSessionStatus
 import com.lifetrack.app.data.GoalTask
 import com.lifetrack.app.data.SessionRepository
+import com.lifetrack.app.data.SessionRecoveryRepository
 import com.lifetrack.app.reminder.SessionReminderScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -55,6 +56,7 @@ data class SessionsOverviewState(
 @HiltViewModel
 class SessionViewModel @Inject constructor(
     private val repository: SessionRepository,
+    private val recovery: SessionRecoveryRepository,
     private val goalRepository: GoalRepository,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
@@ -103,7 +105,7 @@ class SessionViewModel @Inject constructor(
             val bucket = when {
                 state == GoalSessionStatus.IN_PROGRESS -> SessionBucket.IN_PROGRESS
                 repository.awaitingReview(session, now) -> SessionBucket.AWAITING_REVIEW
-                state == GoalSessionStatus.COMPLETED -> SessionBucket.COMPLETED
+                state == GoalSessionStatus.COMPLETED || state == GoalSessionStatus.PARTIAL || state == GoalSessionStatus.SKIPPED -> SessionBucket.COMPLETED
                 else -> SessionBucket.UPCOMING
             }
             SessionCardState(
@@ -115,6 +117,7 @@ class SessionViewModel @Inject constructor(
         // Canceled sessions are planning decisions, not work records: the overview keeps the
         // four honest buckets above and leaves canceled rows to their detail screen.
         val cards = all.filter { GoalSessionStatus.fromStored(it.status) != GoalSessionStatus.CANCELED }.map(card)
+        recoveryCandidates.value = runCatching { recovery.recoveryCandidates(today) }.getOrDefault(emptyList())
         val history = repository.recentHistory(HISTORY_WINDOW).map(card)
         _overview.value = SessionsOverviewState(
             loaded = true, today = today,
@@ -124,6 +127,9 @@ class SessionViewModel @Inject constructor(
             history = history.filter { it.bucket == SessionBucket.COMPLETED }
         )
     }
+
+    /** Recovery suggestions: bounded unreviewed/partial list, refreshed with the overview. */
+    val recoveryCandidates = MutableStateFlow<List<GoalSession>>(emptyList())
 
     /** Force a refresh (called on ON_RESUME so elapsed sessions move to awaiting review). */
     fun refresh() {
@@ -215,6 +221,38 @@ class SessionViewModel @Inject constructor(
     /** Read-time "awaiting review" for the detail screen — derived, never stored. */
     fun isAwaitingReview(session: GoalSession, now: Long = System.currentTimeMillis()): Boolean =
         repository.awaitingReview(session, now)
+
+    /** Explicit partial outcome (Prompt 6): minutes actually spent, honestly below the plan. */
+    fun recordPartial(uuid: String, reportedMinutes: Int) = launchOperation(operation = {
+        recovery.confirmOutcome(uuid, GoalSessionStatus.PARTIAL, reportedMinutes = reportedMinutes)
+        "Partial session recorded"
+    })
+
+    /** Deliberate skip: a user decision with no work evidence. */
+    fun skipSession(uuid: String) = launchOperation(operation = {
+        recovery.confirmOutcome(uuid, GoalSessionStatus.SKIPPED)
+        "Session skipped"
+    })
+
+    /** Manual completed check-in: reported minutes without a fabricated start. */
+    fun confirmCompletedReported(uuid: String, reportedMinutes: Int) = launchOperation(operation = {
+        recovery.confirmOutcome(uuid, GoalSessionStatus.COMPLETED, reportedMinutes = reportedMinutes)
+        "Session completed"
+    })
+
+    /** Auditable reschedule: the original plan is preserved on the row. */
+    fun rescheduleSession(uuid: String, newStart: LocalDate, newStartTime: LocalTime,
+                          newEnd: LocalDate, newEndTime: LocalTime) = launchOperation(operation = {
+        recovery.reschedule(uuid, newStart, newStartTime, newEnd, newEndTime)
+        "Session rescheduled"
+    })
+
+    /** Bounded end check-in snooze. */
+    fun snoozeCheckIn(uuid: String, minutes: Int) = launchOperation(operation = {
+        val until = System.currentTimeMillis() + minutes * 60_000L
+        recovery.snoozeCheckIn(uuid, untilEpochMillis = until)
+        "Check-in snoozed $minutes minutes"
+    })
 
     fun clearOperationError() { _operationError.value = null }
 

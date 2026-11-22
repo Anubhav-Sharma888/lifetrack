@@ -459,8 +459,10 @@ class HabitRepository @Inject constructor(
             val goalScheduleRevisions = goalDao.allScheduleRevisions()
             val goalHabitLinks = goalDao.allGoalHabitLinks()
             val goalSessions = db.sessionDao().allSessions()
+            val habitAlarms = db.alarmDao().allAlarms()
             LifeTrackBackup(
                 formatVersion = when {
+                    habitAlarms.isNotEmpty() -> 14
                     goalSessions.isNotEmpty() -> 13
                     goalHabitLinks.isNotEmpty() -> 12
                     goalScheduleRevisions.isNotEmpty() -> 11
@@ -484,7 +486,8 @@ class HabitRepository @Inject constructor(
                 goalTasks = goalTasks, goalTaskDependencies = goalTaskDependencies,
                 goalScheduleRevisions = goalScheduleRevisions,
                 goalHabitLinks = goalHabitLinks,
-                goalSessions = goalSessions
+                goalSessions = goalSessions,
+                habitAlarms = habitAlarms
             )
         }
         BackupValidator.validate(snapshot)
@@ -579,6 +582,7 @@ class HabitRepository @Inject constructor(
             // milestones, phases, goals — every child is cleared before its parent.
             val goalDao = db.goalDao()
             goalDao.deleteGoalHabitLinks()
+            db.alarmDao().deleteAlarms()
             db.sessionDao().deleteSessions()
             goalDao.deleteScheduleRevisions()
             goalDao.deleteDependencies()
@@ -611,14 +615,17 @@ class HabitRepository @Inject constructor(
             backup.goalHabitLinks.forEach { goalDao.insertGoalHabitLink(it) }
             // Sessions restore last: every optional goal/phase/task reference already exists.
             db.sessionDao().insertSessions(backup.goalSessions.map(GoalSessionValidator::normalizeForImport))
+            // Alarms restore last: every habit reference already exists.
+            db.alarmDao().insertAlarms(backup.habitAlarms.map(HabitAlarmValidator::normalizeForImport))
             dao.saveSettings(backup.settings.copy(appLockEnabled = keepAppLock))
         }
+        runCatching { com.lifetrack.app.reminder.HabitAlarmScheduler.reconcileAll(context) }
     } }
 
     /** Erases every record and restores default settings in one transaction; the same cleanup importFrom uses. Safe to retry after interruption.
      *  Like a restore, this never silently weakens the local app lock: the flag survives the reset. */
     suspend fun resetAllData(): List<Long> = backupMutex.withLock { withContext(Dispatchers.IO) {
-        db.withTransaction {
+        val habitIds = db.withTransaction {
             val keepAppLock = (dao.getSettings() ?: AppSettings()).appLockEnabled
             val habitIds = dao.allHabits().map { it.id }
             dao.deleteLogs()
@@ -635,6 +642,7 @@ class HabitRepository @Inject constructor(
             // Goal roadmaps start fresh with everything else (history and children before parents).
             val goalDao = db.goalDao()
             goalDao.deleteGoalHabitLinks()
+            db.alarmDao().deleteAlarms()
             db.sessionDao().deleteSessions()
             goalDao.deleteScheduleRevisions()
             goalDao.deleteDependencies()
@@ -645,6 +653,8 @@ class HabitRepository @Inject constructor(
             dao.saveSettings(AppSettings().copy(appLockEnabled = keepAppLock))
             habitIds
         }
+        runCatching { com.lifetrack.app.reminder.HabitAlarmScheduler.reconcileAll(context) }
+        habitIds
     } }
 
     companion object {

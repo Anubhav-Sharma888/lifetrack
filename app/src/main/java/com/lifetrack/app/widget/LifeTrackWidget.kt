@@ -56,6 +56,8 @@ interface BackgroundRepositoryEntryPoint {
     fun habitRepository(): HabitRepository
 
     fun sessionRepository(): com.lifetrack.app.data.SessionRepository
+
+    fun alarmRepository(): com.lifetrack.app.data.HabitAlarmRepository
 }
 
 fun backgroundRepository(context: Context): HabitRepository =
@@ -63,6 +65,13 @@ fun backgroundRepository(context: Context): HabitRepository =
         context.applicationContext,
         BackgroundRepositoryEntryPoint::class.java,
     ).habitRepository()
+
+/** Background access to the alarm repository for the alarm scheduler and ringing service. */
+fun backgroundAlarmRepository(context: Context): com.lifetrack.app.data.HabitAlarmRepository =
+    EntryPointAccessors.fromApplication(
+        context.applicationContext,
+        BackgroundRepositoryEntryPoint::class.java,
+    ).alarmRepository()
 
 /** Background access to the session repository for reminder workers and schedulers. */
 fun backgroundSessionRepository(context: Context): com.lifetrack.app.data.SessionRepository =

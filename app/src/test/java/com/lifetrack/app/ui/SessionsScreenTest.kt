@@ -19,6 +19,7 @@ import androidx.room.Room
 import com.lifetrack.app.data.AppDatabase
 import com.lifetrack.app.data.GoalRepository
 import com.lifetrack.app.data.Goal
+import com.lifetrack.app.data.SessionRecoveryRepository
 import com.lifetrack.app.data.SessionRepository
 import java.time.LocalDate
 import java.time.LocalTime
@@ -58,7 +59,7 @@ class SessionsScreenTest {
         db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).allowMainThreadQueries().build()
         goals = GoalRepository(db)
         sessions = SessionRepository(db)
-        vm = SessionViewModel(sessions, goals, context)
+        vm = SessionViewModel(sessions, SessionRecoveryRepository(db), goals, context)
     }
 
     @After
@@ -124,9 +125,11 @@ class SessionsScreenTest {
         compose.setContent { MaterialTheme { SessionDetailScreen(saved.uuid, vm, onBack = {}, onEdit = {}) } }
         awaitState { vm.detail.value?.uuid == saved.uuid }
         compose.onNodeWithText("Planned window").assertIsDisplayed()
+        scrollTo("Start session")
         compose.onNodeWithText("Start session").performClick()
         awaitState { vm.detail.value?.status == com.lifetrack.app.data.GoalSessionStatus.IN_PROGRESS.name }
         compose.onNodeWithText("In progress").assertIsDisplayed()
+        scrollTo("Confirm completed")
         compose.onNodeWithText("Confirm completed").performClick()
         awaitState { vm.detail.value?.status == com.lifetrack.app.data.GoalSessionStatus.COMPLETED.name }
         compose.onNodeWithText("Completed").assertIsDisplayed()
@@ -176,7 +179,7 @@ class SessionsScreenTest {
         compose.onNodeWithText("Title").performTextInput("Study vectors")
         scrollTo("Save session")
         compose.onNodeWithText("Save session").performClick()
-        awaitState { runBlocking { sessions.sessionCount() == 1 } }
+        awaitState { savedTo != null }
         val saved = runBlocking { db.sessionDao().allSessions().single() }
         assertEquals("Study vectors", saved.title)
         assertEquals(goal.id, saved.goalId)

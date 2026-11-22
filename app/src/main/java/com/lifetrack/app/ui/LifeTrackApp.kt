@@ -43,7 +43,8 @@ import kotlin.math.sin
 @Composable
 fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, sessionRequest: String? = null,
                  vm: HabitViewModel = hiltViewModel(),
-                 goalsVm: GoalViewModel = hiltViewModel()) {
+                 goalsVm: GoalViewModel = hiltViewModel(),
+                 alarmVm: HabitAlarmViewModel = hiltViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     val nav = rememberNavController()
     // Lives ABOVE the app-lock gate: route saveable state (editor drafts, scroll positions) survives
@@ -172,7 +173,7 @@ fun LifeTrackApp(settingsRequest: Int, habitRequest: Long? = null, sessionReques
                         HabitDetailScreen(id, state, vm, onBack = { nav.popBackStack() }, onEdit = { nav.navigate("edit/$id") })
                     }
                     composable("edit/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) {
-                        HabitEditorScreen(it.arguments!!.getLong("id"), state, vm, onBack = { nav.popBackStack() })
+                        HabitEditorScreen(it.arguments!!.getLong("id"), state, vm, alarmVm = alarmVm, onBack = { nav.popBackStack() })
                     }
                     // ---- Goal Roadmaps (Version 2) ----
                     composable("goals") { GoalsScreen(goalsVm, onAdd = { nav.navigate("goalEdit/0") }, onOpen = { nav.navigate("goal/$it") }, onImport = { nav.navigate("goalImport") },

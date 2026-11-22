@@ -65,7 +65,11 @@ data class LifeTrackBackup(
     // Study sessions: present only in v13 exports that carry them (Prompt 5 scheduling).
     @OptIn(ExperimentalSerializationApi::class)
     @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val goalSessions: List<GoalSession> = emptyList()
+    val goalSessions: List<GoalSession> = emptyList(),
+    // Habit ringing-alarm definitions: present only in v14 exports that carry them (Prompt 6).
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val habitAlarms: List<HabitAlarm> = emptyList()
 )
 
 /** Validation is independent of Android/Room so corrupt imports can be rejected before writes. */
@@ -184,7 +188,7 @@ object BackupValidator {
     }
 
     fun validate(backup: LifeTrackBackup, today: LocalDate = LocalDate.now()) {
-        require(backup.formatVersion in 1..13) { "This backup version is not supported by this app." }
+        require(backup.formatVersion in 1..14) { "This backup version is not supported by this app." }
         require(backup.formatVersion >= 4 || backup.habits.none { it.goalHistory.isNotEmpty() }) { "Goal revisions require backup version 4." }
         require(backup.formatVersion >= 5 || backup.activities.none { it.isDirectional() }) { "Directional activity tracking requires backup version 5." }
         require(backup.formatVersion >= 6 || (backup.habits.none { com.lifetrack.app.domain.StreakPolicy.isConfigured(it) } &&
@@ -199,6 +203,7 @@ object BackupValidator {
         require(backup.formatVersion >= 11 || backup.goalScheduleRevisions.isEmpty()) { "Goal schedule history requires backup version 11." }
         require(backup.formatVersion >= 12 || backup.goalHabitLinks.isEmpty()) { "Habit-goal links require backup version 12." }
         require(backup.formatVersion >= 13 || backup.goalSessions.isEmpty()) { "Study sessions require backup version 13." }
+        require(backup.formatVersion >= 14 || backup.habitAlarms.isEmpty()) { "Habit alarms require backup version 14." }
         require(backup.exportedAt >= 0) { "Invalid export timestamp." }
         validateSettings(backup.settings)
         // App lock is a local-only security choice and never roams through backups, plain or encrypted.
@@ -296,6 +301,7 @@ object BackupValidator {
         backup.achievementAcknowledgments.forEach { validateAchievementAcknowledgment(it) }
         validateGoalRoadmaps(backup, today)
         validateSessions(backup, today)
+        validateHabitAlarms(backup, today)
     }
 
     /**
@@ -383,6 +389,19 @@ object BackupValidator {
         }
     }
 
+    /** Habit alarms (v14): bounded, identity-checked and validated against the backup's own
+     *  habit rows — operational audio state is never exported. */
+    private fun validateHabitAlarms(backup: LifeTrackBackup, today: LocalDate) {
+        require(backup.habitAlarms.size <= MAX_HABIT_ALARMS) { "This backup carries too many habit alarms." }
+        val habitIds = backup.habits.map { it.id }.toSet()
+        require(backup.habitAlarms.map { it.id }.toSet().size == backup.habitAlarms.size) { "Duplicate alarm IDs in backup." }
+        backup.habitAlarms.forEach { alarm ->
+            require(alarm.id > 0) { "Backed-up alarms must have saved IDs." }
+            require(alarm.habitId in habitIds) { "An alarm references a missing habit." }
+            HabitAlarmValidator.validate(alarm, today)
+        }
+    }
+
     /** Version 1 lacks schedules, progress and intervals; normalize before replacing any table. */
     fun decode(text: String, today: LocalDate = LocalDate.now()): LifeTrackBackup {
         val stripped = text.removePrefix("\uFEFF")
@@ -393,7 +412,7 @@ object BackupValidator {
         require(maxJsonDepth(stripped) <= MAX_JSON_DEPTH) { "This file nests data too deeply to be a LifeTrack backup." }
         val document = json.parseToJsonElement(stripped).jsonObject
         val version = document["formatVersion"]?.jsonPrimitive?.intOrNull
-        require(version != null && version in 1..13) { "This backup version is not supported by this app." }
+        require(version != null && version in 1..14) { "This backup version is not supported by this app." }
         if (version >= 2) {
             require("pauses" in document) { "This version 2 backup is missing its pause history." }
             (document["habits"] as? JsonArray)?.forEach { entry ->

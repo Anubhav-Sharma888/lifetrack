@@ -139,11 +139,15 @@ private fun SectionHeader(title: String) {
 private fun SessionCard(card: SessionCardState, dateFormatter: DateTimeFormatter,
                         timeFormatter: DateTimeFormatter, onOpen: (String) -> Unit) {
     val session = card.session
-    val stateLabel = when (card.bucket) {
-        SessionBucket.IN_PROGRESS -> "In progress"
-        SessionBucket.AWAITING_REVIEW -> "Review needed"
-        SessionBucket.COMPLETED -> "Completed"
-        SessionBucket.UPCOMING -> "Planned"
+    val state = GoalSessionStatus.fromStored(session.status)
+    val stateLabel = when {
+        card.bucket == SessionBucket.AWAITING_REVIEW -> "Review needed"
+        state == GoalSessionStatus.PARTIAL -> "Partial"
+        state == GoalSessionStatus.SKIPPED -> "Skipped"
+        state == GoalSessionStatus.COMPLETED -> "Completed"
+        state == GoalSessionStatus.IN_PROGRESS -> "In progress"
+        state == GoalSessionStatus.CANCELED -> "Canceled"
+        else -> "Planned"
     }
     val description = "${session.title}. $stateLabel. Planned " +
         "${session.plannedStartDate.format(dateFormatter)} from " +
@@ -175,9 +179,10 @@ private fun SessionCard(card: SessionCardState, dateFormatter: DateTimeFormatter
                 Text("Task: $it", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            if (GoalSessionStatus.fromStored(session.status) == GoalSessionStatus.COMPLETED) {
+            if (state in setOf(GoalSessionStatus.COMPLETED, GoalSessionStatus.PARTIAL)) {
+                val reportedText = session.reportedMinutes?.let { " · $it min reported" } ?: ""
                 Text("Started ${session.actualStartAt?.let { "at a recorded time" } ?: "—"} · " +
-                    "ended ${session.actualEndAt?.let { "at a recorded time" } ?: "—"}",
+                    "ended ${session.actualEndAt?.let { "at a recorded time" } ?: "—"}$reportedText",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
