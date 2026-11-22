@@ -1,5 +1,6 @@
 package com.lifetrack.app.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -80,11 +81,15 @@ internal fun GoalPlanImportScreen(vm: GoalPlanImportViewModel = hiltViewModel(),
         }
     }
 
+    BackHandler(enabled = state.phase == GoalPlanImportPhase.IMPORTING) {
+        // Prevent accidental back navigation while the single transactional import is committing.
+    }
+
     Scaffold(topBar = {
         TopAppBar(
             title = { Text("Import Goal Plan") },
             navigationIcon = {
-                IconButton(onClick = onBack) {
+                IconButton(enabled = state.phase != GoalPlanImportPhase.IMPORTING, onClick = onBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                 }
             },

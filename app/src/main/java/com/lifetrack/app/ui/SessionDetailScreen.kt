@@ -27,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -34,6 +35,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.liveRegion
@@ -57,6 +61,8 @@ internal fun SessionDetailScreen(uuid: String, vm: SessionViewModel = hiltViewMo
     val session = detail
     val dateFormatter = rememberRowDateFormatter()
     val timeFormatter = rememberTimeFormatter()
+    var showDeleteConfirm by rememberSaveable { mutableStateOf(false) }
+    var showCancelConfirm by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(topBar = {
         TopAppBar(
@@ -173,25 +179,25 @@ internal fun SessionDetailScreen(uuid: String, vm: SessionViewModel = hiltViewMo
                         }
                         Button(enabled = !busy, onClick = { vm.confirmCompletion(session.uuid) },
                             modifier = Modifier.fillMaxWidth()) { Text("Confirm completed") }
-                        Button(enabled = !busy, onClick = { vm.recordPartial(session.uuid, reportedMinutes = partialMinutes) },
+                        OutlinedButton(enabled = !busy, onClick = { vm.recordPartial(session.uuid, reportedMinutes = partialMinutes) },
                             modifier = Modifier.fillMaxWidth()) { Text("Record partial ($partialMinutes min)") }
-                        Button(enabled = !busy, onClick = { vm.skipSession(session.uuid) },
+                        OutlinedButton(enabled = !busy, onClick = { vm.skipSession(session.uuid) },
                             modifier = Modifier.fillMaxWidth()) { Text("Skip session") }
-                        Button(enabled = !busy, onClick = { vm.snoozeCheckIn(session.uuid, minutes = 10) },
+                        OutlinedButton(enabled = !busy, onClick = { vm.snoozeCheckIn(session.uuid, minutes = 10) },
                             modifier = Modifier.fillMaxWidth()) { Text("Snooze check-in 10 min") }
-                        Button(enabled = !busy, onClick = {
+                        OutlinedButton(enabled = !busy, onClick = {
                             vm.rescheduleSession(session.uuid, session.plannedStartDate.plusDays(1),
                                 session.plannedStartTime, session.plannedEndDate.plusDays(1), session.plannedEndTime)
                         }, modifier = Modifier.fillMaxWidth()) { Text("Reschedule +1 day") }
-                        OutlinedButton(enabled = !busy, onClick = { vm.cancelSession(session.uuid) },
+                        OutlinedButton(enabled = !busy, onClick = { showCancelConfirm = true },
                             modifier = Modifier.fillMaxWidth()) { Text("Cancel session") }
                     }
                     else -> Unit
                 }
-                TextButton(enabled = !busy, onClick = { vm.deleteSession(session.uuid) },
+                TextButton(enabled = !busy, onClick = { showDeleteConfirm = true },
                     modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Outlined.Delete, contentDescription = null)
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.width(8.dp))
                     Text(if (state == GoalSessionStatus.COMPLETED) "Delete recorded session" else "Delete session")
                 }
                 if (state == GoalSessionStatus.COMPLETED) {
@@ -204,6 +210,36 @@ internal fun SessionDetailScreen(uuid: String, vm: SessionViewModel = hiltViewMo
                 }
             }
         }
+    }
+    if (showCancelConfirm && session != null) {
+        ConfirmDialog(
+            title = "Cancel this session?",
+            body = "Canceling marks the session as canceled. Its planned window is preserved in history.",
+            confirmLabel = "Cancel session",
+            busy = busy,
+            onConfirm = {
+                vm.cancelSession(session.uuid)
+                showCancelConfirm = false
+            },
+            onDismiss = { showCancelConfirm = false }
+        )
+    }
+    if (showDeleteConfirm && session != null) {
+        val isCompleted = GoalSessionStatus.fromStored(session.status) == GoalSessionStatus.COMPLETED
+        ConfirmDialog(
+            title = if (isCompleted) "Delete recorded session?" else "Delete this session?",
+            body = if (isCompleted)
+                "Deleting a completed session permanently erases its recorded history and minutes."
+            else "Deleting permanently removes this scheduled session.",
+            confirmLabel = "Delete",
+            busy = busy,
+            onConfirm = {
+                vm.deleteSession(session.uuid)
+                showDeleteConfirm = false
+                onBack()
+            },
+            onDismiss = { showDeleteConfirm = false }
+        )
     }
 }
 

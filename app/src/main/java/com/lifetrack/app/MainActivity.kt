@@ -20,7 +20,7 @@ class MainActivity : FragmentActivity() {
         enableEdgeToEdge()
         if (intent.getBooleanExtra("open_settings", false)) settingsRequest.value++
         habitRequest.value = intent.getLongExtra("open_habit", -1).takeIf { it > 0 }
-        sessionRequest.value = intent.getStringExtra("open_session")
+        sessionRequest.value = parseSessionRequest(intent)
         setContent { LifeTrackApp(settingsRequest.value, habitRequest = habitRequest.value, sessionRequest = sessionRequest.value) }
     }
     override fun onNewIntent(intent: Intent) {
@@ -28,6 +28,17 @@ class MainActivity : FragmentActivity() {
         setIntent(intent)
         if (intent.getBooleanExtra("open_settings", false)) settingsRequest.value++
         habitRequest.value = intent.getLongExtra("open_habit", -1).takeIf { it > 0 }
-        sessionRequest.value = intent.getStringExtra("open_session")
+        sessionRequest.value = parseSessionRequest(intent)
+    }
+
+    internal fun parseSessionRequest(intent: Intent?): String? {
+        if (intent == null) return null
+        val fromExtra = intent.getStringExtra("open_session")
+        if (!fromExtra.isNullOrBlank()) return fromExtra
+        val data = intent.data
+        if (data != null && data.scheme == "lifetrack" && data.host == "session") {
+            return data.lastPathSegment?.takeIf { it.isNotBlank() }
+        }
+        return null
     }
 }

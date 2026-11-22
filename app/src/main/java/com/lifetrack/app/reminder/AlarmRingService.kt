@@ -23,7 +23,9 @@ import com.lifetrack.app.domain.HabitAlarmRecurrenceEngine
 import com.lifetrack.app.widget.backgroundAlarmRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -51,6 +53,7 @@ class AlarmRingService : android.app.Service() {
     private var habitName: String? = null
     private var habitIcon: String? = null
     private var habitId: Long = 0
+    private var timeoutJob: Job? = null
     private val timeoutScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val snoozeScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -60,16 +63,20 @@ class AlarmRingService : android.app.Service() {
                 val uuid = alarmUuid
                 stopAudio()
                 stopForegroundCompat()
-                stopSelf()
-                if (uuid != null) {
-                    snoozeScope.launch {
-                        try {
+                snoozeScope.launch {
+                    try {
+                        if (uuid != null) {
                             val repository = backgroundAlarmRepository(applicationContext)
-                            val alarm = repository.alarmByUuid(uuid) ?: return@launch
-                            HabitAlarmScheduler.upsert(applicationContext, alarm)
-                        } catch (cancel: kotlinx.coroutines.CancellationException) {
-                            throw cancel
-                        } catch (_: Exception) {}
+                            val alarm = repository.alarmByUuid(uuid)
+                            if (alarm != null) {
+                                HabitAlarmScheduler.upsert(applicationContext, alarm)
+                            }
+                        }
+                    } catch (cancel: kotlinx.coroutines.CancellationException) {
+                        throw cancel
+                    } catch (_: Exception) {
+                    } finally {
+                        stopSelf()
                     }
                 }
                 return START_NOT_STICKY
@@ -81,22 +88,26 @@ class AlarmRingService : android.app.Service() {
                 val count = snoozeCount
                 stopAudio()
                 stopForegroundCompat()
-                stopSelf()
-                if (uuid != null && count < MAX_ALARM_SNOOZES) {
-                    // Snooze = stop current ringing + one bounded later reminder. The original
-                    // occurrence stays; a further occurrence is never duplicated.
-                    snoozeScope.launch {
-                        try {
+                snoozeScope.launch {
+                    try {
+                        if (uuid != null && count < MAX_ALARM_SNOOZES) {
+                            // Snooze = stop current ringing + one bounded later reminder. The original
+                            // occurrence stays; a further occurrence is never duplicated.
                             val repository = backgroundAlarmRepository(applicationContext)
-                            val alarm = repository.alarmByUuid(uuid) ?: return@launch
-                            HabitAlarmScheduler.scheduleSnoozed(
-                                applicationContext, alarm,
-                                System.currentTimeMillis() + minutes * 60_000L, count + 1)
-                        } catch (cancel: kotlinx.coroutines.CancellationException) {
-                            throw cancel
-                        } catch (_: Exception) {
-                            // A lost snooze is honest: the next regular occurrence still fires.
+                            val alarm = repository.alarmByUuid(uuid)
+                            if (alarm != null) {
+                                HabitAlarmScheduler.scheduleSnoozed(
+                                    applicationContext, alarm,
+                                    System.currentTimeMillis() + minutes * 60_000L, count + 1
+                                )
+                            }
                         }
+                    } catch (cancel: kotlinx.coroutines.CancellationException) {
+                        throw cancel
+                    } catch (_: Exception) {
+                        // A lost snooze is honest: the next regular occurrence still fires.
+                    } finally {
+                        stopSelf()
                     }
                 }
                 return START_NOT_STICKY
@@ -137,25 +148,32 @@ class AlarmRingService : android.app.Service() {
             }
         }
         // Safety timeout: ringing stops after the documented bound even with no user action.
-        timeoutScope.launch {
+        timeoutJob?.cancel()
+        timeoutJob = timeoutScope.launch {
             delay(ALARM_RINGING_TIMEOUT_SECONDS * 1_000L)
             val uuid = alarmUuid
             stopAudio()
             stopForegroundCompat()
-            stopSelf()
-            if (uuid != null) {
-                try {
+            try {
+                if (uuid != null) {
                     val repository = backgroundAlarmRepository(applicationContext)
-                    val alarm = repository.alarmByUuid(uuid) ?: return@launch
-                    HabitAlarmScheduler.upsert(applicationContext, alarm)
-                } catch (cancel: kotlinx.coroutines.CancellationException) {
-                    throw cancel
-                } catch (_: Exception) {}
+                    val alarm = repository.alarmByUuid(uuid)
+                    if (alarm != null) {
+                        HabitAlarmScheduler.upsert(applicationContext, alarm)
+                    }
+                }
+            } catch (cancel: kotlinx.coroutines.CancellationException) {
+                throw cancel
+            } catch (_: Exception) {
+            } finally {
+                stopSelf()
             }
         }
     }
 
     private fun stopAudio() {
+        timeoutJob?.cancel()
+        timeoutJob = null
         player?.let { player ->
             runCatching { if (player.isPlaying) player.stop() }
             player.release()
@@ -206,6 +224,7 @@ class AlarmRingService : android.app.Service() {
             .setContentTitle(title)
             .setContentText("Alarm ringing — dismiss or snooze.")
             .setContentIntent(open)
+            .setFullScreenIntent(open, true)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
@@ -228,6 +247,8 @@ class AlarmRingService : android.app.Service() {
 
     override fun onDestroy() {
         stopAudio()
+        timeoutScope.cancel()
+        snoozeScope.cancel()
         super.onDestroy()
     }
 

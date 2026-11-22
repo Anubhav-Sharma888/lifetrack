@@ -1,7 +1,81 @@
 # LifeTrack — Work Progress
 
-**Version 2 line (current):** branch `version-2` (from `main` tip `e97c8b9653303efb5a026f03c482c61e40c1fd33`), eight-prompt roadmap in [`docs/V2_ROADMAP.md`](docs/V2_ROADMAP.md); per-prompt previews are published by ChatGPT (v2.2.0-preview.1 after Prompt 2 ✅, v2.3.0-preview.1 after Prompt 3 ✅, v2.4.0-preview.1 after Prompt 4 ✅, v2.5.0-preview.1 after Prompt 5).
+**Version 2 line (current):** branch `version-2` (from `main` tip `e97c8b9653303efb5a026f03c482c61e40c1fd33`), eight-prompt roadmap in [`docs/V2_ROADMAP.md`](docs/V2_ROADMAP.md); per-prompt previews are published by ChatGPT (v2.2.0-preview.1 after Prompt 2 ✅, v2.3.0-preview.1 after Prompt 3 ✅, v2.4.0-preview.1 after Prompt 4 ✅, v2.5.0-preview.1 after Prompt 5 ✅, v2.6.0-preview.1 after Prompt 6 ✅).
 **Version 1 line (archived):** sessions 1–13 (2026-11-15 → 2026-11-20) shipped v1.6.0 → v1.11.0-preview.1 on `develop/achievements`/`main` — CSV export, directional tracking, app lock, Smart Streaks, mood/journal, achievements, flexible scheduling, UI/UX refinement ×2, integration QA + release hardening. Session logs preserved below. Backup at `D:\LifeTracker-backup` (untouched).
+
+---
+
+# Session 20 (Version 2, Prompt 7/8) — UX visual refinement, accessibility pass, navigation safety, performance & security audit
+
+## What was built, audited & verified (this session — complete & reviewed)
+
+- **UX visual refinement**:
+  - Primary vs. secondary button hierarchy established across session detail and dialogs (primary actions use filled `Button`; recovery actions such as Record partial/Reschedule use `OutlinedButton`).
+  - Layout bug fixed in `SessionDetailScreen` Delete button (`Spacer(Modifier.width(8.dp))` instead of `Modifier.height(4.dp)` in horizontal row).
+- **Accessibility audit & implementation**:
+  - `SessionsScreen`: Added `Modifier.semantics { heading() }` to `SectionHeader` so screen readers identify sections ("In progress", "Awaiting review", "Upcoming", "Completed history").
+  - `GoalDetailScreen`: Added descriptive TalkBack labels on Phase action buttons ("Edit phase <name>", "Move window for phase <name>"), Milestone row actions ("Verify/Reopen milestone <title>", "Move deadline for <title>", "Edit milestone <title>"), Task quick actions ("<Action> <title>"), and supporting habit unlinking ("Unlink habit <name>").
+  - `RingingAlarmsSection`: Added accessible content description on Remove button ("Remove alarm at <time>"), `heightIn(min = 48.dp)` touch target, polite live regions (`liveRegion = LiveRegionMode.Polite`) on error lines, and `KeyboardOptions(keyboardType = KeyboardType.Number)`.
+- **Navigation & back behavior**:
+  - `GoalEditorScreen`: Implemented draft dirty tracking against initial/persisted values, `BackHandler` interception, and discard confirmation dialog ("Keep your changes?").
+  - `SessionEditorScreen`: Implemented draft dirty tracking against initial/prefilled values, `BackHandler` interception, and discard confirmation dialog ("Keep your changes?").
+  - `GoalPlanImportScreen`: Added `BackHandler(enabled = state.phase == GoalPlanImportPhase.IMPORTING) {}` and disabled top-bar back button while transaction is committing to protect against corrupted state transitions.
+- **Performance & service lifecycle**:
+  - `AlarmRingService`: Added `timeoutJob: Job?` cancelled explicitly in `stopAudio()`, user dismiss, snooze, and `onDestroy()` to prevent delayed ghost rescheduling from firing after user interaction; cancelled all coroutine scopes on `onDestroy()`; added `.setFullScreenIntent(open, true)` for incoming ringing alerts.
+- **Security & privacy**:
+  - Manifest & deep link routing: Added `<intent-filter>` for scheme `lifetrack` and host `session` on `MainActivity`; implemented `parseSessionRequest(intent)` supporting both URI (`lifetrack://session/<uuid>`) and intent extras, ensuring deep-linked session viewing remains gated behind the biometric/credential App Lock.
+  - Maintained offline-first architecture: zero `INTERNET` permission, local Room database canonical, zero telemetry/cloud leakage.
+- **Edge cases & data safety**:
+  - Habit alarms: Added duplicate alarm time check in `RingingAlarmsSection` ("An alarm is already set for $timeText.") preventing duplicate scheduler triggers.
+  - Confirmation dialogs: Added explicit destructive confirmation dialogs on session deletion ("Delete this session?") and session cancellation ("Cancel this session?") in `SessionDetailScreen`.
+- **Independent read-only review findings**:
+  - **Critical**: None (0).
+  - **High (Resolved)**: In `AlarmRingService.kt`, `stopSelf()` was called synchronously before the coroutines in `snoozeScope` or `timeoutScope` queried `backgroundAlarmRepository` and invoked `HabitAlarmScheduler`. Calling `stopSelf()` triggers `onDestroy()` on the main looper, which calls `snoozeScope.cancel()` / `timeoutScope.cancel()`, potentially cancelling in-flight rescheduling and dropping future occurrences or snoozes. *Resolution:* Moved `stopSelf()` into the `finally` block inside the coroutines after scheduling completes.
+  - **Medium (Reviewed & Accepted)**: `USE_FULL_SCREEN_INTENT` declared and passed via `NotificationCompat.Builder.setFullScreenIntent(open, true)`. On API 34+, full-screen intents require system/user permission. When locked, `MainActivity`'s `AppLockGate` ensures habit/session data is never exposed without authentication.
+  - **Low**: None (0).
+- **Tests & verification**:
+  - Created `PromptSevenAuditTest` (9/9 pass) verifying heading semantics, draft dirty tracking, discard dialogs, confirmation dialogs, duplicate time rejection, deep link parsing, and service lifecycle.
+  - `HabitAlarmRecurrenceTest`: 12/12 pass.
+  - Updated `GoalScreensTest.cancellingTheEditorWritesNothing` to assert discard dialog interaction on dirty draft (15/15 pass).
+  - Ran focused suites (`SessionsScreenTest` 7/7, `GoalScreensTest` 15/15, `GoalPlanImportScreensTest` 10/10).
+  - Full suite: `testDebugUnitTest` 678/678 tests across 43 test suites (0 failures, 0 errors, 0 skipped).
+  - Lint: `lintDebug` 0 errors.
+  - Build: `assembleDebug` successful (`app-debug.apk`, 25.2 MB).
+
+## Release / Upgrade Invariant Requirement (Prompt 8 Preparation)
+
+Future LifeTrack releases must update previous installed applications cleanly without `INSTALL_FAILED_UPDATE_INCOMPATIBLE`:
+1. **Canonical Application ID**: Must remain `com.lifetrack.app` across all release builds. (Do not apply debug/preview suffixes to release artifacts).
+2. **Monotonic Version Code**: `versionCode` must increment monotonically (> 12).
+3. **Signing Identity Retention**: Upgrades require the exact same signing key and certificate fingerprint. The debug/preview key used in CI previews cannot update production/release APKs without a retained keystore. Never commit private signing keys or secrets to git.
+
+## Deferred / physical device QA (not claimable in desktop environment)
+
+- Real device lock-screen / full-screen intent behavior when ringing under Android 13+ battery saver / Doze.
+- DND / silent mode bypass on OEM-customized Android flavors.
+- Exact-alarm permission revocation at runtime in device settings.
+- Hardware TalkBack audio traversal and touch exploration.
+- Large-font reflow (font scale 200%) and platform DatePicker IME handling.
+
+---
+
+# Session 19 (Version 2, Prompt 6/8) — Session recovery, goal analytics, habit ringing alarms
+
+## What was built (committed in 28efbe3)
+
+- **Session recovery**:
+  - `GoalSession` schema 15 (additive `MIGRATION_14_15`, `15.json` exported): `reportedMinutes`, `rescheduledToUuid`, `rescheduledFromUuid`, `snoozeCount`, `lastSnoozeInstant` columns; `PARTIAL` and `SKIPPED` statuses.
+  - `SessionRecoveryRepository`: recordPartial, recordSkipped, snoozeSession, rescheduleSession (atomic linking).
+  - Recovery UI on session detail screen and sessions overview with honest status representations.
+- **Goal session analytics**:
+  - `GoalSessionAnalytics`: pure analytics engine computing planned vs. actual minutes, completion rates, delay offsets, and attendance breakdown per goal/task.
+- **Habit ringing alarms**:
+  - `HabitAlarm` Room entity, DAO, repository, and recurrence calculation engine.
+  - Exact AlarmManager scheduling with inexact fallbacks.
+  - Foreground `AlarmRingService` with audio player loop, vibrator, notification action buttons (Dismiss / Snooze), and boot/timezone reconciliation receiver.
+  - Room schema 15 + backup format v14 supporting habit alarms with backward-compatible migration.
+- **Verification**:
+  - `HabitAlarmRecurrenceTest`, `GoalSessionAnalyticsTest`, `SessionRecoveryTest`, `HabitAlarmBackupTest`, `DatabaseMigrationTest` all passing.
 
 ---
 

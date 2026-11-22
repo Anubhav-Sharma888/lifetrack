@@ -1,5 +1,6 @@
 package com.lifetrack.app.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -88,6 +89,27 @@ internal fun GoalEditorScreen(goalId: Long, vm: GoalViewModel, today: LocalDate,
     }
 
     var pickingDate by rememberSaveable { mutableStateOf("") } // "", "start", "target"
+    var discardDialog by rememberSaveable { mutableStateOf(false) }
+    val isDirty = if (goalId == 0L) {
+        title.isNotBlank() || description.isNotBlank() || category != "Personal" || priority != GoalPriority.MEDIUM.name
+    } else {
+        val current = existing
+        current != null && initialized && (
+            title != current.title ||
+            description != (current.description ?: "") ||
+            category != current.category ||
+            priority != current.priority ||
+            hasPlannedStart != (current.plannedStartDate != null) ||
+            (hasPlannedStart && plannedStart != (current.plannedStartDate ?: today)) ||
+            hasTargetDate != (current.targetDate != null) ||
+            (hasTargetDate && targetDate != (current.targetDate ?: today.plusWeeks(12)))
+        )
+    }
+    fun requestBack() {
+        if (isDirty) discardDialog = true else onBack()
+    }
+    BackHandler { requestBack() }
+
     val titleError = when {
         title.isBlank() -> "Give the goal a title."
         title.trim().length > 120 -> "Titles are limited to 120 characters."
@@ -99,7 +121,7 @@ internal fun GoalEditorScreen(goalId: Long, vm: GoalViewModel, today: LocalDate,
 
     Scaffold(topBar = { TopAppBar(
         title = { Text(if (goalId == 0L) "New goal" else "Edit goal") },
-        navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } }
+        navigationIcon = { IconButton(onClick = { requestBack() }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") } }
     ) }) { padding ->
         if (goalId != 0L && existing == null) {
             Column(Modifier.fillMaxSize().padding(padding).padding(32.dp), verticalArrangement = Arrangement.Center) {
@@ -187,9 +209,19 @@ internal fun GoalEditorScreen(goalId: Long, vm: GoalViewModel, today: LocalDate,
                 ) {
                     if (busy) CircularProgressIndicator(Modifier.height(18.dp), strokeWidth = 2.dp) else Text("Save goal")
                 }
-                OutlinedButton(enabled = !busy, onClick = onBack, modifier = Modifier.weight(1f)) { Text("Cancel") }
+                OutlinedButton(enabled = !busy, onClick = { requestBack() }, modifier = Modifier.weight(1f)) { Text("Cancel") }
             }
         }
+    }
+    if (discardDialog) {
+        ConfirmDialog(
+            title = "Keep your changes?",
+            body = "Your edits are still here. Save the goal to keep them, or discard them to leave.",
+            confirmLabel = "Discard changes",
+            busy = busy,
+            onConfirm = { discardDialog = false; onBack() },
+            onDismiss = { discardDialog = false }
+        )
     }
     when (pickingDate) {
         "start" -> DateSelectionDialog(plannedStart, latest = null, onDismiss = { pickingDate = "" },

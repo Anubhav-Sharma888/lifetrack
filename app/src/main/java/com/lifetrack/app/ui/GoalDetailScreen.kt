@@ -436,8 +436,10 @@ private fun PhaseCard(view: GoalTimeline.PhaseView, dateFormatter: DateTimeForma
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             phase.description?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis) }
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(enabled = !busy, onClick = onEdit) { Text("Edit") }
-                TextButton(enabled = !busy, onClick = onMoveDates) { Text("Move window") }
+                TextButton(enabled = !busy, onClick = onEdit,
+                    modifier = Modifier.semantics { contentDescription = "Edit phase ${phase.name}" }) { Text("Edit") }
+                TextButton(enabled = !busy, onClick = onMoveDates,
+                    modifier = Modifier.semantics { contentDescription = "Move window for phase ${phase.name}" }) { Text("Move window") }
             }
         }
     }
@@ -449,7 +451,15 @@ private fun MilestoneRow(view: GoalTimeline.MilestoneView, dateFormatter: DateTi
                          onVerify: () -> Unit) {
     val milestone = view.milestone
     val achieved = milestone.status == com.lifetrack.app.data.MilestoneStatus.ACHIEVED.name
-    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+    val milestoneDescription = "${milestone.title}. " +
+        (if (achieved) "Achieved. " else "Pending. ") +
+        (milestone.targetDate?.let { "Due by ${it.format(dateFormatter)}. " } ?: "") +
+        (if (view.overdue) "${view.daysOverdue} days overdue." else "")
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 4.dp)
+            .semantics(mergeDescendants = true) { contentDescription = milestoneDescription },
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         Box(Modifier.size(10.dp).background(
             if (achieved) MaterialTheme.colorScheme.secondary
             else if (view.overdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline,
@@ -467,9 +477,14 @@ private fun MilestoneRow(view: GoalTimeline.MilestoneView, dateFormatter: DateTi
                     color = MaterialTheme.colorScheme.secondary)
             }
         }
-        TextButton(enabled = !busy, onClick = onVerify) { Text(if (achieved) "Reopen" else "Verify") }
-        TextButton(enabled = !busy, onClick = onMoveDeadline) { Text("Move") }
-        TextButton(enabled = !busy, onClick = onEdit) { Text("Edit") }
+        TextButton(enabled = !busy, onClick = onVerify,
+            modifier = Modifier.semantics { contentDescription = "${if (achieved) "Reopen" else "Verify"} milestone ${milestone.title}" }) {
+            Text(if (achieved) "Reopen" else "Verify")
+        }
+        TextButton(enabled = !busy, onClick = onMoveDeadline,
+            modifier = Modifier.semantics { contentDescription = "Move deadline for ${milestone.title}" }) { Text("Move") }
+        TextButton(enabled = !busy, onClick = onEdit,
+            modifier = Modifier.semantics { contentDescription = "Edit milestone ${milestone.title}" }) { Text("Edit") }
     }
 }
 
@@ -534,16 +549,19 @@ private fun TaskRow(view: GoalTimeline.TaskView, originalPlannedDate: java.time.
             GoalTaskStatus.COMPLETED -> "Reopen" to GoalTaskStatus.NOT_STARTED
             GoalTaskStatus.SKIPPED -> "Restore" to GoalTaskStatus.NOT_STARTED
         }
-        TextButton(enabled = !busy, onClick = { vm.setTaskStatus(task.id, quickAction.second) }) {
+        TextButton(enabled = !busy, onClick = { vm.setTaskStatus(task.id, quickAction.second) },
+            modifier = Modifier.semantics { contentDescription = "${quickAction.first} ${task.title}" }) {
             Text(quickAction.first)
         }
-        TextButton(enabled = !busy, onClick = onMoveDates) { Text("Move") }
-        TextButton(enabled = !busy, onClick = onEdit) { Text("Edit") }
+        TextButton(enabled = !busy, onClick = onMoveDates,
+            modifier = Modifier.semantics { contentDescription = "Move dates for ${task.title}" }) { Text("Move") }
+        TextButton(enabled = !busy, onClick = onEdit,
+            modifier = Modifier.semantics { contentDescription = "Edit ${task.title}" }) { Text("Edit") }
     }
 }
 
 @Composable
-private fun ConfirmDialog(title: String, body: String, confirmLabel: String, busy: Boolean,
+internal fun ConfirmDialog(title: String, body: String, confirmLabel: String, busy: Boolean,
                           onConfirm: () -> Unit, onDismiss: () -> Unit) {
     val maxDialogHeight = with(LocalDensity.current) {
         (LocalWindowInfo.current.containerSize.height * 0.85f).toDp()
@@ -648,6 +666,7 @@ private fun HabitLinkRow(habit: Habit, logs: List<HabitLog>, today: LocalDate, b
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        TextButton(enabled = !busy, onClick = onUnlink) { Text("Unlink") }
+        TextButton(enabled = !busy, onClick = onUnlink,
+            modifier = Modifier.semantics { contentDescription = "Unlink habit ${habit.name}" }) { Text("Unlink") }
     }
 }

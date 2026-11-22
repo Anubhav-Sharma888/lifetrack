@@ -4,7 +4,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -25,6 +27,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
@@ -70,15 +77,24 @@ internal fun RingingAlarmsSection(habitId: Long, vm: HabitAlarmViewModel) {
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.weight(1f)
                     )
-                    TextButton(onClick = { vm.removeAlarm(alarm) }) { Text("Remove") }
+                    TextButton(
+                        onClick = { vm.removeAlarm(alarm) },
+                        modifier = Modifier.semantics { contentDescription = "Remove alarm at $time" }
+                            .heightIn(min = 48.dp)
+                    ) { Text("Remove") }
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     timeText, { timeText = it.take(5) },
                     label = { Text("New time (HH:mm)") }, singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     isError = errorText != null,
-                    supportingText = { errorText?.let { Text(it) } },
+                    supportingText = {
+                        errorText?.let {
+                            Text(it, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                        }
+                    },
                     modifier = Modifier.weight(1f)
                 )
                 Button(enabled = alarms.size < HabitAlarmViewModel.LIMIT, onClick = {
@@ -87,6 +103,8 @@ internal fun RingingAlarmsSection(habitId: Long, vm: HabitAlarmViewModel) {
                     val minute = parts.getOrNull(1)?.trim()?.toIntOrNull()
                     if (hour == null || minute == null || hour !in 0..23 || minute !in 0..59) {
                         errorText = "Times must be HH:mm (24-hour), e.g. 06:00."
+                    } else if (alarms.any { it.timeMinutes == hour * 60 + minute }) {
+                        errorText = "An alarm is already set for $timeText."
                     } else {
                         errorText = null
                         vm.addAlarm(habitId, hour * 60 + minute)

@@ -186,6 +186,7 @@ class GoalScreensTest {
         compose.setContent { MaterialTheme { GoalEditorScreen(0, vm, today = today, onBack = { exited = true }) } }
         compose.onNode(hasSetTextAction() and hasText("Title")).performTextInput("Never saved")
         compose.onNodeWithText("Cancel").performClick()
+        compose.onNodeWithText("Discard changes").performClick()
         assertTrue(exited)
         assertEquals(0, runBlocking { db.goalDao().allGoals().size })
     }

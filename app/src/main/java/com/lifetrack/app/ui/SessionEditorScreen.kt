@@ -1,5 +1,6 @@
 package com.lifetrack.app.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -78,25 +79,29 @@ internal fun SessionEditorScreen(vm: SessionViewModel = hiltViewModel(), editUui
     val goals by vm.observeGoals().collectAsStateWithLifecycle(initialValue = emptyList())
 
     var draft by remember { mutableStateOf(SessionEditorDraft()) }
+    var initialDraft by remember { mutableStateOf<SessionEditorDraft?>(null) }
     var loaded by remember { mutableStateOf(editUuid == null) }
     var titleError by rememberSaveable { mutableStateOf<String?>(null) }
     var timeError by rememberSaveable { mutableStateOf<String?>(null) }
+    var discardDialog by rememberSaveable { mutableStateOf(false) }
 
     // Prefill from navigation context — only when the caller supplied it, never "recent goal".
     LaunchedEffect(prefillGoalId, prefillTaskId) {
         if (prefillGoalId > 0 || prefillTaskId > 0) {
-            draft = draft.copy(
+            val updated = draft.copy(
                 goalId = prefillGoalId,
                 taskId = prefillTaskId,
                 startDate = draft.startDate.plusDays(1),
                 endDate = draft.endDate.plusDays(1)
             )
+            draft = updated
+            if (initialDraft == null) initialDraft = updated
         }
     }
     LaunchedEffect(editUuid) {
         if (editUuid != null && !loaded) {
             runCatching { vm.findSession(editUuid) }.getOrNull()?.let { session ->
-                draft = SessionEditorDraft(
+                val loadedDraft = SessionEditorDraft(
                     id = session.id, uuid = session.uuid, title = session.title,
                     description = session.description.orEmpty(),
                     startDate = session.plannedStartDate, startTimeText = session.plannedStartTime.toString(),
@@ -105,10 +110,20 @@ internal fun SessionEditorScreen(vm: SessionViewModel = hiltViewModel(), editUui
                     goalId = session.goalId ?: 0L, phaseId = session.phaseId ?: 0L, taskId = session.taskId ?: 0L,
                     startReminder = session.startReminder, endCheckIn = session.endCheckIn
                 )
+                draft = loadedDraft
+                initialDraft = loadedDraft
                 loaded = true
             }
         }
     }
+    if (initialDraft == null && loaded && editUuid == null) {
+        initialDraft = draft
+    }
+    val isDirty = loaded && draft != (initialDraft ?: SessionEditorDraft())
+    fun requestBack() {
+        if (isDirty) discardDialog = true else onBack()
+    }
+    BackHandler { requestBack() }
 
     val phases = if (draft.goalId > 0) vm.phasesForGoal(draft.goalId).collectAsStateWithLifecycle(initialValue = emptyList()).value else emptyList()
     val tasks = if (draft.goalId > 0) vm.tasksForGoal(draft.goalId).collectAsStateWithLifecycle(initialValue = emptyList()).value else emptyList()
@@ -157,7 +172,7 @@ internal fun SessionEditorScreen(vm: SessionViewModel = hiltViewModel(), editUui
         TopAppBar(
             title = { Text(if (editUuid == null) "Schedule session" else "Edit session") },
             navigationIcon = {
-                IconButton(onClick = onBack) {
+                IconButton(onClick = { requestBack() }) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                 }
             }
@@ -244,11 +259,21 @@ internal fun SessionEditorScreen(vm: SessionViewModel = hiltViewModel(), editUui
                 Button(enabled = !busy, onClick = ::validateAndSave, modifier = Modifier.weight(1f)) {
                     Text(if (busy) "Saving…" else "Save session")
                 }
-                Button(enabled = !busy, onClick = onBack, modifier = Modifier.weight(1f)) {
+                Button(enabled = !busy, onClick = { requestBack() }, modifier = Modifier.weight(1f)) {
                     Text("Cancel")
                 }
             }
         }
+    }
+    if (discardDialog) {
+        ConfirmDialog(
+            title = "Keep your changes?",
+            body = "Your edits are still here. Save the session to keep them, or discard them to leave.",
+            confirmLabel = "Discard changes",
+            busy = busy,
+            onConfirm = { discardDialog = false; onBack() },
+            onDismiss = { discardDialog = false }
+        )
     }
 }
 
