@@ -14,8 +14,8 @@ android {
         applicationId = "com.lifetrack.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 12
-        versionName = "1.11.0-preview.1"
+        versionCode = 17
+        versionName = "2.6.0-preview.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true }
